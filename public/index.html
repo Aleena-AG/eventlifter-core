@@ -1,0 +1,1386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EventLifter — Channel Manager</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:          #0d1117;
+      --surface:     #161b22;
+      --surface2:    #1c2128;
+      --border:      #30363d;
+      --border-sub:  #21262d;
+      --text:        #e6edf3;
+      --muted:       #8b949e;
+      --dim:         #6e7681;
+      --green:       #3fb950;
+      --green-bg:    rgba(63,185,80,.10);
+      --green-br:    rgba(63,185,80,.25);
+      --red:         #f85149;
+      --red-bg:      rgba(248,81,73,.10);
+      --red-br:      rgba(248,81,73,.25);
+      --yellow:      #e3b341;
+      --yellow-bg:   rgba(227,179,65,.10);
+      --yellow-br:   rgba(227,179,65,.25);
+      --blue:        #388bfd;
+      --blue-bg:     rgba(56,139,253,.10);
+      --blue-br:     rgba(56,139,253,.25);
+      --purple:      #a78bfa;
+      --purple-bg:   rgba(167,139,250,.10);
+      --orange:      #fbbf24;
+      --orange-bg:   rgba(251,191,36,.10);
+      --cyan:        #22d3ee;
+      --cyan-bg:     rgba(34,211,238,.10);
+      --sidebar-w:   228px;
+      --radius:      6px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    /* ── SIDEBAR ─────────────────────────────────────── */
+    .sidebar {
+      width: var(--sidebar-w);
+      min-height: 100vh;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      position: fixed;
+      top: 0; left: 0; bottom: 0;
+      z-index: 20;
+    }
+
+    .sidebar-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 18px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .logo-mark {
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, #238636, #2ea043);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 17px; flex-shrink: 0;
+      box-shadow: 0 2px 8px rgba(35,134,54,.35);
+    }
+
+    .logo-text { font-size: 15px; font-weight: 700; color: var(--text); }
+    .logo-sub  { font-size: 10px; color: var(--dim); margin-left: auto;
+                 background: var(--surface2); border: 1px solid var(--border);
+                 padding: 1px 7px; border-radius: 10px; }
+
+    .sidebar-nav { padding: 10px 8px; flex: 1; }
+
+    .nav-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 12px; border-radius: var(--radius);
+      cursor: pointer; color: var(--muted);
+      font-size: 13.5px; font-weight: 500;
+      border: none; background: none; width: 100%; text-align: left;
+      margin-bottom: 2px; transition: all .15s;
+    }
+    .nav-item:hover  { background: var(--surface2); color: var(--text); }
+    .nav-item.active { background: var(--surface2); color: var(--text); }
+    .nav-item .ni    { font-size: 15px; width: 18px; text-align: center; }
+    .nav-count {
+      margin-left: auto; font-size: 11px;
+      background: var(--surface2); border: 1px solid var(--border);
+      color: var(--muted); padding: 1px 7px; border-radius: 10px;
+    }
+    .nav-item.active .nav-count { background: var(--bg); }
+
+    .sidebar-footer {
+      padding: 14px 16px;
+      border-top: 1px solid var(--border);
+    }
+    .host-label {
+      font-size: 10px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: .6px; color: var(--dim); margin-bottom: 6px;
+    }
+    .host-row { display: flex; gap: 6px; }
+    .host-input {
+      flex: 1; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: var(--radius); color: var(--text);
+      padding: 6px 10px; font-size: 13px; outline: none;
+      transition: border-color .15s;
+    }
+    .host-input:focus { border-color: var(--blue); }
+    .host-apply {
+      padding: 6px 10px; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: var(--radius); color: var(--muted); font-size: 12px;
+      cursor: pointer; transition: all .15s;
+    }
+    .host-apply:hover { border-color: var(--blue); color: var(--blue); }
+
+    /* ── MAIN ────────────────────────────────────────── */
+    .main { margin-left: var(--sidebar-w); flex: 1; display: flex; flex-direction: column; }
+
+    .topbar {
+      height: 54px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; padding: 0 24px; gap: 12px;
+      background: var(--surface); position: sticky; top: 0; z-index: 10;
+    }
+    .topbar-title { font-size: 15px; font-weight: 600; }
+    .topbar-right  { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+
+    .api-pill {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 12px; color: var(--muted);
+      background: var(--surface2); border: 1px solid var(--border);
+      padding: 4px 10px; border-radius: 20px;
+    }
+
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); flex-shrink: 0; }
+    .dot.green  { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .dot.red    { background: var(--red); }
+    .dot.yellow { background: var(--yellow); }
+
+    .content { padding: 24px; max-width: 980px; }
+
+    /* ── BUTTONS ─────────────────────────────────────── */
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 6px 14px; border-radius: var(--radius);
+      font-size: 13px; font-weight: 500; cursor: pointer;
+      border: 1px solid transparent; transition: all .15s;
+      text-decoration: none; white-space: nowrap; line-height: 1.4;
+    }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+
+    .btn-primary { background: #238636; border-color: #2ea04399; color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: #2ea043; }
+
+    .btn-blue { background: #1f6feb; border-color: #388bfd99; color: #fff; }
+    .btn-blue:hover:not(:disabled) { background: #388bfd; }
+
+    .btn-ghost { background: transparent; border-color: var(--border); color: var(--muted); }
+    .btn-ghost:hover:not(:disabled) { background: var(--surface2); color: var(--text); border-color: var(--border); }
+
+    .btn-danger { background: transparent; border-color: var(--border); color: var(--red); }
+    .btn-danger:hover:not(:disabled) { background: var(--red-bg); border-color: var(--red); }
+
+    /* ── STAT CARDS ──────────────────────────────────── */
+    .stats-row { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin-bottom: 24px; }
+    .stat-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 18px 20px;
+    }
+    .stat-val   { font-size: 30px; font-weight: 700; line-height: 1; }
+    .stat-label { font-size: 12px; color: var(--muted); margin-top: 5px; }
+
+    /* ── SECTION ─────────────────────────────────────── */
+    .section { margin-bottom: 28px; }
+    .section-hd {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .section-title { font-size: 13px; font-weight: 600; color: var(--text); }
+
+    /* ── CHANNEL PILLS (dashboard) ───────────────────── */
+    .ch-pills { display: flex; gap: 8px; flex-wrap: wrap; }
+    .ch-pill {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 8px 14px; font-size: 13px;
+      cursor: pointer; transition: border-color .15s;
+    }
+    .ch-pill:hover { border-color: var(--blue); }
+
+    /* ── CHANNEL CARDS (channels view) ──────────────── */
+    .channels-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(280px,1fr)); gap: 16px; }
+
+    .ch-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 20px;
+      display: flex; flex-direction: column; gap: 14px;
+      border-left: 3px solid var(--border);
+      transition: border-color .15s;
+    }
+    .ch-card.connected    { border-left-color: var(--green); }
+    .ch-card.disconnected { border-left-color: var(--border); }
+
+    .ch-head { display: flex; align-items: flex-start; gap: 12px; }
+    .ch-avatar {
+      width: 46px; height: 46px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; flex-shrink: 0;
+    }
+    .av-hightribe { background: var(--purple-bg); }
+    .av-eventbrite { background: var(--orange-bg); }
+    .av-luma { background: var(--cyan-bg); }
+
+    .ch-info { flex: 1; }
+    .ch-name { font-size: 15px; font-weight: 600; }
+    .ch-auth-tag {
+      display: inline-block; font-size: 10px; padding: 2px 7px;
+      border-radius: 10px; margin-top: 3px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .4px;
+    }
+    .tag-native  { background: var(--purple-bg); color: var(--purple); }
+    .tag-oauth2  { background: var(--orange-bg); color: var(--orange); }
+    .tag-api_key { background: var(--cyan-bg); color: var(--cyan); }
+
+    .ch-status-row { display: flex; align-items: center; gap: 6px; font-size: 12px; margin-top: 5px; }
+
+    .ch-desc { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+    .cap-list { display: flex; flex-wrap: wrap; gap: 4px; }
+    .cap {
+      font-size: 11px; padding: 2px 7px; border-radius: 4px;
+      border: 1px solid var(--border-sub); background: var(--surface2); color: var(--muted);
+    }
+    .cap.yes { background: var(--green-bg); border-color: var(--green-br); color: var(--green); }
+    .cap.no  { color: var(--dim); text-decoration: line-through; background: transparent; }
+
+    .ch-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-start; }
+    .ch-key-form { display: flex; flex-direction: column; gap: 8px; }
+
+    /* ── FORM ────────────────────────────────────────── */
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .form-group { display: flex; flex-direction: column; gap: 5px; }
+    .form-group.full { grid-column: 1/-1; }
+
+    .form-section {
+      grid-column: 1/-1;
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .6px; color: var(--dim);
+      padding-bottom: 8px; border-bottom: 1px solid var(--border-sub);
+      margin-top: 8px;
+    }
+
+    .form-label { font-size: 12px; font-weight: 500; color: var(--muted); }
+
+    .form-input, .form-select, .form-textarea {
+      width: 100%; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: var(--radius); color: var(--text);
+      padding: 7px 11px; font-size: 13px; outline: none;
+      transition: border-color .15s; font-family: inherit;
+    }
+    .form-input:focus, .form-select:focus, .form-textarea:focus { border-color: var(--blue); }
+    .form-input::placeholder, .form-textarea::placeholder { color: var(--dim); }
+
+    .form-select {
+      appearance: none; cursor: pointer;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%238b949e' viewBox='0 0 16 16'%3E%3Cpath d='M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 11px center; padding-right: 32px;
+    }
+    .form-select option { background: var(--surface2); }
+    .form-textarea { min-height: 80px; resize: vertical; }
+
+    .form-checkbox-row {
+      display: flex; flex-wrap: wrap; gap: 16px;
+    }
+    .form-checkbox-label {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 13px; cursor: pointer; user-select: none;
+    }
+    .form-checkbox-label input { accent-color: var(--green); width: 15px; height: 15px; cursor: pointer; }
+
+    /* ── EVENT CARDS ─────────────────────────────────── */
+    .events-list { display: flex; flex-direction: column; gap: 10px; }
+
+    .ev-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 16px 20px;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .ev-top { display: flex; align-items: flex-start; gap: 12px; }
+    .ev-info { flex: 1; min-width: 0; }
+    .ev-title {
+      font-size: 15px; font-weight: 600;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .ev-meta {
+      display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; align-items: center;
+    }
+    .ev-meta-item { font-size: 12px; color: var(--muted); }
+    .ev-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+    .ch-status-badges { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .ch-badge-wrap { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); }
+
+    /* ── BADGES ──────────────────────────────────────── */
+    .badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 500;
+    }
+    .badge-green  { background: var(--green-bg);  color: var(--green);  border: 1px solid var(--green-br); }
+    .badge-red    { background: var(--red-bg);    color: var(--red);    border: 1px solid var(--red-br); }
+    .badge-yellow { background: var(--yellow-bg); color: var(--yellow); border: 1px solid var(--yellow-br); }
+    .badge-blue   { background: var(--blue-bg);   color: var(--blue);   border: 1px solid var(--blue-br); }
+    .badge-gray   { background: var(--surface2);  color: var(--muted);  border: 1px solid var(--border); }
+
+    /* ── MODAL ───────────────────────────────────────── */
+    .overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,.65);
+      z-index: 100; display: flex; align-items: flex-start;
+      justify-content: center; padding: 32px 16px;
+      overflow-y: auto; backdrop-filter: blur(3px);
+    }
+    .modal {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; width: 100%; max-width: 620px;
+      display: flex; flex-direction: column;
+      box-shadow: 0 16px 48px rgba(0,0,0,.5);
+    }
+    .modal-hd {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 24px; border-bottom: 1px solid var(--border);
+    }
+    .modal-title { font-size: 15px; font-weight: 600; }
+    .modal-close {
+      background: none; border: none; color: var(--muted);
+      font-size: 18px; cursor: pointer; padding: 4px 6px;
+      border-radius: 4px; line-height: 1;
+    }
+    .modal-close:hover { background: var(--surface2); color: var(--text); }
+    .modal-body { padding: 24px; overflow-y: auto; max-height: 68vh; }
+    .modal-ft {
+      display: flex; justify-content: flex-end; gap: 8px;
+      padding: 14px 24px; border-top: 1px solid var(--border);
+    }
+
+    /* ── TOAST ───────────────────────────────────────── */
+    #toasts {
+      position: fixed; top: 16px; right: 16px; z-index: 200;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .toast {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 11px 16px;
+      font-size: 13px; display: flex; align-items: center; gap: 10px;
+      min-width: 220px; max-width: 340px;
+      box-shadow: 0 8px 24px rgba(0,0,0,.4);
+      animation: toastIn .2s ease;
+    }
+    .toast.ok  { border-color: var(--green-br); }
+    .toast.err { border-color: var(--red-br); }
+    @keyframes toastIn { from { opacity:0; transform:translateX(16px); } to { opacity:1; transform:none; } }
+
+    /* ── EMPTY STATE ─────────────────────────────────── */
+    .empty {
+      text-align: center; padding: 48px 24px; color: var(--muted);
+      border: 1px dashed var(--border); border-radius: 8px; background: var(--surface);
+    }
+    .empty-ico   { font-size: 38px; margin-bottom: 12px; }
+    .empty-title { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+    .empty-desc  { font-size: 13px; margin-bottom: 18px; }
+
+    /* ── SPINNER ─────────────────────────────────────── */
+    .spin {
+      width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,.2); border-top-color: #fff;
+      border-radius: 50%; animation: rot .5s linear infinite;
+    }
+    @keyframes rot { to { transform: rotate(360deg); } }
+
+    .hidden { display: none !important; }
+    hr.div  { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════ SIDEBAR ═══════════════ -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-mark">⚡</div>
+    <span class="logo-text">EventLifter</span>
+    <span class="logo-sub">core</span>
+  </div>
+
+  <nav class="sidebar-nav">
+    <button class="nav-item active" data-view="dashboard" onclick="go('dashboard')">
+      <span class="ni">⊞</span> Dashboard
+    </button>
+    <button class="nav-item" data-view="channels" onclick="go('channels')">
+      <span class="ni">⬡</span> Channels
+      <span class="nav-count" id="nc-channels">3</span>
+    </button>
+    <button class="nav-item" data-view="events" onclick="go('events')">
+      <span class="ni">◷</span> Events
+      <span class="nav-count" id="nc-events">0</span>
+    </button>
+    <button class="nav-item" data-view="settings" onclick="go('settings')">
+      <span class="ni">⚙</span> Settings
+    </button>
+  </nav>
+
+  <div class="sidebar-footer">
+    <div class="host-label">Host ID</div>
+    <div class="host-row">
+      <input class="host-input" id="hostInput" type="text" value="host_1" placeholder="host_1">
+      <button class="host-apply" onclick="applyHost()">Apply</button>
+    </div>
+  </div>
+</aside>
+
+<!-- ═══════════════ MAIN ═══════════════ -->
+<main class="main">
+  <!-- topbar -->
+  <div class="topbar">
+    <span class="topbar-title" id="topTitle">Dashboard</span>
+    <div class="topbar-right">
+      <div class="api-pill">
+        <div class="dot" id="apiDot"></div>
+        <span id="apiTxt">connecting…</span>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="refreshAll().then(renderView)" title="Refresh">↻ Refresh</button>
+    </div>
+  </div>
+
+  <!-- content -->
+  <div class="content" id="view"></div>
+</main>
+
+<!-- ═══════════════ MODAL ═══════════════ -->
+<div class="overlay hidden" id="overlay" onclick="overlayClick(event)">
+  <div class="modal">
+    <div class="modal-hd">
+      <span class="modal-title" id="modalTitle"></span>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-ft"  id="modalFt"></div>
+  </div>
+</div>
+
+<!-- ═══════════════ TOASTS ═══════════════ -->
+<div id="toasts"></div>
+
+<script>
+// ════════════════════════════════════════════
+//  STATE
+// ════════════════════════════════════════════
+const S = {
+  view: 'dashboard',
+  hostId: localStorage.getItem('el_host') || 'host_1',
+  connections: { hightribe: 'disconnected', eventbrite: 'disconnected', luma: 'disconnected' },
+  events: [],
+  statuses: {},   // eventId → { channel → PublishResult }
+  online: false,
+};
+
+document.getElementById('hostInput').value = S.hostId;
+
+// ════════════════════════════════════════════
+//  CHANNEL METADATA
+// ════════════════════════════════════════════
+const CH = {
+  hightribe:  { name:'HighTribe',  icon:'🏔️', avClass:'av-hightribe',  authType:'native',  color:'#a78bfa',
+                desc:'Native channel — no external auth. Full capabilities out of the box.',
+                caps:{ publish:true,update:true,unpublish:true,pullAttendees:true,webhooks:true,pricing:true,capacitySync:true } },
+  eventbrite: { name:'Eventbrite', icon:'🎫', avClass:'av-eventbrite', authType:'oauth2',   color:'#fbbf24',
+                desc:'Connect via OAuth2. Requires Eventbrite OAuth app credentials in .env.',
+                caps:{ publish:true,update:true,unpublish:true,pullAttendees:true,webhooks:true,pricing:true,capacitySync:true } },
+  luma:       { name:'Luma',       icon:'✨', avClass:'av-luma',       authType:'api_key',  color:'#22d3ee',
+                desc:'API-key channel. Requires a Luma Plus subscription to access the API.',
+                caps:{ publish:true,update:true,unpublish:false,pullAttendees:true,webhooks:true,pricing:true,capacitySync:false } },
+};
+
+const CAP = { publish:'Publish', update:'Update', unpublish:'Unpublish',
+              pullAttendees:'Attendees', webhooks:'Webhooks', pricing:'Pricing', capacitySync:'Cap. Sync' };
+
+// ════════════════════════════════════════════
+//  API HELPERS
+// ════════════════════════════════════════════
+const api = {
+  async get(p) {
+    const r = await fetch(p);
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    return d;
+  },
+  async post(p, body={}) {
+    const r = await fetch(p, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    return d;
+  },
+  async del(p) {
+    const r = await fetch(p, { method:'DELETE' });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    return d;
+  },
+};
+
+// ════════════════════════════════════════════
+//  DATA
+// ════════════════════════════════════════════
+async function checkApi() {
+  try {
+    await api.get('/health');
+    S.online = true;
+    document.getElementById('apiDot').className = 'dot green';
+    document.getElementById('apiTxt').textContent = 'API online';
+  } catch {
+    S.online = false;
+    document.getElementById('apiDot').className = 'dot red';
+    document.getElementById('apiTxt').textContent = 'API offline';
+  }
+}
+
+async function fetchConnections() {
+  try {
+    const d = await api.get(`/connections?hostId=${S.hostId}`);
+    for (const c of d.channels) S.connections[c.channel] = c.status;
+    const connCount = Object.values(S.connections).filter(s=>s==='active').length;
+    document.getElementById('nc-channels').textContent = `${connCount}/3`;
+  } catch {}
+}
+
+async function fetchEvents() {
+  try {
+    const d = await api.get(`/events?hostId=${S.hostId}`);
+    S.events = d.events || [];
+    document.getElementById('nc-events').textContent = S.events.length;
+  } catch {}
+}
+
+async function fetchStatus(id) {
+  try {
+    const d = await api.get(`/events/${id}/status`);
+    S.statuses[id] = {};
+    for (const r of (d.channels||[])) S.statuses[id][r.channel] = r;
+  } catch {}
+}
+
+async function refreshAll() {
+  await Promise.all([checkApi(), fetchConnections(), fetchEvents()]);
+  await Promise.all(S.events.map(e => fetchStatus(e.id)));
+}
+
+// ════════════════════════════════════════════
+//  UTILS
+// ════════════════════════════════════════════
+function fmtDate(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('en-US', { month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit' });
+}
+
+function fmtPrice(type, cents, currency='USD') {
+  if (type === 'free') return 'Free';
+  if (type === 'donation') return 'Donation';
+  return (cents/100).toLocaleString('en-US',{style:'currency',currency});
+}
+
+function statusBadge(status, error='') {
+  const map = {
+    synced:  ['badge-green',  '● synced'],
+    failed:  ['badge-red',    '✕ failed'],
+    pending: ['badge-yellow', '◌ pending'],
+    partial: ['badge-yellow', '◑ partial'],
+    manual:  ['badge-gray',   '— manual'],
+    syncing: ['badge-blue',   '↻ syncing'],
+  };
+  const [cls, lbl] = map[status] || ['badge-gray', status];
+  const tip = error ? ` title="${error.replace(/"/g,'&quot;')}"` : '';
+  return `<span class="badge ${cls}"${tip}>${lbl}</span>`;
+}
+
+function connDot(status) {
+  const on = status === 'active';
+  return `<span class="dot ${on?'green':''}"></span>
+          <span style="color:${on?'var(--green)':'var(--muted)'}; font-size:12px">${on?'Connected':'Disconnected'}</span>`;
+}
+
+// ════════════════════════════════════════════
+//  TOAST
+// ════════════════════════════════════════════
+function toast(msg, type='ok') {
+  const icon = type==='ok' ? '✓' : '✕';
+  const color = type==='ok' ? 'var(--green)' : 'var(--red)';
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.innerHTML = `<span style="color:${color};font-weight:700;font-size:15px">${icon}</span> ${msg}`;
+  document.getElementById('toasts').prepend(el);
+  setTimeout(() => el.remove(), 3600);
+}
+
+// ════════════════════════════════════════════
+//  MODAL
+// ════════════════════════════════════════════
+function openModal(title, body, footer='') {
+  document.getElementById('modalTitle').textContent = title;
+  document.getElementById('modalBody').innerHTML  = body;
+  document.getElementById('modalFt').innerHTML    = footer;
+  document.getElementById('overlay').classList.remove('hidden');
+}
+function closeModal() { document.getElementById('overlay').classList.add('hidden'); }
+function overlayClick(e) { if (e.target===document.getElementById('overlay')) closeModal(); }
+
+// ════════════════════════════════════════════
+//  NAVIGATION
+// ════════════════════════════════════════════
+const VIEW_TITLES = { dashboard:'Dashboard', channels:'Channels', events:'Events', settings:'Settings' };
+
+function go(view) {
+  S.view = view;
+  document.querySelectorAll('.nav-item').forEach(el =>
+    el.classList.toggle('active', el.dataset.view === view)
+  );
+  document.getElementById('topTitle').textContent = VIEW_TITLES[view];
+  renderView();
+}
+
+function applyHost() {
+  const val = document.getElementById('hostInput').value.trim();
+  if (!val) return;
+  S.hostId = val;
+  localStorage.setItem('el_host', val);
+  S.events = [];
+  S.statuses = {};
+  S.connections = { hightribe:'disconnected', eventbrite:'disconnected', luma:'disconnected' };
+  refreshAll().then(renderView);
+  toast(`Host changed to "${val}"`);
+}
+
+// ════════════════════════════════════════════
+//  RENDER — DASHBOARD
+// ════════════════════════════════════════════
+function renderDashboard() {
+  const connCount = Object.values(S.connections).filter(s=>s==='active').length;
+  const pubCount  = Object.values(S.statuses).filter(
+    st => Object.values(st).some(r => r.status==='synced')
+  ).length;
+
+  const pills = Object.keys(CH).map(k => {
+    const m = CH[k]; const on = S.connections[k]==='active';
+    return `<div class="ch-pill" onclick="go('channels')">
+      <span>${m.icon}</span>
+      <span style="font-weight:600">${m.name}</span>
+      <span class="dot ${on?'green':''}" style="margin-left:4px"></span>
+      <span style="font-size:12px;color:${on?'var(--green)':'var(--muted)'}">
+        ${on?'Connected':'Disconnected'}
+      </span>
+    </div>`;
+  }).join('');
+
+  let recentHtml = '';
+  if (!S.events.length) {
+    recentHtml = `<div style="color:var(--muted);font-size:13px;padding:12px 0">
+      No events yet. &nbsp;
+      <button class="btn btn-primary btn-sm" onclick="go('events');setTimeout(openCreateModal,80)">+ Create Event</button>
+    </div>`;
+  } else {
+    recentHtml = `<div class="events-list">
+      ${S.events.slice(0,3).map(ev => miniEventCard(ev)).join('')}
+    </div>`;
+  }
+
+  return `
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-val" style="color:var(--green)">${connCount}</div>
+        <div class="stat-label">Channels Connected</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-val">${S.events.length}</div>
+        <div class="stat-label">Events Created</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-val" style="color:var(--blue)">${pubCount}</div>
+        <div class="stat-label">Events Published</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-hd">
+        <span class="section-title">Channel Status</span>
+        <button class="btn btn-ghost btn-sm" onclick="go('channels')">Manage channels →</button>
+      </div>
+      <div class="ch-pills">${pills}</div>
+    </div>
+
+    <div class="section">
+      <div class="section-hd">
+        <span class="section-title">Recent Events</span>
+        <button class="btn btn-ghost btn-sm" onclick="go('events')">View all →</button>
+      </div>
+      ${recentHtml}
+    </div>`;
+}
+
+function miniEventCard(ev) {
+  const st = S.statuses[ev.id] || {};
+  const badges = Object.keys(CH).map(k => {
+    const r = st[k]; if (!r) return '';
+    return `${CH[k].icon} ${statusBadge(r.status, r.error)}`;
+  }).filter(Boolean).join(' &nbsp; ');
+  return `<div class="ev-card">
+    <div class="ev-top">
+      <div class="ev-info">
+        <div class="ev-title">${ev.title}</div>
+        <div class="ev-meta">
+          <span class="ev-meta-item">📅 ${fmtDate(ev.startUtc)}</span>
+          <span class="ev-meta-item"> · ${fmtPrice(ev.ticketType,ev.priceCents,ev.currency)}</span>
+        </div>
+      </div>
+      <div class="ev-actions">
+        <button class="btn btn-primary btn-sm" onclick="publishEvent('${ev.id}')">↑ Publish</button>
+      </div>
+    </div>
+    ${badges ? `<div style="font-size:12px;display:flex;gap:10px;flex-wrap:wrap">${badges}</div>` : ''}
+  </div>`;
+}
+
+// ════════════════════════════════════════════
+//  RENDER — CHANNELS
+// ════════════════════════════════════════════
+function renderChannels() {
+  const cards = Object.keys(CH).map(k => {
+    const m = CH[k]; const on = S.connections[k]==='active';
+    const capHtml = Object.entries(m.caps).map(([c,v]) =>
+      `<span class="cap ${v?'yes':'no'}">${CAP[c]}</span>`
+    ).join('');
+
+    let actionHtml = '';
+    if (m.authType === 'native') {
+      actionHtml = on
+        ? `<button class="btn btn-danger btn-sm" onclick="doDisconnect('${k}')">Disconnect</button>`
+        : `<button class="btn btn-primary btn-sm" onclick="doConnectNative('${k}')">Connect</button>`;
+    } else if (m.authType === 'oauth2') {
+      actionHtml = on
+        ? `<button class="btn btn-danger btn-sm" onclick="doDisconnect('${k}')">Disconnect</button>
+           <button class="btn btn-ghost btn-sm" onclick="oauthRedirect('${k}')">Reconnect OAuth</button>`
+        : `<button class="btn btn-blue btn-sm" onclick="oauthRedirect('${k}')">Connect via OAuth →</button>`;
+    } else {
+      actionHtml = on
+        ? `<button class="btn btn-danger btn-sm" onclick="doDisconnect('${k}')">Disconnect</button>
+           <button class="btn btn-ghost btn-sm" onclick="showKeyForm('${k}')">Update Key</button>`
+        : `<div class="ch-key-form hidden" id="kf_${k}">
+             <input class="form-input" id="ki_${k}" type="password" placeholder="Paste API key…">
+             <div style="display:flex;gap:6px">
+               <button class="btn btn-primary btn-sm" onclick="doConnectKey('${k}')">Save & Connect</button>
+               <button class="btn btn-ghost btn-sm" onclick="hideKeyForm('${k}')">Cancel</button>
+             </div>
+           </div>
+           <button class="btn btn-primary btn-sm" id="kb_${k}" onclick="showKeyForm('${k}')">Enter API Key</button>`;
+    }
+
+    return `<div class="ch-card ${on?'connected':'disconnected'}">
+      <div class="ch-head">
+        <div class="ch-avatar ${m.avClass}">${m.icon}</div>
+        <div class="ch-info">
+          <div class="ch-name">${m.name}</div>
+          <span class="ch-auth-tag tag-${m.authType}">${m.authType}</span>
+          <div class="ch-status-row">${connDot(on?'active':'off')}</div>
+        </div>
+      </div>
+      <div class="ch-desc">${m.desc}</div>
+      <div class="cap-list">${capHtml}</div>
+      <div class="ch-actions">${actionHtml}</div>
+    </div>`;
+  }).join('');
+
+  return `<div class="section">
+    <div class="section-hd">
+      <span class="section-title">Channel Connections</span>
+      <span style="font-size:12px;color:var(--muted)">Host: <strong style="color:var(--text)">${S.hostId}</strong></span>
+    </div>
+    <div class="channels-grid">${cards}</div>
+  </div>`;
+}
+
+// ════════════════════════════════════════════
+//  RENDER — EVENTS
+// ════════════════════════════════════════════
+function renderEvents() {
+  const listHtml = S.events.length === 0
+    ? `<div class="empty">
+        <div class="empty-ico">📅</div>
+        <div class="empty-title">No events yet</div>
+        <div class="empty-desc">Create a master event and publish it to all connected channels at once.</div>
+        <button class="btn btn-primary" onclick="openCreateModal()">+ Create Master Event</button>
+       </div>`
+    : `<div class="events-list">${S.events.map(fullEventCard).join('')}</div>`;
+
+  return `<div class="section">
+    <div class="section-hd">
+      <span class="section-title">Events <span style="color:var(--muted);font-weight:400">(${S.events.length})</span></span>
+      <button class="btn btn-primary btn-sm" onclick="openCreateModal()">+ Create Event</button>
+    </div>
+    ${listHtml}
+  </div>`;
+}
+
+function fullEventCard(ev) {
+  const st = S.statuses[ev.id] || {};
+  const fmtMap = { in_person:'📍 In Person', online:'💻 Online', hybrid:'🔀 Hybrid' };
+  const badges = Object.keys(CH).map(k => {
+    const r = st[k];
+    const badge = r ? statusBadge(r.status, r.error) : `<span class="badge badge-gray">—</span>`;
+    return `<span class="ch-badge-wrap">${CH[k].icon} ${CH[k].name} ${badge}</span>`;
+  }).join('');
+
+  return `<div class="ev-card">
+    <div class="ev-top">
+      <div class="ev-info">
+        <div class="ev-title">${ev.title}</div>
+        <div class="ev-meta">
+          <span class="ev-meta-item">📅 ${fmtDate(ev.startUtc)}</span>
+          <span class="ev-meta-item"> · ${fmtMap[ev.format]||ev.format}</span>
+          <span class="ev-meta-item"> · ${fmtPrice(ev.ticketType,ev.priceCents,ev.currency)}</span>
+          ${ev.capacity?`<span class="ev-meta-item"> · 👥 ${ev.capacity}</span>`:''}
+          ${ev.city?`<span class="ev-meta-item"> · 📌 ${ev.city}</span>`:''}
+        </div>
+      </div>
+      <div class="ev-actions">
+        <button class="btn btn-primary btn-sm" onclick="publishEvent('${ev.id}')">↑ Publish</button>
+        <button class="btn btn-ghost btn-sm" onclick="refreshStatus('${ev.id}')" title="Refresh status">↻</button>
+      </div>
+    </div>
+    ${ev.summary ? `<div style="font-size:12px;color:var(--muted)">${ev.summary}</div>` : ''}
+    <div class="ch-status-badges">${badges}</div>
+  </div>`;
+}
+
+// ════════════════════════════════════════════
+//  VIEW ROUTER
+// ════════════════════════════════════════════
+function renderView() {
+  const fns = { dashboard: renderDashboard, channels: renderChannels, events: renderEvents, settings: renderSettings };
+  document.getElementById('view').innerHTML = (fns[S.view] || renderDashboard)();
+}
+
+// ════════════════════════════════════════════
+//  CHANNEL ACTIONS
+// ════════════════════════════════════════════
+async function doConnectNative(ch) {
+  try {
+    await api.post(`/connections/${ch}`, { hostId: S.hostId });
+    await fetchConnections();
+    renderView();
+    toast(`${CH[ch].name} connected`);
+  } catch(e) { toast(e.message,'err'); }
+}
+
+function oauthRedirect(ch) {
+  window.location.href = `/connections/${ch}/start?hostId=${S.hostId}`;
+}
+
+function showKeyForm(ch) {
+  document.getElementById(`kf_${ch}`).classList.remove('hidden');
+  const btn = document.getElementById(`kb_${ch}`);
+  if (btn) btn.classList.add('hidden');
+}
+function hideKeyForm(ch) {
+  document.getElementById(`kf_${ch}`).classList.add('hidden');
+  const btn = document.getElementById(`kb_${ch}`);
+  if (btn) btn.classList.remove('hidden');
+}
+
+async function doConnectKey(ch) {
+  const key = document.getElementById(`ki_${ch}`)?.value?.trim();
+  if (!key) { toast('Please enter an API key','err'); return; }
+  try {
+    await api.post(`/connections/${ch}`, { hostId: S.hostId, credentials: { apiKey: key } });
+    await fetchConnections();
+    renderView();
+    toast(`${CH[ch].name} connected`);
+  } catch(e) { toast(e.message,'err'); }
+}
+
+async function doDisconnect(ch) {
+  try {
+    await api.del(`/connections/${ch}?hostId=${S.hostId}`);
+    S.connections[ch] = 'revoked';
+    await fetchConnections();
+    renderView();
+    toast(`${CH[ch].name} disconnected`);
+  } catch(e) { toast(e.message,'err'); }
+}
+
+// ════════════════════════════════════════════
+//  EVENT ACTIONS
+// ════════════════════════════════════════════
+function openCreateModal() {
+  const now = new Date();
+  const start = new Date(now); start.setDate(start.getDate()+1); start.setHours(18,0,0,0);
+  const end   = new Date(start); end.setHours(21,0,0,0);
+  const local = d => { const o = new Date(d - d.getTimezoneOffset()*60000); return o.toISOString().slice(0,16); };
+
+  const body = `<div class="form-grid">
+    <div class="form-section">Basic Info</div>
+
+    <div class="form-group full">
+      <label class="form-label">Event Title *</label>
+      <input class="form-input" id="f_title" placeholder="e.g. Rooftop Networking Night">
+    </div>
+    <div class="form-group full">
+      <label class="form-label">Summary</label>
+      <input class="form-input" id="f_summary" placeholder="One-line tagline">
+    </div>
+    <div class="form-group full">
+      <label class="form-label">Description</label>
+      <textarea class="form-textarea" id="f_desc" placeholder="Full event details…"></textarea>
+    </div>
+
+    <div class="form-section">When</div>
+
+    <div class="form-group">
+      <label class="form-label">Start *</label>
+      <input class="form-input" id="f_start" type="datetime-local" value="${local(start)}">
+    </div>
+    <div class="form-group">
+      <label class="form-label">End *</label>
+      <input class="form-input" id="f_end" type="datetime-local" value="${local(end)}">
+    </div>
+    <div class="form-group full">
+      <label class="form-label">Timezone</label>
+      <select class="form-select" id="f_tz">
+        <option value="America/Los_Angeles">America/Los_Angeles (PST/PDT)</option>
+        <option value="America/New_York">America/New_York (EST/EDT)</option>
+        <option value="America/Chicago">America/Chicago (CST/CDT)</option>
+        <option value="America/Denver">America/Denver (MST/MDT)</option>
+        <option value="Europe/London">Europe/London (GMT/BST)</option>
+        <option value="Europe/Paris">Europe/Paris (CET/CEST)</option>
+        <option value="Asia/Karachi">Asia/Karachi (PKT)</option>
+        <option value="Asia/Tokyo">Asia/Tokyo (JST)</option>
+        <option value="UTC">UTC</option>
+      </select>
+    </div>
+
+    <div class="form-section">Where</div>
+
+    <div class="form-group">
+      <label class="form-label">Format *</label>
+      <select class="form-select" id="f_format" onchange="onFormatChange()">
+        <option value="in_person">In Person</option>
+        <option value="online">Online</option>
+        <option value="hybrid">Hybrid</option>
+      </select>
+    </div>
+    <div class="form-group" id="fg_venue">
+      <label class="form-label">Venue Name</label>
+      <input class="form-input" id="f_venue" placeholder="e.g. The Rooftop Lounge">
+    </div>
+    <div class="form-group full" id="fg_addr">
+      <label class="form-label">Address</label>
+      <input class="form-input" id="f_addr" placeholder="123 Main St">
+    </div>
+    <div class="form-group" id="fg_city">
+      <label class="form-label">City</label>
+      <input class="form-input" id="f_city" placeholder="San Francisco">
+    </div>
+    <div class="form-group" id="fg_country">
+      <label class="form-label">Country (ISO-2)</label>
+      <input class="form-input" id="f_country" value="US" maxlength="2" placeholder="US">
+    </div>
+    <div class="form-group full hidden" id="fg_url">
+      <label class="form-label">Online URL</label>
+      <input class="form-input" id="f_url" type="url" placeholder="https://zoom.us/j/…">
+    </div>
+
+    <div class="form-section">Tickets & Access</div>
+
+    <div class="form-group">
+      <label class="form-label">Ticket Type *</label>
+      <select class="form-select" id="f_ttype" onchange="onTicketChange()">
+        <option value="free">Free</option>
+        <option value="paid">Paid</option>
+        <option value="donation">Donation</option>
+      </select>
+    </div>
+    <div class="form-group hidden" id="fg_price">
+      <label class="form-label">Price (USD)</label>
+      <input class="form-input" id="f_price" type="number" min="0" step="0.01" placeholder="25.00">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Capacity</label>
+      <input class="form-input" id="f_cap" type="number" min="1" placeholder="e.g. 150">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Visibility</label>
+      <select class="form-select" id="f_vis">
+        <option value="public">Public</option>
+        <option value="unlisted">Unlisted</option>
+        <option value="private">Private</option>
+        <option value="member_only">Member Only</option>
+      </select>
+    </div>
+
+    <div class="form-section">Publish Targets</div>
+    <div class="form-group full">
+      <div class="form-checkbox-row">
+        <label class="form-checkbox-label"><input type="checkbox" id="t_ht" checked> 🏔️ HighTribe</label>
+        <label class="form-checkbox-label"><input type="checkbox" id="t_eb" checked> 🎫 Eventbrite</label>
+        <label class="form-checkbox-label"><input type="checkbox" id="t_lm" checked> ✨ Luma</label>
+      </div>
+    </div>
+  </div>`;
+
+  const footer = `
+    <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+    <button class="btn btn-primary" onclick="submitCreate()">Create Event</button>`;
+
+  openModal('Create Master Event', body, footer);
+}
+
+function onFormatChange() {
+  const v = document.getElementById('f_format')?.value;
+  const inPerson = ['fg_venue','fg_addr','fg_city','fg_country'];
+  inPerson.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('hidden', v==='online');
+  });
+  const url = document.getElementById('fg_url');
+  if (url) url.classList.toggle('hidden', v==='in_person');
+}
+
+function onTicketChange() {
+  const v = document.getElementById('f_ttype')?.value;
+  const el = document.getElementById('fg_price');
+  if (el) el.classList.toggle('hidden', v!=='paid');
+}
+
+async function submitCreate() {
+  const title = document.getElementById('f_title')?.value?.trim();
+  if (!title) { toast('Title is required','err'); return; }
+  const startV = document.getElementById('f_start')?.value;
+  const endV   = document.getElementById('f_end')?.value;
+  if (!startV || !endV) { toast('Start and end times required','err'); return; }
+
+  const ticketType = document.getElementById('f_ttype')?.value || 'free';
+  const priceVal   = parseFloat(document.getElementById('f_price')?.value || '0');
+  const targets    = ['hightribe','eventbrite','luma'].filter((_,i) =>
+    document.getElementById(['t_ht','t_eb','t_lm'][i])?.checked
+  );
+
+  const body = {
+    hostId: S.hostId, title,
+    summary:     document.getElementById('f_summary')?.value || undefined,
+    description: document.getElementById('f_desc')?.value || undefined,
+    startUtc:    new Date(startV).toISOString(),
+    endUtc:      new Date(endV).toISOString(),
+    timezone:    document.getElementById('f_tz')?.value || 'UTC',
+    format:      document.getElementById('f_format')?.value || 'in_person',
+    venueName:   document.getElementById('f_venue')?.value || undefined,
+    address:     document.getElementById('f_addr')?.value || undefined,
+    city:        document.getElementById('f_city')?.value || undefined,
+    country:     document.getElementById('f_country')?.value || undefined,
+    onlineUrl:   document.getElementById('f_url')?.value || undefined,
+    ticketType,
+    priceCents:  ticketType==='paid' ? Math.round(priceVal*100) : 0,
+    currency:    'USD',
+    capacity:    parseInt(document.getElementById('f_cap')?.value)||undefined,
+    visibility:  document.getElementById('f_vis')?.value || 'public',
+    tags: [], targets,
+  };
+  Object.keys(body).forEach(k => body[k]===undefined && delete body[k]);
+
+  try {
+    await api.post('/events', body);
+    closeModal();
+    await fetchEvents();
+    await Promise.all(S.events.map(e => fetchStatus(e.id)));
+    go('events');
+    toast(`"${title}" created`);
+  } catch(e) { toast(e.message,'err'); }
+}
+
+async function publishEvent(id) {
+  const ev = S.events.find(e=>e.id===id);
+  try {
+    const d = await api.post(`/events/${id}/publish`);
+    await fetchStatus(id);
+    renderView();
+    const msg = { published:'Published to all channels!', partial:'Published — some channels failed', failed:'Publish failed' }[d.rollup];
+    toast(msg||'Done', d.rollup==='failed'?'err':'ok');
+  } catch(e) { toast(e.message,'err'); }
+}
+
+async function refreshStatus(id) {
+  await fetchStatus(id);
+  renderView();
+  toast('Status refreshed');
+}
+
+// ════════════════════════════════════════════
+//  RENDER — SETTINGS
+// ════════════════════════════════════════════
+let _settingsCache = null;
+
+async function loadSettingsData() {
+  try {
+    _settingsCache = await api.get('/settings');
+  } catch(e) { toast('Could not load settings: ' + e.message, 'err'); }
+}
+
+function renderSettings() {
+  const d = _settingsCache || {};
+  const eb = d.eventbrite || {};
+  const lm = d.luma || {};
+  const ht = d.hightribe || {};
+
+  const cfgBadge = (ok) => ok
+    ? `<span class="badge badge-green" style="font-size:11px">● Configured</span>`
+    : `<span class="badge badge-gray" style="font-size:11px">○ Not set</span>`;
+
+  return `
+  <div class="section" style="max-width:680px">
+    <div class="section-hd" style="margin-bottom:20px">
+      <span class="section-title" style="font-size:16px">⚙ App Settings</span>
+      <span style="font-size:12px;color:var(--muted)">Saved to settings.json — restart not required for proxy routes</span>
+    </div>
+
+    <!-- ── EVENTBRITE ── -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:22px;margin-bottom:16px;border-left:3px solid #fbbf24">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+        <span style="font-size:22px">🎫</span>
+        <div>
+          <div style="font-size:15px;font-weight:600">Eventbrite</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">OAuth2 · Register app at eventbrite.com/platform/api-keys</div>
+        </div>
+        <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+          ${cfgBadge(eb.configured)}
+          ${eb.hasPrivateToken ? `<span class="badge badge-blue" style="font-size:11px">Private Token</span>` : ''}
+        </div>
+      </div>
+
+      <div class="form-grid" style="gap:14px">
+        <div class="form-group">
+          <label class="form-label">Client ID</label>
+          <input class="form-input" id="s_eb_clientId" value="${eb.clientId||''}" placeholder="your-client-id">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Client Secret</label>
+          <input class="form-input" id="s_eb_clientSecret" type="password" placeholder="••••••••">
+        </div>
+        <div class="form-group full">
+          <label class="form-label">Redirect URI <span style="color:var(--dim)">(must match your EB app settings exactly)</span></label>
+          <div style="display:flex;gap:6px">
+            <input class="form-input" id="s_eb_redirectUri" value="${eb.redirectUri||'http://localhost:3000/connections/eventbrite/callback'}">
+            <button class="btn btn-ghost btn-sm" onclick="copyRedirectUri()" title="Copy">Copy</button>
+          </div>
+        </div>
+        <div class="form-group full">
+          <label class="form-label">Private Token <span style="color:var(--dim)">(optional — for server-side discovery without per-user OAuth)</span></label>
+          <input class="form-input" id="s_eb_privateToken" type="password" placeholder="••••••••">
+        </div>
+        <div class="form-group full">
+          <label class="form-label">Public Token <span style="color:var(--dim)">(optional)</span></label>
+          <input class="form-input" id="s_eb_publicToken" type="password" placeholder="••••••••">
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:16px;align-items:center">
+        <button class="btn btn-primary btn-sm" onclick="saveSettings('eventbrite')">Save Eventbrite</button>
+        <button class="btn btn-blue btn-sm" onclick="testEventbrite()">Test Connection</button>
+        <span id="eb_test_result" style="font-size:12px;color:var(--muted)"></span>
+      </div>
+
+      ${eb.configured ? `
+      <div style="margin-top:14px;padding:12px;background:var(--surface2);border-radius:6px;border:1px solid var(--border-sub)">
+        <div style="font-size:11px;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">OAuth Flow</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Connect a host's Eventbrite account:</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <input class="form-input" id="eb_oauth_host" style="max-width:180px" placeholder="hostId e.g. host_1" value="${S.hostId}">
+          <button class="btn btn-blue btn-sm" onclick="startEbOAuth()">Connect via OAuth →</button>
+        </div>
+      </div>` : ''}
+    </div>
+
+    <!-- ── LUMA ── -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:22px;margin-bottom:16px;border-left:3px solid #22d3ee">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+        <span style="font-size:22px">✨</span>
+        <div>
+          <div style="font-size:15px;font-weight:600">Luma</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">API Key · Get key from luma.com/calendar/manage/api-keys (Luma Plus required)</div>
+        </div>
+        <div style="margin-left:auto">${cfgBadge(lm.configured)}</div>
+      </div>
+
+      <div class="form-grid" style="gap:14px">
+        <div class="form-group full">
+          <label class="form-label">API Key <span style="color:var(--dim)">(scoped to one calendar per key)</span></label>
+          <input class="form-input" id="s_lm_apiKey" type="password" placeholder="luma-api-key-••••">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Calendar ID <span style="color:var(--dim)">(optional)</span></label>
+          <input class="form-input" id="s_lm_calendarId" value="${lm.calendarId||''}" placeholder="cal-xxxxxxxx">
+        </div>
+        <div class="form-group">
+          <label class="form-label">API Base URL</label>
+          <input class="form-input" id="s_lm_apiBaseUrl" value="${lm.apiBaseUrl||'https://public-api.luma.com'}" placeholder="https://public-api.luma.com">
+        </div>
+        <div class="form-group full">
+          <label class="form-label">Discover Base URL <span style="color:var(--dim)">(public events feed)</span></label>
+          <input class="form-input" id="s_lm_discoverBaseUrl" value="${lm.discoverBaseUrl||'https://api.lu.ma'}" placeholder="https://api.lu.ma">
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:16px;align-items:center">
+        <button class="btn btn-primary btn-sm" onclick="saveSettings('luma')">Save Luma</button>
+        <button class="btn btn-blue btn-sm" onclick="testLuma()">Test Connection</button>
+        <span id="lm_test_result" style="font-size:12px;color:var(--muted)"></span>
+      </div>
+
+      <div style="margin-top:14px;padding:12px;background:var(--surface2);border-radius:6px;border:1px solid var(--border-sub)">
+        <div style="font-size:11px;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Proxy Routes (after saving API key)</div>
+        <div style="font-size:12px;color:var(--muted);line-height:2;font-family:monospace">
+          GET /luma/users/self &nbsp;&nbsp;&nbsp; GET /luma/calendars &nbsp;&nbsp;&nbsp; GET /luma/events/hosted<br>
+          GET /luma/discover &nbsp;&nbsp;&nbsp;&nbsp; POST /luma/events &nbsp;&nbsp;&nbsp; GET /luma/guests<br>
+          GET /luma/ticket-types &nbsp; GET /luma/webhooks &nbsp;&nbsp;&nbsp; POST /luma/ticket-types<br>
+          <span style="color:var(--dim)">+ 50 more endpoints — see luma.routes.ts</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── HIGHTRIBE ── -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:22px;margin-bottom:16px;border-left:3px solid #a78bfa">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+        <span style="font-size:22px">🏔️</span>
+        <div>
+          <div style="font-size:15px;font-weight:600">HighTribe</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">Native · No external auth required</div>
+        </div>
+        <div style="margin-left:auto"><span class="badge badge-green" style="font-size:11px">● Always Available</span></div>
+      </div>
+
+      <div class="form-grid" style="gap:14px">
+        <div class="form-group full">
+          <label class="form-label">HighTribe Service URL <span style="color:var(--dim)">(optional — for real HighTribeClient HTTP calls)</span></label>
+          <input class="form-input" id="s_ht_serviceUrl" value="${ht.serviceUrl||''}" placeholder="https://api.hightribe.co">
+        </div>
+        <div class="form-group full">
+          <label class="form-label">API Key <span style="color:var(--dim)">(optional — if HighTribe backend requires auth)</span></label>
+          <input class="form-input" id="s_ht_apiKey" type="password" placeholder="ht-api-key-••••">
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:16px">
+        <button class="btn btn-primary btn-sm" onclick="saveSettings('hightribe')">Save HighTribe</button>
+      </div>
+
+      <div style="margin-top:14px;padding:12px;background:var(--surface2);border-radius:6px;border:1px solid var(--border-sub)">
+        <div style="font-size:12px;color:var(--muted);line-height:1.6">
+          <strong style="color:var(--text)">Wiring the real client:</strong> Open
+          <code style="background:var(--bg);padding:1px 6px;border-radius:3px;font-size:11px">src/http/server.ts</code>
+          and replace <code style="background:var(--bg);padding:1px 6px;border-radius:3px;font-size:11px">fakeHighTribe</code>
+          with a real <code style="background:var(--bg);padding:1px 6px;border-radius:3px;font-size:11px">HighTribeClient</code>
+          that calls your service URL.
+        </div>
+      </div>
+    </div>
+
+    <!-- ── .env reference ── -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:10px">Env Variables (alternative to UI settings)</div>
+      <pre style="font-size:11px;color:var(--muted);line-height:1.8;background:var(--bg);padding:14px;border-radius:6px;overflow-x:auto"># Eventbrite
+EVENTBRITE_CLIENT_ID=
+EVENTBRITE_CLIENT_SECRET=
+EVENTBRITE_REDIRECT_URI=http://localhost:3000/connections/eventbrite/callback
+EVENTBRITE_PRIVATE_TOKEN=
+EVENTBRITE_PUBLIC_TOKEN=
+
+# Luma
+LUMA_API_KEY=
+LUMA_CALENDAR_ID=
+LUMA_API_BASE_URL=https://public-api.luma.com
+LUMA_DISCOVER_API_BASE_URL=https://api.lu.ma
+
+# HighTribe
+HIGHTRIBE_SERVICE_URL=
+HIGHTRIBE_API_KEY=</pre>
+    </div>
+  </div>`;
+}
+
+// Settings actions
+async function saveSettings(section) {
+  const patches = {
+    eventbrite: () => ({
+      clientId:     document.getElementById('s_eb_clientId')?.value?.trim() || undefined,
+      clientSecret: document.getElementById('s_eb_clientSecret')?.value?.trim() || undefined,
+      redirectUri:  document.getElementById('s_eb_redirectUri')?.value?.trim() || undefined,
+      privateToken: document.getElementById('s_eb_privateToken')?.value?.trim() || undefined,
+      publicToken:  document.getElementById('s_eb_publicToken')?.value?.trim() || undefined,
+    }),
+    luma: () => ({
+      apiKey:          document.getElementById('s_lm_apiKey')?.value?.trim() || undefined,
+      calendarId:      document.getElementById('s_lm_calendarId')?.value?.trim() || undefined,
+      apiBaseUrl:      document.getElementById('s_lm_apiBaseUrl')?.value?.trim() || undefined,
+      discoverBaseUrl: document.getElementById('s_lm_discoverBaseUrl')?.value?.trim() || undefined,
+    }),
+    hightribe: () => ({
+      serviceUrl: document.getElementById('s_ht_serviceUrl')?.value?.trim() || undefined,
+      apiKey:     document.getElementById('s_ht_apiKey')?.value?.trim() || undefined,
+    }),
+  };
+
+  const raw = patches[section]?.() || {};
+  const body = Object.fromEntries(Object.entries(raw).filter(([,v]) => v !== undefined));
+
+  try {
+    _settingsCache = await api.put('/settings', { [section]: body });
+    renderView();
+    toast(`${section.charAt(0).toUpperCase()+section.slice(1)} settings saved`);
+  } catch(e) { toast(e.message, 'err'); }
+}
+
+async function testEventbrite() {
+  const el = document.getElementById('eb_test_result');
+  if (el) el.textContent = 'Testing…';
+  try {
+    const d = await api.get('/eventbrite/status');
+    if (el) el.innerHTML = d.connected
+      ? `<span style="color:var(--green)">✓ Configured</span>`
+      : `<span style="color:var(--red)">✕ Not configured</span>`;
+  } catch(e) {
+    if (el) el.innerHTML = `<span style="color:var(--red)">✕ ${e.message}</span>`;
+  }
+}
+
+async function testLuma() {
+  const el = document.getElementById('lm_test_result');
+  if (el) el.textContent = 'Testing…';
+  try {
+    const d = await api.get('/luma/config');
+    if (el) el.innerHTML = d.configured
+      ? `<span style="color:var(--green)">✓ API key set</span>`
+      : `<span style="color:var(--yellow)">⚠ API key not set</span>`;
+  } catch(e) {
+    if (el) el.innerHTML = `<span style="color:var(--red)">✕ ${e.message}</span>`;
+  }
+}
+
+function copyRedirectUri() {
+  const val = document.getElementById('s_eb_redirectUri')?.value;
+  if (val) { navigator.clipboard.writeText(val); toast('Redirect URI copied'); }
+}
+
+function startEbOAuth() {
+  const hostId = document.getElementById('eb_oauth_host')?.value?.trim() || S.hostId;
+  window.location.href = `/eventbrite/connect?state=${hostId}`;
+}
+
+// ════════════════════════════════════════════
+//  INIT
+// ════════════════════════════════════════════
+async function init() {
+  await Promise.all([refreshAll(), loadSettingsData()]);
+  renderView();
+  setInterval(() => checkApi(), 15000);
+}
+
+init();
+</script>
+</body>
+</html>

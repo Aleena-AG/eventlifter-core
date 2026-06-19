@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.env
+.next/
+_express_backup/
+settings.json

@@ -1,0 +1,28 @@
+{
+  "events": [
+    {
+      "id": "mst_1781818475504_gkqz18",
+      "title": "Golden Hour Rooftop Session — Venice",
+      "capacity": 150,
+      "sold": 0,
+      "channels": {
+        "hightribe": {
+          "eventId": "1225",
+          "ticketId": "1718"
+        },
+        "eventbrite": {
+          "eventId": "1992172121443",
+          "ticketId": "3438215448",
+          "url": "eventbrite.com/e/1992172121443"
+        },
+        "luma": {
+          "eventId": "",
+          "url": "lu.ma/"
+        }
+      },
+      "attendees": [],
+      "createdAt": "2026-06-18T21:34:35.504Z",
+      "updatedAt": "2026-06-18T21:34:47.435Z"
+    }
+  ]
+}

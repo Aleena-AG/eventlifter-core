@@ -1,0 +1,217 @@
+// EventLifter — Prisma schema (Postgres). Mirrors the technical spec.
+// `prisma migrate dev` to create the tables. credentials are stored as Bytes
+// (envelope-encrypt before write; never store plaintext tokens).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ChannelKey {
+  hightribe
+  eventbrite
+  luma
+}
+
+enum ConnStatus {
+  active
+  expired
+  revoked
+  error
+}
+
+enum EventStatus {
+  draft
+  publishing
+  published
+  update_pending
+  cancelled
+  failed
+}
+
+enum SyncStatus {
+  pending
+  syncing
+  synced
+  partial
+  failed
+  manual
+}
+
+enum RegStatus {
+  registered
+  waitlisted
+  cancelled
+  refunded
+  attended
+  no_show
+}
+
+model Host {
+  id           String              @id @default(uuid())
+  email        String              @unique
+  displayName  String?
+  authProvider String?
+  providerUid  String?
+  createdAt    DateTime            @default(now())
+  connections  ChannelConnection[]
+  events       MasterEvent[]
+  attendees    Attendee[]
+}
+
+model ChannelConnection {
+  id            String     @id @default(uuid())
+  host          Host       @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  hostId        String
+  channel       ChannelKey
+  authType      String
+  status        ConnStatus @default(active)
+  credentials   Bytes // envelope-encrypted JSON
+  externalOwner String? // org_id / calendar_id / internal host id
+  scopes        String[]
+  expiresAt     DateTime?
+  lastError     String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@unique([hostId, channel])
+  @@index([hostId])
+}
+
+model MasterEvent {
+  id          String      @id @default(uuid())
+  host        Host        @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  hostId      String
+  title       String
+  summary     String?
+  description String?
+  coverImage  String?
+  startTime   DateTime
+  endTime     DateTime
+  timezone    String
+  format      String      @default("in_person")
+  venueName   String?
+  address     String?
+  city        String?
+  region      String?
+  postalCode  String?
+  country     String?
+  latitude    Decimal?
+  longitude   Decimal?
+  capacity    Int?
+  ticketType  String      @default("free")
+  priceCents  Int         @default(0)
+  currency    String      @default("USD")
+  refundPolicy String?
+  faq         Json?
+  tags        String[]
+  visibility  String      @default("public")
+  status      EventStatus @default(draft)
+  contentHash String? // hash of sync-relevant fields, for diff detection
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  targets       EventChannelTarget[]
+  externalMap   ExternalEventMap[]
+  registrations Registration[]
+}
+
+model EventChannelTarget {
+  id        String      @id @default(uuid())
+  event     MasterEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventId   String
+  channel   ChannelKey
+  enabled   Boolean     @default(true)
+  overrides Json? // channel-specific field overrides (AI-optimized copy)
+  aiStatus  String      @default("pending")
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@unique([eventId, channel])
+}
+
+model ExternalEventMap {
+  id               String      @id @default(uuid())
+  event            MasterEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventId          String
+  channel          ChannelKey
+  externalEventId  String?
+  externalEventUrl String?
+  syncStatus       SyncStatus  @default(pending)
+  capabilities     Json
+  lastSyncedAt     DateTime?
+  lastError        String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  @@unique([eventId, channel])
+  @@index([eventId])
+}
+
+model Attendee {
+  id            String         @id @default(uuid())
+  host          Host           @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  hostId        String
+  email         String?
+  phone         String?
+  name          String?
+  dedupeKey     String?
+  createdAt     DateTime       @default(now())
+  registrations Registration[]
+
+  @@unique([hostId, dedupeKey])
+}
+
+model Registration {
+  id                 String      @id @default(uuid())
+  event              MasterEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventId            String
+  channel            ChannelKey
+  externalAttendeeId String?
+  attendee           Attendee?   @relation(fields: [attendeeId], references: [id])
+  attendeeId         String?
+  name               String?
+  email              String?
+  phone              String?
+  ticketType         String?
+  amountCents        Int         @default(0)
+  currency           String?
+  status             RegStatus   @default(registered)
+  checkinStatus      Boolean     @default(false)
+  raw                Json?
+  sourceCreatedAt    DateTime?
+  createdAt          DateTime    @default(now())
+
+  @@unique([channel, externalAttendeeId])
+  @@index([eventId])
+  @@index([attendeeId])
+}
+
+model WebhookEvent {
+  id          String     @id @default(uuid())
+  channel     ChannelKey
+  externalId  String?
+  signatureOk Boolean
+  payload     Json
+  processedAt DateTime?
+  receivedAt  DateTime   @default(now())
+
+  @@unique([channel, externalId])
+}
+
+model SyncJob {
+  id             String    @id @default(uuid())
+  eventId        String?
+  channel        ChannelKey?
+  kind           String
+  status         String    @default("queued")
+  attempts       Int       @default(0)
+  idempotencyKey String?   @unique
+  error          String?
+  createdAt      DateTime  @default(now())
+  finishedAt     DateTime?
+}
