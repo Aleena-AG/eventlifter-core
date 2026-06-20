@@ -77,20 +77,12 @@ function WebhookSetup() {
   const [loading, setLoading] = useState(false)
   const [endpoints, setEndpoints] = useState<Record<string, string>>({})
   const [result, setResult] = useState<string>('')
-  const [htEnv, setHtEnv] = useState<{ url?: string; secret?: string }>({})
 
   useEffect(() => {
     fetch('/api/webhooks/setup').then(r => r.json()).then((d: {
       endpoints?: Record<string, string>
-      hightribeLaravelEnv?: string[]
     }) => {
       if (d.endpoints) setEndpoints(d.endpoints)
-      if (d.hightribeLaravelEnv) {
-        setHtEnv({
-          url: d.endpoints?.hightribe,
-          secret: d.hightribeLaravelEnv[1]?.split('=')[1],
-        })
-      }
     }).catch(() => {})
   }, [])
 
@@ -103,7 +95,7 @@ function WebhookSetup() {
       let data: {
         ok?: boolean
         error?: string
-        webhooks?: Record<string, { ok?: boolean; error?: string; url?: string; note?: string; laravelEnv?: Record<string, string> }>
+        webhooks?: Record<string, { ok?: boolean; error?: string; note?: string }>
       } = {}
       try {
         data = text ? JSON.parse(text) : {}
@@ -114,9 +106,8 @@ function WebhookSetup() {
         throw new Error(data.error || `HTTP ${res.status}`)
       }
       const lines = Object.entries(data.webhooks || {}).map(([ch, r]) => {
-        if (ch === 'hightribe' && r.laravelEnv) {
-          setHtEnv({ url: r.laravelEnv.CHANNEL_MANAGER_WEBHOOK_URL, secret: r.laravelEnv.CHANNEL_MANAGER_WEBHOOK_SECRET })
-          return `${ch}: ${r.note || 'configure Laravel .env'}`
+        if (ch === 'hightribe') {
+          return `${ch}: ${r.ok ? '✓ ready' : `✗ ${r.error || 'failed'}`}`
         }
         return `${ch}: ${r.ok ? '✓ registered' : `✗ ${r.error || 'failed'}`}`
       })
@@ -127,12 +118,6 @@ function WebhookSetup() {
       setLoading(false)
     }
   }
-
-  const laravelEnvBlock = htEnv.url
-    ? `CHANNEL_MANAGER_WEBHOOK_URL=${htEnv.url}\nCHANNEL_MANAGER_WEBHOOK_SECRET=${htEnv.secret || '<set-in-settings-first>'}`
-    : endpoints.hightribe
-      ? `CHANNEL_MANAGER_WEBHOOK_URL=${endpoints.hightribe}\nCHANNEL_MANAGER_WEBHOOK_SECRET=<same-as-settings-hightribe.webhookSecret>`
-      : ''
 
   return (
     <div>
@@ -145,22 +130,6 @@ function WebhookSetup() {
           </div>
         </div>
       ))}
-
-      {laravelEnvBlock && (
-        <div style={{ marginTop: '14px', marginBottom: '10px' }}>
-          <div style={LABEL_STYLE}>HighTribe Laravel .env (C:\laragon\www\HighTribe-Laravel-Backend)</div>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
-            <pre style={{
-              flex: 1, margin: 0, fontSize: '12px', color: '#211B16', background: '#FBF7F0',
-              padding: '10px 12px', borderRadius: '6px', border: '1px solid #E8DFD0', overflow: 'auto',
-            }}>{laravelEnvBlock}</pre>
-            <CopyButton value={laravelEnvBlock} />
-          </div>
-          <p style={{ fontSize: '12px', color: '#8C7F6D', margin: '8px 0 0', lineHeight: 1.5 }}>
-            After saving, run <code style={{ color: '#211B16' }}>php artisan config:clear</code> in the Laravel project.
-          </p>
-        </div>
-      )}
 
       <button onClick={setup} disabled={loading} style={{ ...BTN_PRIMARY, marginTop: '8px', opacity: loading ? 0.6 : 1 }}>
         {loading ? <InlineLoader label="Registering" /> : 'Register webhooks on Luma + Eventbrite'}
