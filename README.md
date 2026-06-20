@@ -19,11 +19,9 @@ Public marketing site lives at `/`. The signed-in app (dashboard, events, bookin
 |--------|--------|
 | App | Next.js 16 (App Router), React 19, TypeScript |
 | UI | Tailwind CSS 4, warm Ewentcast theme |
-| Local data | **SQLite** (`better-sqlite3`) — `data/eventlifter.db` |
-| Channel credentials | `settings.json` (gitignored) + Settings UI |
+| Database | **SQLite** (`better-sqlite3`) — `data/eventlifter.db` |
+| Settings & credentials | SQLite `app_settings` table + Settings UI |
 | Auth | HighTribe Bearer token (browser `localStorage`) |
-
-> **Note:** `prisma/schema.prisma` and `.env.example` describe an older planned Postgres/Redis architecture. The running app uses SQLite + JSON settings, not Prisma or BullMQ.
 
 ## Project layout
 
@@ -44,23 +42,23 @@ src/
       data/bookings/         GET — bookings from DB
       data/events/           GET — cached events by channel
       registry/              Master event registry (links + attendees)
-      settings/              Read/write settings.json
+      settings/              Read/write app settings (SQLite)
       hightribe/[...path]    Proxy to HighTribe API
       luma/[...path]         Proxy to Luma API
       eventbrite/[...path]   Proxy to Eventbrite API
       webhooks/              Inbound booking webhooks + setup helper
   components/                UI (Sidebar, modals, landing, loaders, …)
   lib/
-    db/                      SQLite stores (registry, bookings, events cache)
+    db/                      SQLite: registry, bookings, events, settings
     server/                  Server-only sync + dashboard builders
     event-registry.ts        Registry types + SQLite-backed CRUD
     ticket-sync.ts           Webhook handler + cross-channel capacity sync
     publish-event.ts         Publish flow to all channels
     data-api.ts              Client helpers for sync + DB reads
 data/
-  eventlifter.db             SQLite database (created at runtime, gitignored)
-  event-registry.json        Legacy JSON registry (auto-imported into SQLite once)
-settings.json                Channel credentials (gitignored — create via Settings UI)
+  eventlifter.db             SQLite — all app data (gitignored)
+  eventlifter.db-wal         WAL journal (gitignored, created at runtime)
+  event-registry.json        One-time import into SQLite if DB was empty
 ```
 
 ## Quick start
@@ -95,7 +93,9 @@ Ensure the `data/` directory is writable so SQLite can create `eventlifter.db`.
 
 ## Configuration
 
-Most configuration is done in the app under **Settings** (`/settings`). Values are saved to `settings.json` in the project root.
+Most configuration is done in the app under **Settings** (`/settings`). Values are stored in the **SQLite** `app_settings` table (same file as bookings/events).
+
+Optional: set `DATA_DIR` in `.env` on production so the DB path is explicit.
 
 | Channel | What to configure |
 |---------|-------------------|
@@ -119,6 +119,7 @@ On first run, the app creates `data/eventlifter.db` and imports `data/event-regi
 
 | Table / area | Purpose |
 |--------------|---------|
+| `app_settings` | API keys, tokens, webhook secrets |
 | `master_events`, `channel_refs`, `attendees` | Linked events + webhook attendees |
 | `bookings` | Unified booking list (API sync + webhooks) |
 | `channel_events` | Cached event lists per channel |
@@ -199,9 +200,8 @@ npm run lint     # ESLint
 
 Do not commit:
 
-- `settings.json` — API keys and tokens
-- `data/*.db` — SQLite database
-- `.env` — local env overrides
+- `data/*.db` and `data/*.db-*` — SQLite database + WAL files
+- `.env` — local env overrides (optional `DATA_DIR`)
 - `.next/` — build output
 
 ## License
