@@ -1,133 +1,209 @@
-# EventLifter — Channel Manager Core
+# Ewentcast — Channel Manager
 
-The adapter core for EventLifter: create a master event once, publish it to **HighTribe, Eventbrite, and Luma**, and pull attendees back into one place. This is the backend crux the rest of the product bolts onto.
+Create an event once, publish it to **HighTribe**, **Eventbrite**, and **Luma**, and keep bookings in one place. Shared capacity sync helps you list everywhere without double-selling the same seat.
 
-> Meetup and Partiful are intentionally out of scope. Meetup gates its API behind a Pro subscription + manual approval; Partiful has no public API. Add them later as their own adapters if/when that changes — nothing else has to move.
+Public marketing site lives at `/`. The signed-in app (dashboard, events, bookings, settings) lives behind HighTribe login.
 
-## The one idea
+## Features
 
-**Capability is data, not an assumption.** Every channel is an adapter that declares what it can do (`publish`, `pullAttendees`, `webhooks`, …). The orchestrator and dashboard branch on those declarations, so an uneven channel degrades gracefully instead of breaking the system. There is no `if (channel === "x")` anywhere outside an adapter.
+- **Multi-channel publish** — create/sync events across HighTribe, Luma, and Eventbrite
+- **Unified dashboard** — events, tickets sold, bookings, and recent activity per channel
+- **Bookings list** — attendees from API sync and inbound webhooks, deduped by email
+- **SQLite cache** — channel data is stored locally; pages read from the DB instead of calling external APIs on every load
+- **Webhooks** — Eventbrite, Luma, and HighTribe booking webhooks update the registry and bookings table in real time
+- **Capacity sync** — when a ticket sells on one channel, remaining capacity can be pushed to linked channels
 
-## Layout
+## Tech stack
+
+| Layer | Choice |
+|--------|--------|
+| App | Next.js 16 (App Router), React 19, TypeScript |
+| UI | Tailwind CSS 4, warm Ewentcast theme |
+| Local data | **SQLite** (`better-sqlite3`) — `data/eventlifter.db` |
+| Channel credentials | `settings.json` (gitignored) + Settings UI |
+| Auth | HighTribe Bearer token (browser `localStorage`) |
+
+> **Note:** `prisma/schema.prisma` and `.env.example` describe an older planned Postgres/Redis architecture. The running app uses SQLite + JSON settings, not Prisma or BullMQ.
+
+## Project layout
 
 ```
 src/
-  types.ts                 MasterEvent + all domain types (source of truth)
-  channels/
-    adapter.ts             ChannelAdapter interface, registry, HTTP helper
-    eventbrite.ts          real EB adapter (draft → ticket_class → publish)
-    luma.ts                real Luma adapter (x-luma-api-key)
-    hightribe.ts           native adapter (wraps your internal service)
-  mapping/
-    eventbrite.map.ts      MasterEvent → EB venue/event/ticket bodies
-    luma.map.ts            MasterEvent → Luma create body
-  services/
-    publish.ts             capability-gated publish orchestrator
-    connections.ts         OAuth / API-key / native connect flows
-    webhooks.ts            webhook router + two-stage dedupe key
-  queue/
-    queues.ts              BullMQ queues + shared Redis connection
-    enqueue.ts             enqueue helpers (idempotency keys)
-    workers.ts             publish + sync-in workers (retry / auth handling)
-  stores/
-    memory.ts              in-memory stores (zero-infra local mode)
-    prisma.ts              Postgres-backed stores (production)
-  http/
-    server.ts              Express API: connect / publish / status / webhooks
-  crypto.ts                AES-256-GCM credential encryption
-  ports.ts                 storage contracts (implement against Prisma)
-  index.ts                 registry wiring + `npm run dry`
-prisma/
-  schema.prisma            Postgres schema (matches the technical spec)
+  app/
+    page.tsx                 Public landing page
+    dashboard/               Main dashboard (after login)
+    events/                  Events per channel
+    bookings/                All bookings
+    channels/                Connection status
+    settings/                API keys, tokens, webhook secret
+    login/                   HighTribe sign-in
+    create/                  Ewentcast event wizard
+    api/
+      sync/                  POST — pull data from channels into SQLite
+      data/dashboard/        GET — dashboard stats from DB
+      data/bookings/         GET — bookings from DB
+      data/events/           GET — cached events by channel
+      registry/              Master event registry (links + attendees)
+      settings/              Read/write settings.json
+      hightribe/[...path]    Proxy to HighTribe API
+      luma/[...path]         Proxy to Luma API
+      eventbrite/[...path]   Proxy to Eventbrite API
+      webhooks/              Inbound booking webhooks + setup helper
+  components/                UI (Sidebar, modals, landing, loaders, …)
+  lib/
+    db/                      SQLite stores (registry, bookings, events cache)
+    server/                  Server-only sync + dashboard builders
+    event-registry.ts        Registry types + SQLite-backed CRUD
+    ticket-sync.ts           Webhook handler + cross-channel capacity sync
+    publish-event.ts         Publish flow to all channels
+    data-api.ts              Client helpers for sync + DB reads
+data/
+  eventlifter.db             SQLite database (created at runtime, gitignored)
+  event-registry.json        Legacy JSON registry (auto-imported into SQLite once)
+settings.json                Channel credentials (gitignored — create via Settings UI)
 ```
 
-## Run it
+## Quick start
+
+### Requirements
+
+- Node.js 20+
+- npm
+
+### Local dev (Laragon or plain Node)
 
 ```bash
 npm install
-npm run dry          # prints the exact EB + Luma request bodies for a sample event — no network, no creds
-npm run typecheck    # tsc --noEmit
+npm run dev
 ```
 
-To go live:
+Open:
+
+- **Landing:** http://localhost:3000/
+- **App:** http://localhost:3000/login → dashboard at `/dashboard`
+
+With Laragon, you can proxy a `.test` host to port 3000 (e.g. `http://eventlifter-core.test`).
+
+### Production build
 
 ```bash
-cp .env.example .env          # fill in Postgres, Redis, Eventbrite OAuth app
-npm run prisma:migrate        # create the tables
-npm run prisma:generate
+npm run build
+npm start
 ```
 
-Then wire connections (per host, stored encrypted in `channel_connections`):
-- **Eventbrite** — OAuth2; store `{ accessToken, organizationId }`.
-- **Luma** — host pastes a **Luma Plus** API key; store `{ apiKey, calendarId? }`.
-- **HighTribe** — native; pass `{ internalHostId }`.
+Ensure the `data/` directory is writable so SQLite can create `eventlifter.db`.
 
-And publish:
+## Configuration
 
-```ts
-const registry = buildRegistry(yourHighTribeClient);
-const orchestrator = new PublishOrchestrator(registry);
-const results = await orchestrator.publish(masterEvent, ["hightribe","eventbrite","luma"], connections);
-// results: per-channel { status, ref?, error? }; rollupStatus(results) for the event
-```
+Most configuration is done in the app under **Settings** (`/settings`). Values are saved to `settings.json` in the project root.
 
-## Run as a local server (zero infra)
+| Channel | What to configure |
+|---------|-------------------|
+| **HighTribe** | Sign in with your HighTribe account (token stored in browser). Optional: service URL + webhook secret. |
+| **Luma** | Luma Plus API key, calendar ID, API base URLs |
+| **Eventbrite** | OAuth app (client ID/secret/redirect) or private token |
 
-`npm run dev` boots the Express API in **in-memory mode** — no Postgres, no Redis. Connections, events, and registrations live in process memory and reset on restart; credentials are still encrypted on the way in. Publishing runs inline (synchronously) instead of through the queue.
+Optional env fallback for HighTribe API base:
 
 ```bash
-npm run dev          # -> http://localhost:3000
+HT_API_BASE=https://api.hightribe.com
 ```
 
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/health` | liveness + channel list |
-| GET | `/connections/:channel/start?hostId=` | OAuth consent URL (Eventbrite) |
-| GET | `/connections/eventbrite/callback?code=&state=` | OAuth callback -> stores token |
-| POST | `/connections/:channel` | API-key (Luma) / native (HighTribe) connect |
-| DELETE | `/connections/:channel?hostId=` | disconnect |
-| POST | `/events` | create a master event |
-| POST | `/events/:id/publish` | publish to enabled channels |
-| GET | `/events/:id/status` | per-channel sync state |
-| POST | `/webhooks/:channel?eventId=` | inbound webhook (verify -> parse -> upsert) |
+Eventbrite OAuth redirect defaults to `http://localhost:3000/api/eventbrite/callback` in settings.
 
-Walk-through with `curl`:
+## Data & sync model
+
+### SQLite (primary store)
+
+On first run, the app creates `data/eventlifter.db` and imports `data/event-registry.json` if the DB is empty.
+
+| Table / area | Purpose |
+|--------------|---------|
+| `master_events`, `channel_refs`, `attendees` | Linked events + webhook attendees |
+| `bookings` | Unified booking list (API sync + webhooks) |
+| `channel_events` | Cached event lists per channel |
+| `channel_stats` | Aggregated counts from last sync |
+| `sync_meta` | e.g. `last_sync_at` timestamp |
+
+### When data updates
+
+| Trigger | What happens |
+|---------|----------------|
+| **Page load** | Reads from SQLite only — no external API calls |
+| **↻ Sync from channels** | Calls HighTribe / Luma / Eventbrite APIs, writes to SQLite |
+| **Webhook** | Updates registry + `bookings` immediately (no sync button needed) |
+
+HighTribe sync requires a logged-in user (Bearer token sent with `POST /api/sync`).
+
+### Webhooks
+
+Webhook endpoints:
+
+| Channel | Endpoint |
+|---------|----------|
+| HighTribe | `POST /api/webhooks/hightribe` |
+| Luma | `POST /api/webhooks/luma` |
+| Eventbrite | `POST /api/webhooks/eventbrite` |
+
+**Important:** A webhook only creates a booking if the event is **linked in the registry** (published/synced through Ewentcast first). Otherwise the payload is acknowledged but skipped.
+
+**HighTribe (Laravel backend):** Set in Laravel `.env`:
+
+```env
+CHANNEL_MANAGER_WEBHOOK_URL=https://your-domain/api/webhooks/hightribe
+CHANNEL_MANAGER_WEBHOOK_SECRET=same-secret-as-settings-ui
+```
+
+Use the same secret in **Settings → HighTribe → Webhook secret**.
+
+Register Luma + Eventbrite webhooks from **Settings** (calls `POST /api/webhooks/setup`) or configure them manually to point at your `/api/webhooks/*` URLs.
+
+## App routes
+
+| Path | Description |
+|------|-------------|
+| `/` | Public landing page |
+| `/login` | HighTribe login |
+| `/dashboard` | Stats, recent events & bookings |
+| `/events` | Manage events by channel |
+| `/bookings` | All registrations |
+| `/channels` | Connection overview |
+| `/settings` | Credentials & webhook setup |
+| `/create` | Create / publish wizard |
+
+## API routes (summary)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/sync` | Sync all configured channels into SQLite |
+| GET | `/api/data/dashboard` | Dashboard stats from DB |
+| GET | `/api/data/bookings` | Bookings from DB |
+| GET | `/api/data/events?channel=` | Cached events (`hightribe` \| `luma` \| `eventbrite`) |
+| GET/POST | `/api/registry` | Master event registry |
+| GET/PUT | `/api/settings` | App settings |
+| POST | `/api/webhooks/setup` | Register Luma + Eventbrite webhooks |
+| * | `/api/hightribe/*` | HighTribe API proxy |
+| * | `/api/luma/*` | Luma API proxy |
+| * | `/api/eventbrite/*` | Eventbrite API proxy |
+
+## Scripts
 
 ```bash
-curl -X POST localhost:3000/connections/hightribe -H 'Content-Type: application/json' -d '{"hostId":"host_1"}'
-
-curl -X POST localhost:3000/events -H 'Content-Type: application/json' \
-  -d '{"hostId":"host_1","title":"Rooftop Session","ticketType":"paid","priceCents":2500,"capacity":150}'
-
-curl -X POST localhost:3000/events/<ID>/publish     # HighTribe -> synced; EB/Luma -> "no connection"
-curl localhost:3000/events/<ID>/status
+npm run dev      # Development server (port 3000)
+npm run build    # Production build
+npm run start    # Run production server
+npm run lint     # ESLint
 ```
 
-Connect **Eventbrite** by setting `EVENTBRITE_CLIENT_ID/SECRET/REDIRECT_URI` in `.env`, then hitting `/connections/eventbrite/start`. Connect **Luma** with `POST /connections/luma` and `{ "hostId":"host_1", "credentials": { "apiKey":"secret-..." } }` (a real Luma Plus key).
+## Gitignored files
 
-## What's real vs. what's stubbed
+Do not commit:
 
-**Real and ready:**
-- Adapter interface + registry + capability gating.
-- Eventbrite adapter: real v3 endpoints and the true create sequence (venue → draft event → ticket class → publish), attendee pagination, webhook reference-fetch handling.
-- Luma adapter: real `public-api.luma.com` endpoints, `x-luma-api-key` auth, guest pagination, inline-webhook parsing.
-- Field mapping for both, including EB's `cost: "USD,2500"` format, visibility-as-three-booleans, and Luma's `geo_address_json` / `require_rsvp_approval`.
-- Publish orchestrator with partial-failure semantics and auth/rate-limit classification.
-- **Connection flows** (`services/connections.ts`): Eventbrite OAuth round-trip (auth URL → code exchange → org resolve), Luma key validation, native HighTribe connect.
-- **Queue layer** (`queue/`): BullMQ publish + sync-in workers with per-channel retries, idempotency keys, and auth-error handling (expired tokens stop retrying instead of looping).
-- Prisma schema for the full data model (attendees vs. registrations split, external map, webhook log, sync jobs).
+- `settings.json` — API keys and tokens
+- `data/*.db` — SQLite database
+- `.env` — local env overrides
+- `.next/` — build output
 
-**Stubbed / you wire it:**
-- **HighTribe adapter** — implement `HighTribeClient` against your real event service. The shape is defined; swap the bodies.
-- **Storage** — implement the three ports in `ports.ts` (`ConnectionStore`, `EventStore`, `RegistrationStore`) against Prisma. Adapters, orchestrator, and workers are pure and depend only on those interfaces.
-- **Credential encryption** — `credentials` is `Bytes`; envelope-encrypt with your KMS inside `ConnectionStore.save`.
-- **Webhook signature verification** — `verifyWebhook` is a hook; implement each channel's scheme before trusting payloads.
-- **HTTP routes** — thin Nest/Express handlers that call `ConnectionService`, enqueue publishes, and accept webhooks (verify → persist → enqueue → 200).
+## License
 
-## Verify before you ship
-
-API field names are versioned and drift. Confirm against live docs before depending on them:
-1. Eventbrite webhook action names + the `order`/`attendee` payload paths.
-2. Luma `event/create` body, `create-ticket-type` path, and guest webhook shape (Plus account).
-3. Eventbrite category IDs (`EB_CATEGORY_IDS` is a starter map — pull from `GET /categories/`).
-4. Which Luma base host your key targets (`public-api.luma.com` vs `api.lu.ma/public/v1`).
+Private — EventLifter / Ewentcast internal use.

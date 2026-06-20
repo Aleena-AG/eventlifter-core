@@ -42,10 +42,10 @@ function ToastItem({ toast, onRemove }: { toast: ToastItem; onRemove: (id: strin
     return () => clearTimeout(timer)
   }, [toast.id, onRemove])
 
-  const colors: Record<ToastType, { bg: string; border: string; icon: string }> = {
-    success: { bg: '#1a2e1a', border: '#4E7A4B', icon: '✓' },
-    error: { bg: '#2e1a1a', border: '#C2502E', icon: '✕' },
-    info: { bg: '#1a1e2e', border: '#D98A2B', icon: 'ℹ' },
+  const colors: Record<ToastType, { bg: string; border: string; accent: string; icon: string }> = {
+    success: { bg: '#F0F6EE', border: '#4E7A4B', accent: '#4E7A4B', icon: '✓' },
+    error: { bg: '#FBF0EB', border: '#C2502E', accent: '#C2502E', icon: '✕' },
+    info: { bg: '#F6E9D4', border: '#D98A2B', accent: '#B66F1C', icon: 'ℹ' },
   }
 
   const c = colors[toast.type]
@@ -56,20 +56,20 @@ function ToastItem({ toast, onRemove }: { toast: ToastItem; onRemove: (id: strin
         pointerEvents: 'auto',
         background: c.bg,
         border: `1px solid ${c.border}`,
-        borderRadius: '8px',
+        borderRadius: '11px',
         padding: '12px 16px',
         display: 'flex',
         alignItems: 'center',
         gap: '10px',
         minWidth: '280px',
         maxWidth: '380px',
-        boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+        boxShadow: '0 8px 24px rgba(33, 27, 22, 0.08)',
         animation: 'slideIn 0.2s ease-out',
         cursor: 'pointer',
       }}
       onClick={() => onRemove(toast.id)}
     >
-      <span style={{ color: c.border, fontWeight: 'bold', fontSize: '14px' }}>{c.icon}</span>
+      <span style={{ color: c.accent, fontWeight: 'bold', fontSize: '14px' }}>{c.icon}</span>
       <span style={{ color: '#211B16', fontSize: '14px', flex: 1 }}>{toast.message}</span>
     </div>
   )
