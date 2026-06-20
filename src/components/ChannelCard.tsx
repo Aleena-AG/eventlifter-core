@@ -16,8 +16,8 @@ export function ChannelCard({ channel, connected, children }: ChannelCardProps) 
   return (
     <div
       style={{
-        background: '#161b22',
-        border: '1px solid #30363d',
+        background: '#FFFFFF',
+        border: '1px solid #E8DFD0',
         borderRadius: '10px',
         padding: '20px',
         display: 'flex',
@@ -44,16 +44,16 @@ export function ChannelCard({ channel, connected, children }: ChannelCardProps) 
             {meta.icon}
           </div>
           <div>
-            <div style={{ fontSize: '16px', fontWeight: 600, color: '#e6edf3' }}>{meta.name}</div>
+            <div style={{ fontSize: '16px', fontWeight: 600, color: '#211B16' }}>{meta.name}</div>
             <span
               style={{
                 display: 'inline-block',
                 fontSize: '11px',
                 padding: '1px 6px',
                 borderRadius: '4px',
-                background: '#1c2128',
-                border: '1px solid #30363d',
-                color: '#8b949e',
+                background: '#F1EADC',
+                border: '1px solid #E8DFD0',
+                color: '#8C7F6D',
                 marginTop: '2px',
               }}
             >
@@ -65,7 +65,7 @@ export function ChannelCard({ channel, connected, children }: ChannelCardProps) 
       </div>
 
       {/* Description */}
-      <p style={{ margin: 0, fontSize: '13px', color: '#8b949e' }}>{meta.desc}</p>
+      <p style={{ margin: 0, fontSize: '13px', color: '#8C7F6D' }}>{meta.desc}</p>
 
       {/* Capabilities */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
@@ -78,7 +78,7 @@ export function ChannelCard({ channel, connected, children }: ChannelCardProps) 
               borderRadius: '4px',
               background: supported ? 'rgba(63,185,80,0.1)' : 'rgba(139,148,158,0.05)',
               border: `1px solid ${supported ? 'rgba(63,185,80,0.3)' : 'rgba(139,148,158,0.2)'}`,
-              color: supported ? '#3fb950' : '#8b949e',
+              color: supported ? '#4E7A4B' : '#8C7F6D',
               textDecoration: supported ? 'none' : 'line-through',
             }}
           >
@@ -88,7 +88,7 @@ export function ChannelCard({ channel, connected, children }: ChannelCardProps) 
       </div>
 
       {/* Actions slot */}
-      {children && <div style={{ borderTop: '1px solid #30363d', paddingTop: '16px' }}>{children}</div>}
+      {children && <div style={{ borderTop: '1px solid #E8DFD0', paddingTop: '16px' }}>{children}</div>}
     </div>
   )
 }

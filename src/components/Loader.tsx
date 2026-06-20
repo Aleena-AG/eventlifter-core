@@ -7,7 +7,7 @@ const SIZE_PX: Record<LoaderSize, number> = { sm: 16, md: 28, lg: 44 }
 /** Round spinner — inline styles only so Tailwind/preflight cannot flatten it to a square */
 export function Spinner({
   size = 24,
-  color = '#388bfd',
+  color = '#D98A2B',
 }: {
   size?: number
   color?: string
@@ -25,7 +25,7 @@ export function Spinner({
         borderRadius: '50%',
         borderStyle: 'solid',
         borderWidth: border,
-        borderColor: '#30363d',
+        borderColor: '#E8DFD0',
         borderTopColor: color,
         boxSizing: 'border-box',
         flexShrink: 0,
@@ -61,7 +61,7 @@ export function Loader({
     >
       <Spinner size={px} />
       {label && (
-        <span style={{ fontSize: size === 'sm' ? 12 : 14, color: '#8b949e' }}>{label}</span>
+        <span style={{ fontSize: size === 'sm' ? 12 : 14, color: '#8C7F6D' }}>{label}</span>
       )}
     </div>
   )

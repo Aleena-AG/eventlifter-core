@@ -75,18 +75,18 @@ const CURRENCIES = [
 ]
 
 const INPUT: React.CSSProperties = {
-  width: '100%', background: '#0d1117', border: '1px solid #30363d',
+  width: '100%', background: '#FBF7F0', border: '1px solid #E8DFD0',
   borderRadius: '6px', padding: '8px 10px', fontSize: '13px',
-  color: '#e6edf3', outline: 'none', boxSizing: 'border-box',
+  color: '#211B16', outline: 'none', boxSizing: 'border-box',
 }
 const LABEL: React.CSSProperties = {
-  display: 'block', fontSize: '12px', color: '#8b949e',
+  display: 'block', fontSize: '12px', color: '#8C7F6D',
   marginBottom: '5px', fontWeight: 500,
 }
 const SECTION_TITLE: React.CSSProperties = {
-  fontSize: '11px', fontWeight: 700, color: '#8b949e',
+  fontSize: '11px', fontWeight: 700, color: '#8C7F6D',
   letterSpacing: '0.06em', textTransform: 'uppercase',
-  marginBottom: '10px', paddingBottom: '6px', borderBottom: '1px solid #30363d',
+  marginBottom: '10px', paddingBottom: '6px', borderBottom: '1px solid #E8DFD0',
 }
 
 function toISO(date: string, time: string): string {
@@ -95,9 +95,9 @@ function toISO(date: string, time: string): string {
 }
 
 const CHANNELS: { key: TargetChannel; label: string; icon: string; color: string }[] = [
-  { key: 'hightribe', label: 'HighTribe', icon: '🏔', color: '#a78bfa' },
-  { key: 'luma', label: 'Luma', icon: '✨', color: '#22d3ee' },
-  { key: 'eventbrite', label: 'Eventbrite', icon: '🎫', color: '#fbbf24' },
+  { key: 'hightribe', label: 'HighTribe', icon: '🏔', color: '#7C5C8A' },
+  { key: 'luma', label: 'Luma', icon: '✨', color: '#7C5C8A' },
+  { key: 'eventbrite', label: 'Eventbrite', icon: '🎫', color: '#C2502E' },
 ]
 
 export function CreateEventModal({ open, onClose, onCreated }: Props) {
@@ -306,18 +306,18 @@ export function CreateEventModal({ open, onClose, onCreated }: Props) {
       onClick={e => { if (e.target === e.currentTarget) handleClose() }}
     >
       <div style={{
-        background: '#161b22', border: '1px solid #30363d', borderRadius: '12px',
+        background: '#FFFFFF', border: '1px solid #E8DFD0', borderRadius: '12px',
         width: '100%', maxWidth: '560px', maxHeight: '90vh', overflow: 'hidden',
         display: 'flex', flexDirection: 'column',
       }}>
         {/* Header */}
         <div style={{
-          padding: '18px 24px', borderBottom: '1px solid #30363d',
+          padding: '18px 24px', borderBottom: '1px solid #E8DFD0',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0,
         }}>
-          <div style={{ fontSize: '16px', fontWeight: 700, color: '#e6edf3' }}>Create Event</div>
+          <div style={{ fontSize: '16px', fontWeight: 700, color: '#211B16' }}>Create Event</div>
           <button onClick={handleClose} style={{
-            background: 'none', border: 'none', color: '#8b949e',
+            background: 'none', border: 'none', color: '#8C7F6D',
             fontSize: '20px', cursor: 'pointer', lineHeight: 1, padding: '4px',
           }}>×</button>
         </div>
@@ -327,9 +327,9 @@ export function CreateEventModal({ open, onClose, onCreated }: Props) {
           {CHANNELS.map(ch => (
             <button key={ch.key} onClick={() => setTarget(ch.key)} style={{
               flex: 1, padding: '10px 8px', borderRadius: '8px',
-              border: `1px solid ${target === ch.key ? ch.color + '66' : '#30363d'}`,
-              background: target === ch.key ? ch.color + '14' : '#1c2128',
-              color: target === ch.key ? ch.color : '#8b949e',
+              border: `1px solid ${target === ch.key ? ch.color + '66' : '#E8DFD0'}`,
+              background: target === ch.key ? ch.color + '14' : '#F1EADC',
+              color: target === ch.key ? ch.color : '#8C7F6D',
               fontSize: '12px', fontWeight: 600, cursor: 'pointer',
               display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px',
             }}>
@@ -347,7 +347,7 @@ export function CreateEventModal({ open, onClose, onCreated }: Props) {
               {error && (
                 <div style={{
                   background: 'rgba(248,81,73,0.1)', border: '1px solid rgba(248,81,73,0.4)',
-                  borderRadius: '6px', padding: '10px 14px', color: '#f85149', fontSize: '13px',
+                  borderRadius: '6px', padding: '10px 14px', color: '#C2502E', fontSize: '13px',
                 }}>
                   {error}
                 </div>
@@ -408,7 +408,7 @@ export function CreateEventModal({ open, onClose, onCreated }: Props) {
                 <input type="checkbox" id="isOnline" checked={form.isOnline}
                   onChange={e => set('isOnline', e.target.checked)}
                   style={{ width: '16px', height: '16px', cursor: 'pointer' }} />
-                <label htmlFor="isOnline" style={{ fontSize: '13px', color: '#e6edf3', cursor: 'pointer' }}>
+                <label htmlFor="isOnline" style={{ fontSize: '13px', color: '#211B16', cursor: 'pointer' }}>
                   Online event
                 </label>
               </div>
@@ -467,7 +467,7 @@ export function CreateEventModal({ open, onClose, onCreated }: Props) {
                     <input type="checkbox" id="rsvp" checked={form.requireRsvpApproval}
                       onChange={e => set('requireRsvpApproval', e.target.checked)}
                       style={{ width: '16px', height: '16px', cursor: 'pointer' }} />
-                    <label htmlFor="rsvp" style={{ fontSize: '13px', color: '#e6edf3', cursor: 'pointer' }}>
+                    <label htmlFor="rsvp" style={{ fontSize: '13px', color: '#211B16', cursor: 'pointer' }}>
                       Require RSVP approval
                     </label>
                   </div>
@@ -502,9 +502,9 @@ export function CreateEventModal({ open, onClose, onCreated }: Props) {
                     {(['free', 'paid'] as const).map(t => (
                       <button key={t} type="button" onClick={() => set('ticketType', t)} style={{
                         flex: 1, padding: '8px', borderRadius: '6px',
-                        border: `1px solid ${form.ticketType === t ? '#388bfd66' : '#30363d'}`,
-                        background: form.ticketType === t ? 'rgba(56,139,253,0.1)' : '#1c2128',
-                        color: form.ticketType === t ? '#388bfd' : '#8b949e',
+                        border: `1px solid ${form.ticketType === t ? '#D98A2B66' : '#E8DFD0'}`,
+                        background: form.ticketType === t ? 'rgba(56,139,253,0.1)' : '#F1EADC',
+                        color: form.ticketType === t ? '#D98A2B' : '#8C7F6D',
                         fontSize: '13px', fontWeight: 500, cursor: 'pointer',
                       }}>
                         {t === 'free' ? '🆓 Free' : '💳 Paid'}
@@ -537,9 +537,9 @@ export function CreateEventModal({ open, onClose, onCreated }: Props) {
 
                   <div style={{
                     background: 'rgba(56,139,253,0.07)', border: '1px solid rgba(56,139,253,0.25)',
-                    borderRadius: '6px', padding: '10px 12px', fontSize: '12px', color: '#8b949e',
+                    borderRadius: '6px', padding: '10px 12px', fontSize: '12px', color: '#8C7F6D',
                   }}>
-                    Event will be created as <b style={{ color: '#e6edf3' }}>draft</b> on Eventbrite. Publish it from your Eventbrite dashboard after review.
+                    Event will be created as <b style={{ color: '#211B16' }}>draft</b> on Eventbrite. Publish it from your Eventbrite dashboard after review.
                   </div>
                 </>
               )}
@@ -550,16 +550,16 @@ export function CreateEventModal({ open, onClose, onCreated }: Props) {
 
         {/* Footer */}
         <div style={{
-          padding: '14px 24px', borderTop: '1px solid #30363d',
+          padding: '14px 24px', borderTop: '1px solid #E8DFD0',
           display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0,
         }}>
-          <span style={{ fontSize: '12px', color: '#8b949e', minHeight: '18px' }}>
+          <span style={{ fontSize: '12px', color: '#8C7F6D', minHeight: '18px' }}>
             {statusMsg}
           </span>
           <div style={{ display: 'flex', gap: '10px' }}>
             <button onClick={handleClose} style={{
-              background: 'none', border: '1px solid #30363d', borderRadius: '6px',
-              color: '#8b949e', padding: '8px 16px', fontSize: '13px', cursor: 'pointer',
+              background: 'none', border: '1px solid #E8DFD0', borderRadius: '6px',
+              color: '#8C7F6D', padding: '8px 16px', fontSize: '13px', cursor: 'pointer',
             }}>
               Cancel
             </button>
@@ -568,9 +568,9 @@ export function CreateEventModal({ open, onClose, onCreated }: Props) {
               form="create-event-form"
               disabled={submitting}
               style={{
-                background: submitting ? '#1c2128' : '#238636',
+                background: submitting ? '#F1EADC' : '#238636',
                 border: 'none', borderRadius: '6px',
-                color: submitting ? '#8b949e' : '#fff',
+                color: submitting ? '#8C7F6D' : '#fff',
                 padding: '8px 22px', fontSize: '13px', fontWeight: 600,
                 cursor: submitting ? 'default' : 'pointer',
               }}

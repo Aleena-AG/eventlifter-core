@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { authHeader } from '@/lib/auth'
-import { fetchHtEventsPage, type HtEventListItem } from '@/lib/hightribe-events'
+import { fetchEventsFromDb, syncChannelsFromApi } from '@/lib/data-api'
+import type { HtEventListItem } from '@/lib/hightribe-events'
 import { Toast, useToast } from '@/components/Toast'
 import { InlineLoader, PageLoader } from '@/components/Loader'
 import { SyncModal, SyncSource } from '@/components/SyncModal'
@@ -105,16 +106,16 @@ function DeleteDialog({
 
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000 }}>
-      <div style={{ background:'#161b22', border:'1px solid #30363d', borderRadius:'10px', padding:'24px 28px', maxWidth:'420px', width:'100%', margin:'20px' }}>
-        <div style={{ fontSize:'15px', fontWeight:700, color:'#e6edf3', marginBottom:'10px' }}>Delete Event?</div>
-        <div style={{ fontSize:'13px', color:'#8b949e', marginBottom:'16px', lineHeight:'1.5' }}>
-          Delete <b style={{ color:'#e6edf3' }}>{title}</b> from {CH_LABELS[sourceChannel]}?
+      <div style={{ background:'#FFFFFF', border:'1px solid #E8DFD0', borderRadius:'10px', padding:'24px 28px', maxWidth:'420px', width:'100%', margin:'20px' }}>
+        <div style={{ fontSize:'15px', fontWeight:700, color:'#211B16', marginBottom:'10px' }}>Delete Event?</div>
+        <div style={{ fontSize:'13px', color:'#8C7F6D', marginBottom:'16px', lineHeight:'1.5' }}>
+          Delete <b style={{ color:'#211B16' }}>{title}</b> from {CH_LABELS[sourceChannel]}?
           {others.length > 0 && ' You can also remove copies on other channels.'}
         </div>
 
         {others.length > 0 && (
           <div style={{ marginBottom:'20px', display:'flex', flexDirection:'column', gap:'8px' }}>
-            <div style={{ fontSize:'12px', fontWeight:600, color:'#8b949e', textTransform:'uppercase', letterSpacing:'0.04em' }}>
+            <div style={{ fontSize:'12px', fontWeight:600, color:'#8C7F6D', textTransform:'uppercase', letterSpacing:'0.04em' }}>
               Also delete from
             </div>
             {others.map(({ channel }) => (
@@ -122,23 +123,23 @@ function DeleteDialog({
                 key={channel}
                 style={{
                   display:'flex', alignItems:'center', gap:'10px', padding:'10px 12px',
-                  background:'#1c2128', border:'1px solid #30363d', borderRadius:'8px', cursor:'pointer',
+                  background:'#F1EADC', border:'1px solid #E8DFD0', borderRadius:'8px', cursor:'pointer',
                 }}
               >
                 <input
                   type="checkbox"
                   checked={!!alsoDelete[channel]}
                   onChange={() => onToggle(channel)}
-                  style={{ width:16, height:16, accentColor:'#f85149' }}
+                  style={{ width:16, height:16, accentColor:'#C2502E' }}
                 />
-                <span style={{ fontSize:'13px', color:'#e6edf3' }}>{CH_LABELS[channel]}</span>
+                <span style={{ fontSize:'13px', color:'#211B16' }}>{CH_LABELS[channel]}</span>
               </label>
             ))}
           </div>
         )}
 
         <div style={{ display:'flex', gap:'8px', justifyContent:'flex-end' }}>
-          <button onClick={onCancel} style={{ background:'none', border:'1px solid #30363d', borderRadius:'6px', color:'#8b949e', padding:'7px 16px', fontSize:'13px', cursor:'pointer' }}>
+          <button onClick={onCancel} style={{ background:'none', border:'1px solid #E8DFD0', borderRadius:'6px', color:'#8C7F6D', padding:'7px 16px', fontSize:'13px', cursor:'pointer' }}>
             Cancel
           </button>
           <button onClick={onConfirm} style={{ background:'#b91c1c', border:'none', borderRadius:'6px', color:'#fff', padding:'7px 16px', fontSize:'13px', fontWeight:600, cursor:'pointer' }}>
@@ -160,32 +161,32 @@ function EventCard({
   onEdit?: () => void; onDelete?: () => void
 }) {
   return (
-    <div style={{ background:'#161b22', border:'1px solid #30363d', borderRadius:'10px', overflow:'hidden', display:'flex', gap:0 }}>
+    <div style={{ background:'#FFFFFF', border:'1px solid #E8DFD0', borderRadius:'10px', overflow:'hidden', display:'flex', gap:0 }}>
       {/* Cover */}
       {image ? (
-        <div style={{ width:'120px', flexShrink:0, background:'#1c2128', overflow:'hidden' }}>
+        <div style={{ width:'120px', flexShrink:0, background:'#F1EADC', overflow:'hidden' }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={image} alt={title} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
         </div>
       ) : (
-        <div style={{ width:'120px', flexShrink:0, background:'#1c2128', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'32px' }}>📅</div>
+        <div style={{ width:'120px', flexShrink:0, background:'#F1EADC', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'32px' }}>📅</div>
       )}
 
       {/* Info */}
       <div style={{ flex:1, padding:'14px 16px', minWidth:0 }}>
         <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:'12px' }}>
           <div style={{ flex:1, minWidth:0 }}>
-            <div style={{ fontSize:'15px', fontWeight:600, color:'#e6edf3', marginBottom:'5px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+            <div style={{ fontSize:'15px', fontWeight:600, color:'#211B16', marginBottom:'5px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
               {title}
             </div>
-            <div style={{ display:'flex', gap:'8px', flexWrap:'wrap', fontSize:'12px', color:'#8b949e', marginBottom:'8px' }}>
+            <div style={{ display:'flex', gap:'8px', flexWrap:'wrap', fontSize:'12px', color:'#8C7F6D', marginBottom:'8px' }}>
               <span>📅 {dateStr}</span>
               {location && <><span>·</span><span>📍 {location}</span></>}
             </div>
             <div style={{ display:'flex', gap:'6px', flexWrap:'wrap', alignItems:'center' }}>
               <span style={{ fontSize:'11px', padding:'2px 8px', borderRadius:'4px', background:badgeColor+'1a', border:`1px solid ${badgeColor}4d`, color:badgeColor }}>{badge}</span>
               {status && (
-                <span style={{ fontSize:'11px', padding:'2px 8px', borderRadius:'4px', background: status==='published'||status==='live' ? 'rgba(63,185,80,0.1)' : 'rgba(139,148,158,0.15)', border:`1px solid ${status==='published'||status==='live' ? 'rgba(63,185,80,0.3)' : '#30363d'}`, color: status==='published'||status==='live' ? '#3fb950' : '#8b949e' }}>
+                <span style={{ fontSize:'11px', padding:'2px 8px', borderRadius:'4px', background: status==='published'||status==='live' ? 'rgba(63,185,80,0.1)' : 'rgba(139,148,158,0.15)', border:`1px solid ${status==='published'||status==='live' ? 'rgba(63,185,80,0.3)' : '#E8DFD0'}`, color: status==='published'||status==='live' ? '#4E7A4B' : '#8C7F6D' }}>
                   {status}
                 </span>
               )}
@@ -195,17 +196,17 @@ function EventCard({
           {/* Action buttons */}
           <div style={{ display:'flex', gap:'6px', flexShrink:0, alignItems:'center', flexWrap:'wrap', justifyContent:'flex-end' }}>
             {onEdit && (
-              <button onClick={onEdit} style={{ background:'rgba(56,139,253,0.1)', border:'1px solid rgba(56,139,253,0.35)', borderRadius:'6px', color:'#388bfd', padding:'5px 10px', fontSize:'12px', fontWeight:500, cursor:'pointer' }}>
+              <button onClick={onEdit} style={{ background:'rgba(56,139,253,0.1)', border:'1px solid rgba(56,139,253,0.35)', borderRadius:'6px', color:'#D98A2B', padding:'5px 10px', fontSize:'12px', fontWeight:500, cursor:'pointer' }}>
                 ✎ Edit
               </button>
             )}
             {onDelete && (
-              <button onClick={onDelete} style={{ background:'rgba(248,81,73,0.08)', border:'1px solid rgba(248,81,73,0.3)', borderRadius:'6px', color:'#f85149', padding:'5px 10px', fontSize:'12px', fontWeight:500, cursor:'pointer' }}>
+              <button onClick={onDelete} style={{ background:'rgba(248,81,73,0.08)', border:'1px solid rgba(248,81,73,0.3)', borderRadius:'6px', color:'#C2502E', padding:'5px 10px', fontSize:'12px', fontWeight:500, cursor:'pointer' }}>
                 🗑 Delete
               </button>
             )}
             {url && (
-              <a href={url} target="_blank" rel="noopener noreferrer" style={{ display:'flex', alignItems:'center', gap:'4px', background:'rgba(56,139,253,0.12)', border:'1px solid rgba(56,139,253,0.35)', borderRadius:'6px', color:'#388bfd', padding:'5px 10px', fontSize:'12px', fontWeight:500, textDecoration:'none', whiteSpace:'nowrap' }}>
+              <a href={url} target="_blank" rel="noopener noreferrer" style={{ display:'flex', alignItems:'center', gap:'4px', background:'rgba(56,139,253,0.12)', border:'1px solid rgba(56,139,253,0.35)', borderRadius:'6px', color:'#D98A2B', padding:'5px 10px', fontSize:'12px', fontWeight:500, textDecoration:'none', whiteSpace:'nowrap' }}>
                 View ↗
               </a>
             )}
@@ -218,10 +219,10 @@ function EventCard({
 
 function EmptyState({ channel }: { channel: string }) {
   return (
-    <div style={{ background:'#161b22', border:'2px dashed #30363d', borderRadius:'10px', padding:'60px 24px', textAlign:'center' }}>
+    <div style={{ background:'#FFFFFF', border:'2px dashed #E8DFD0', borderRadius:'10px', padding:'60px 24px', textAlign:'center' }}>
       <div style={{ fontSize:'40px', marginBottom:'12px' }}>📭</div>
-      <div style={{ fontSize:'15px', color:'#e6edf3', fontWeight:500, marginBottom:'8px' }}>No {channel} events found</div>
-      <p style={{ color:'#8b949e', fontSize:'13px', margin:0 }}>Make sure your {channel} credentials are configured in Settings</p>
+      <div style={{ fontSize:'15px', color:'#211B16', fontWeight:500, marginBottom:'8px' }}>No {channel} events found</div>
+      <p style={{ color:'#8C7F6D', fontSize:'13px', margin:0 }}>Make sure your {channel} credentials are configured in Settings</p>
     </div>
   )
 }
@@ -268,59 +269,84 @@ export default function EventsPage() {
   const loadHtEvents = useCallback(async (page = 1) => {
     setHtLoading(true)
     try {
-      const { events, currentPage, lastPage, total } = await fetchHtEventsPage(page, 12)
-      setHtEvents(events)
+      const { events: cached } = await fetchEventsFromDb('hightribe')
+      const all = cached.map(c => (c.payload || {}) as HtEventListItem).filter(e => e.id)
+      const perPage = 12
+      const lastPage = Math.max(1, Math.ceil(all.length / perPage))
+      const currentPage = Math.min(page, lastPage)
+      const start = (currentPage - 1) * perPage
+      setHtEvents(all.slice(start, start + perPage) as HtEvent[])
       setHtPage(currentPage)
       setHtLastPage(lastPage)
-      setHtTotal(total)
-    } catch { toast.error('Failed to load HighTribe events') }
+      setHtTotal(all.length)
+    } catch { toast.error('Failed to load HighTribe events — sync first') }
     finally { setHtLoading(false) }
   }, [toast])
+
+  const syncHtEvents = useCallback(async (page = 1) => {
+    setHtLoading(true)
+    try {
+      await syncChannelsFromApi()
+      await loadHtEvents(page)
+    } catch {
+      toast.error('Sync failed')
+      await loadHtEvents(page)
+    } finally { setHtLoading(false) }
+  }, [loadHtEvents, toast])
 
   const loadLumaEvents = useCallback(async () => {
     setLumaLoading(true)
     try {
-      const res = await fetch('/api/luma/events/hosted?upcoming_only=false&fetch_all=true', { headers: { Authorization: authHeader() } })
-      const raw = await res.json() as { data?: { entries?: LumaEntry[] }; entries?: LumaEntry[]; status?: string; message?: string; error?: string }
-      if (!res.ok || raw.status === 'error') {
-        toast.error(`Luma: ${raw.message || raw.error || `HTTP ${res.status}`}`)
-        return
-      }
-      const entries = raw.data?.entries || raw.entries || []
-      setLumaEvents(entries.map((e): LumaEvent | null => {
-        if (e.event) return e.event
-        if (e.id && e.name) {
-          return {
-            api_id: e.id,
-            name: e.name,
-            start_at: e.start_at || '',
-            end_at: e.end_at || '',
-            timezone: e.timezone || 'UTC',
-            url: e.url,
-            cover_url: e.cover_url,
-            geo_address_json: e.geo_address_json,
-            meeting_url: e.meeting_url,
-          }
-        }
-        return null
-      }).filter((e): e is LumaEvent => !!e))
-    } catch { toast.error('Failed to load Luma events') }
+      const { events: cached } = await fetchEventsFromDb('luma')
+      setLumaEvents(cached.map(c => {
+        const p = c.payload as LumaEntry | undefined
+        if (p?.event) return p.event
+        return {
+          api_id: c.externalId,
+          name: c.title,
+          start_at: c.startUtc || '',
+          end_at: '',
+          timezone: 'UTC',
+        } as LumaEvent
+      }))
+    } catch { toast.error('Failed to load Luma events — sync first') }
     finally { setLumaLoading(false) }
   }, [toast])
+
+  const syncLumaEvents = useCallback(async () => {
+    setLumaLoading(true)
+    try {
+      await syncChannelsFromApi()
+      await loadLumaEvents()
+    } catch {
+      toast.error('Sync failed')
+      await loadLumaEvents()
+    } finally { setLumaLoading(false) }
+  }, [loadLumaEvents, toast])
 
   const loadEbEvents = useCallback(async () => {
     setEbLoading(true)
     try {
-      const orgRes = await fetch('/api/eventbrite/users/me/organizations')
-      const orgData = await orgRes.json() as { organizations?: Array<{ id: string }> }
-      const orgs = orgData.organizations || []
-      if (orgs.length === 0) { setEbEvents([]); return }
-      const evtRes = await fetch(`/api/eventbrite/organizations/${orgs[0].id}/events?page_size=50`)
-      const evtData = await evtRes.json() as { events?: EbEvent[] }
-      setEbEvents(evtData.events || [])
-    } catch { toast.error('Failed to load Eventbrite events') }
+      const { events: cached } = await fetchEventsFromDb('eventbrite')
+      setEbEvents(cached.map(c => (c.payload || {
+        id: c.externalId,
+        name: { text: c.title },
+        start: { utc: c.startUtc },
+      }) as EbEvent))
+    } catch { toast.error('Failed to load Eventbrite events — sync first') }
     finally { setEbLoading(false) }
   }, [toast])
+
+  const syncEbEvents = useCallback(async () => {
+    setEbLoading(true)
+    try {
+      await syncChannelsFromApi()
+      await loadEbEvents()
+    } catch {
+      toast.error('Sync failed')
+      await loadEbEvents()
+    } finally { setEbLoading(false) }
+  }, [loadEbEvents, toast])
 
   // Load linked copies when delete dialog opens
   useEffect(() => {
@@ -441,9 +467,9 @@ export default function EventsPage() {
   }, [tab]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const TABS: { key: Tab; label: string; color: string }[] = [
-    { key:'hightribe', label:'🏔 HighTribe', color:'#a78bfa' },
-    { key:'luma',      label:'✨ Luma',      color:'#22d3ee' },
-    { key:'eventbrite',label:'🎫 Eventbrite',color:'#fbbf24' },
+    { key:'hightribe', label:'🏔 HighTribe', color:'#7C5C8A' },
+    { key:'luma',      label:'✨ Luma',      color:'#7C5C8A' },
+    { key:'eventbrite',label:'🎫 Eventbrite',color:'#C2502E' },
   ]
 
   function openCreate() { setCreateOpen(true) }
@@ -510,7 +536,7 @@ export default function EventsPage() {
         />
       )}
       {deleting && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000, color:'#e6edf3', fontSize:'15px' }}>
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000, color:'#211B16', fontSize:'15px' }}>
           Deleting…
         </div>
       )}
@@ -518,8 +544,8 @@ export default function EventsPage() {
       {/* Header */}
       <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:'24px', gap:'16px' }}>
         <div>
-          <h1 style={{ margin:0, fontSize:'22px', fontWeight:700, color:'#e6edf3' }}>Events</h1>
-          <p style={{ margin:'4px 0 0', fontSize:'14px', color:'#8b949e' }}>Browse events from all your connected channels</p>
+          <h1 style={{ margin:0, fontSize:'22px', fontWeight:700, color:'#211B16' }}>Events</h1>
+          <p style={{ margin:'4px 0 0', fontSize:'14px', color:'#8C7F6D' }}>Browse events from all your connected channels</p>
         </div>
         <button onClick={openCreate} style={{ background:'#238636', border:'1px solid #2ea043', borderRadius:'8px', color:'#fff', padding:'10px 18px', fontSize:'13px', fontWeight:600, cursor:'pointer', display:'flex', alignItems:'center', gap:'6px', whiteSpace:'nowrap', flexShrink:0 }}>
           + Create Event
@@ -527,9 +553,9 @@ export default function EventsPage() {
       </div>
 
       {/* Tabs */}
-      <div style={{ display:'flex', gap:'4px', marginBottom:'24px', background:'#161b22', border:'1px solid #30363d', borderRadius:'8px', padding:'4px' }}>
+      <div style={{ display:'flex', gap:'4px', marginBottom:'24px', background:'#FFFFFF', border:'1px solid #E8DFD0', borderRadius:'8px', padding:'4px' }}>
         {TABS.map(({ key, label, color }) => (
-          <button key={key} onClick={() => setTab(key)} style={{ flex:1, padding:'8px 16px', borderRadius:'6px', border:'none', cursor:'pointer', fontSize:'13px', fontWeight:500, background: tab===key ? '#1c2128' : 'transparent', color: tab===key ? color : '#8b949e', boxShadow: tab===key ? `0 0 0 1px ${color}4d` : 'none' }}>
+          <button key={key} onClick={() => setTab(key)} style={{ flex:1, padding:'8px 16px', borderRadius:'6px', border:'none', cursor:'pointer', fontSize:'13px', fontWeight:500, background: tab===key ? '#F1EADC' : 'transparent', color: tab===key ? color : '#8C7F6D', boxShadow: tab===key ? `0 0 0 1px ${color}4d` : 'none' }}>
             {label}
           </button>
         ))}
@@ -539,11 +565,11 @@ export default function EventsPage() {
       {tab === 'hightribe' && (
         <div>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'16px', gap:'8px' }}>
-            <span style={{ fontSize:'13px', color:'#8b949e' }}>
+            <span style={{ fontSize:'13px', color:'#8C7F6D' }}>
               {htTotal !== null ? `${htTotal} events hosted by you` : 'Your hosted events'}
             </span>
-            <button onClick={() => loadHtEvents(1)} disabled={htLoading} style={{ background:'#1c2128', border:'1px solid #30363d', borderRadius:'6px', color:'#8b949e', padding:'6px 14px', fontSize:'13px', cursor:'pointer' }}>
-              {htLoading ? <InlineLoader label="Refreshing" /> : '↻ Refresh'}
+            <button onClick={() => syncHtEvents(1)} disabled={htLoading} style={{ background:'#F1EADC', border:'1px solid #E8DFD0', borderRadius:'6px', color:'#8C7F6D', padding:'6px 14px', fontSize:'13px', cursor:'pointer' }}>
+              {htLoading ? <InlineLoader label="Syncing" /> : '↻ Sync from channels'}
             </button>
           </div>
           {htLoading ? (
@@ -564,7 +590,7 @@ export default function EventsPage() {
                     <div key={String(evt.id)} style={{ position:'relative' }}>
                       <EventCard
                         image={image} title={evt.title} dateStr={dateStr}
-                        badge="🏔 HighTribe" badgeColor="#a78bfa"
+                        badge="🏔 HighTribe" badgeColor="#7C5C8A"
                         location={loc} url={url} status={displayStatus}
                         onEdit={() => openEdit('hightribe', evt.id)}
                         onDelete={() => setDeleteTarget({ channel:'hightribe', id:evt.id, title:evt.title })}
@@ -572,7 +598,7 @@ export default function EventsPage() {
                       <button
                         onClick={() => setSyncEvent({ id:evt.id, title:evt.title, source:'hightribe' })}
                         title="Publish to other channels"
-                        style={{ position:'absolute', bottom:'14px', right: url ? '88px' : '14px', background:'rgba(167,139,250,0.15)', border:'1px solid rgba(167,139,250,0.4)', borderRadius:'6px', color:'#a78bfa', padding:'5px 10px', fontSize:'12px', fontWeight:500, cursor:'pointer' }}
+                        style={{ position:'absolute', bottom:'14px', right: url ? '88px' : '14px', background:'rgba(167,139,250,0.15)', border:'1px solid rgba(167,139,250,0.4)', borderRadius:'6px', color:'#7C5C8A', padding:'5px 10px', fontSize:'12px', fontWeight:500, cursor:'pointer' }}
                       >
                         ↗ Publish to…
                       </button>
@@ -582,9 +608,9 @@ export default function EventsPage() {
               </div>
               {htLastPage > 1 && (
                 <div style={{ display:'flex', justifyContent:'center', gap:'8px', marginTop:'24px' }}>
-                  <button onClick={() => loadHtEvents(htPage - 1)} disabled={htPage <= 1 || htLoading} style={{ background:'#161b22', border:'1px solid #30363d', borderRadius:'6px', color: htPage<=1 ? '#8b949e' : '#e6edf3', padding:'6px 14px', fontSize:'13px', cursor: htPage<=1 ? 'default' : 'pointer', opacity: htPage<=1 ? 0.5 : 1 }}>← Prev</button>
-                  <span style={{ fontSize:'13px', color:'#8b949e', padding:'6px 8px' }}>Page {htPage} / {htLastPage}{htTotal !== null && <span style={{ marginLeft:'6px' }}>· {htTotal} events</span>}</span>
-                  <button onClick={() => loadHtEvents(htPage + 1)} disabled={htPage >= htLastPage || htLoading} style={{ background:'#161b22', border:'1px solid #30363d', borderRadius:'6px', color: htPage>=htLastPage ? '#8b949e' : '#e6edf3', padding:'6px 14px', fontSize:'13px', cursor: htPage>=htLastPage ? 'default' : 'pointer', opacity: htPage>=htLastPage ? 0.5 : 1 }}>Next →</button>
+                  <button onClick={() => loadHtEvents(htPage - 1)} disabled={htPage <= 1 || htLoading} style={{ background:'#FFFFFF', border:'1px solid #E8DFD0', borderRadius:'6px', color: htPage<=1 ? '#8C7F6D' : '#211B16', padding:'6px 14px', fontSize:'13px', cursor: htPage<=1 ? 'default' : 'pointer', opacity: htPage<=1 ? 0.5 : 1 }}>← Prev</button>
+                  <span style={{ fontSize:'13px', color:'#8C7F6D', padding:'6px 8px' }}>Page {htPage} / {htLastPage}{htTotal !== null && <span style={{ marginLeft:'6px' }}>· {htTotal} events</span>}</span>
+                  <button onClick={() => loadHtEvents(htPage + 1)} disabled={htPage >= htLastPage || htLoading} style={{ background:'#FFFFFF', border:'1px solid #E8DFD0', borderRadius:'6px', color: htPage>=htLastPage ? '#8C7F6D' : '#211B16', padding:'6px 14px', fontSize:'13px', cursor: htPage>=htLastPage ? 'default' : 'pointer', opacity: htPage>=htLastPage ? 0.5 : 1 }}>Next →</button>
                 </div>
               )}
             </>
@@ -596,8 +622,8 @@ export default function EventsPage() {
       {tab === 'luma' && (
         <div>
           <div style={{ display:'flex', justifyContent:'flex-end', gap:'8px', marginBottom:'16px' }}>
-            <button onClick={loadLumaEvents} disabled={lumaLoading} style={{ background:'#1c2128', border:'1px solid #30363d', borderRadius:'6px', color:'#8b949e', padding:'6px 14px', fontSize:'13px', cursor:'pointer' }}>
-              {lumaLoading ? <InlineLoader label="Refreshing" /> : '↻ Refresh'}
+            <button onClick={syncLumaEvents} disabled={lumaLoading} style={{ background:'#F1EADC', border:'1px solid #E8DFD0', borderRadius:'6px', color:'#8C7F6D', padding:'6px 14px', fontSize:'13px', cursor:'pointer' }}>
+              {lumaLoading ? <InlineLoader label="Syncing" /> : '↻ Sync from channels'}
             </button>
           </div>
           {lumaLoading ? (
@@ -612,7 +638,7 @@ export default function EventsPage() {
                   <div key={evt.api_id} style={{ position:'relative' }}>
                     <EventCard
                       image={evt.cover_url} title={evt.name} dateStr={fmtUtc(evt.start_at)}
-                      badge="✨ Luma" badgeColor="#22d3ee"
+                      badge="✨ Luma" badgeColor="#7C5C8A"
                       location={evt.geo_address_json?.full_address || evt.geo_address_json?.city}
                       url={url}
                       onEdit={() => openEdit('luma', evt.api_id)}
@@ -621,7 +647,7 @@ export default function EventsPage() {
                     <button
                       onClick={() => setSyncEvent({ id:evt.api_id, title:evt.name, source:'luma' })}
                       title="Publish to other channels"
-                      style={{ position:'absolute', bottom:'14px', right: url ? '88px' : '14px', background:'rgba(34,211,238,0.15)', border:'1px solid rgba(34,211,238,0.4)', borderRadius:'6px', color:'#22d3ee', padding:'5px 10px', fontSize:'12px', fontWeight:500, cursor:'pointer' }}
+                      style={{ position:'absolute', bottom:'14px', right: url ? '88px' : '14px', background:'rgba(34,211,238,0.15)', border:'1px solid rgba(34,211,238,0.4)', borderRadius:'6px', color:'#7C5C8A', padding:'5px 10px', fontSize:'12px', fontWeight:500, cursor:'pointer' }}
                     >
                       ↗ Publish to…
                     </button>
@@ -637,8 +663,8 @@ export default function EventsPage() {
       {tab === 'eventbrite' && (
         <div>
           <div style={{ display:'flex', justifyContent:'flex-end', gap:'8px', marginBottom:'16px' }}>
-            <button onClick={loadEbEvents} disabled={ebLoading} style={{ background:'#1c2128', border:'1px solid #30363d', borderRadius:'6px', color:'#8b949e', padding:'6px 14px', fontSize:'13px', cursor:'pointer' }}>
-              {ebLoading ? <InlineLoader label="Refreshing" /> : '↻ Refresh'}
+            <button onClick={syncEbEvents} disabled={ebLoading} style={{ background:'#F1EADC', border:'1px solid #E8DFD0', borderRadius:'6px', color:'#8C7F6D', padding:'6px 14px', fontSize:'13px', cursor:'pointer' }}>
+              {ebLoading ? <InlineLoader label="Syncing" /> : '↻ Sync from channels'}
             </button>
           </div>
           {ebLoading ? (
@@ -656,7 +682,7 @@ export default function EventsPage() {
                       image={evt.logo?.original?.url}
                       title={title}
                       dateStr={fmtUtc(evt.start?.utc)}
-                      badge="🎫 Eventbrite" badgeColor="#fbbf24"
+                      badge="🎫 Eventbrite" badgeColor="#C2502E"
                       url={url} status={evt.status}
                       onEdit={() => openEdit('eventbrite', evt.id)}
                       onDelete={() => setDeleteTarget({ channel:'eventbrite', id:evt.id, title })}
@@ -664,7 +690,7 @@ export default function EventsPage() {
                     <button
                       onClick={() => setSyncEvent({ id:evt.id, title, source:'eventbrite' })}
                       title="Publish to other channels"
-                      style={{ position:'absolute', bottom:'14px', right: url ? '88px' : '14px', background:'rgba(251,191,36,0.15)', border:'1px solid rgba(251,191,36,0.4)', borderRadius:'6px', color:'#fbbf24', padding:'5px 10px', fontSize:'12px', fontWeight:500, cursor:'pointer' }}
+                      style={{ position:'absolute', bottom:'14px', right: url ? '88px' : '14px', background:'rgba(251,191,36,0.15)', border:'1px solid rgba(251,191,36,0.4)', borderRadius:'6px', color:'#C2502E', padding:'5px 10px', fontSize:'12px', fontWeight:500, cursor:'pointer' }}
                     >
                       ↗ Publish to…
                     </button>

@@ -26,7 +26,7 @@ export function Topbar() {
   }, [checkHealth])
 
   const dotColor =
-    apiOk === null ? '#8b949e' : apiOk ? '#3fb950' : '#f85149'
+    apiOk === null ? '#8C7F6D' : apiOk ? '#4E7A4B' : '#C2502E'
   const dotLabel =
     apiOk === null ? 'Checking…' : apiOk ? 'API Online' : 'API Offline'
 
@@ -34,8 +34,8 @@ export function Topbar() {
     <header
       style={{
         height: '56px',
-        background: '#161b22',
-        borderBottom: '1px solid #30363d',
+        background: '#FFFFFF',
+        borderBottom: '1px solid #E8DFD0',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'flex-end',
@@ -55,16 +55,16 @@ export function Topbar() {
             boxShadow: apiOk ? `0 0 6px ${dotColor}` : 'none',
           }}
         />
-        <span style={{ fontSize: '12px', color: '#8b949e' }}>{dotLabel}</span>
+        <span style={{ fontSize: '12px', color: '#8C7F6D' }}>{dotLabel}</span>
       </div>
       <button
         onClick={checkHealth}
         disabled={checking}
         style={{
-          background: '#1c2128',
-          border: '1px solid #30363d',
+          background: '#F1EADC',
+          border: '1px solid #E8DFD0',
           borderRadius: '6px',
-          color: '#8b949e',
+          color: '#8C7F6D',
           padding: '5px 12px',
           fontSize: '12px',
           cursor: checking ? 'default' : 'pointer',

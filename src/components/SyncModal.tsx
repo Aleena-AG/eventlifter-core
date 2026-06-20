@@ -510,17 +510,17 @@ export function SyncModal({ open, event, htConfigured, lumaConfigured, ebConfigu
 
   const CHANNELS: { key: ChannelKey; label: string; icon: string; color: string; configured: boolean; note: string }[] = [
     {
-      key: 'hightribe', label: 'HighTribe', icon: '🏔', color: '#a78bfa',
+      key: 'hightribe', label: 'HighTribe', icon: '🏔', color: '#7C5C8A',
       configured: htConfigured,
       note: htConfigured ? 'Will create event via HighTribe API' : 'Log in to HighTribe first',
     },
     {
-      key: 'luma', label: 'Luma', icon: '✨', color: '#22d3ee',
+      key: 'luma', label: 'Luma', icon: '✨', color: '#7C5C8A',
       configured: lumaConfigured,
       note: lumaConfigured ? 'Will create event via Luma API' : 'Log in to HighTribe first (Luma is configured server-side)',
     },
     {
-      key: 'eventbrite', label: 'Eventbrite', icon: '🎫', color: '#fbbf24',
+      key: 'eventbrite', label: 'Eventbrite', icon: '🎫', color: '#C2502E',
       configured: ebConfigured,
       note: ebConfigured ? 'Will create event via Eventbrite API' : 'Configure Eventbrite in Settings first',
     },
@@ -539,27 +539,27 @@ export function SyncModal({ open, event, htConfigured, lumaConfigured, ebConfigu
     >
       <div
         style={{
-          background: '#161b22', border: '1px solid #30363d', borderRadius: '12px',
+          background: '#FFFFFF', border: '1px solid #E8DFD0', borderRadius: '12px',
           width: '100%', maxWidth: '460px', overflow: 'hidden',
         }}
       >
         {/* Header */}
         <div style={{
-          padding: '18px 24px', borderBottom: '1px solid #30363d',
+          padding: '18px 24px', borderBottom: '1px solid #E8DFD0',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         }}>
           <div>
-            <div style={{ fontSize: '16px', fontWeight: 700, color: '#e6edf3' }}>
+            <div style={{ fontSize: '16px', fontWeight: 700, color: '#211B16' }}>
               Publish to Channels
             </div>
-            <div style={{ fontSize: '12px', color: '#8b949e', marginTop: '3px' }}>
+            <div style={{ fontSize: '12px', color: '#8C7F6D', marginTop: '3px' }}>
               From {sourceLabel} · <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{event.title}</span>
             </div>
           </div>
           <button
             onClick={handleClose}
             style={{
-              background: 'none', border: 'none', color: '#8b949e',
+              background: 'none', border: 'none', color: '#8C7F6D',
               fontSize: '20px', cursor: 'pointer', lineHeight: 1, padding: '4px',
             }}
           >
@@ -578,10 +578,10 @@ export function SyncModal({ open, event, htConfigured, lumaConfigured, ebConfigu
                 key={key}
                 onClick={() => configured && toggleChannel(key)}
                 style={{
-                  border: `1px solid ${result?.status === 'success' ? 'rgba(63,185,80,0.4)' : result?.status === 'error' ? 'rgba(248,81,73,0.4)' : isSelected ? color + '4d' : '#30363d'}`,
+                  border: `1px solid ${result?.status === 'success' ? 'rgba(63,185,80,0.4)' : result?.status === 'error' ? 'rgba(248,81,73,0.4)' : isSelected ? color + '4d' : '#E8DFD0'}`,
                   borderRadius: '8px',
                   padding: '14px 16px',
-                  background: isSelected && !result ? color + '0d' : '#1c2128',
+                  background: isSelected && !result ? color + '0d' : '#F1EADC',
                   cursor: configured && !publishing && !done ? 'pointer' : 'default',
                   opacity: !configured ? 0.5 : 1,
                   transition: 'all 0.15s',
@@ -591,7 +591,7 @@ export function SyncModal({ open, event, htConfigured, lumaConfigured, ebConfigu
                   {/* Checkbox */}
                   <div style={{
                     width: '18px', height: '18px', borderRadius: '4px',
-                    border: `2px solid ${isSelected ? color : '#30363d'}`,
+                    border: `2px solid ${isSelected ? color : '#E8DFD0'}`,
                     background: isSelected ? color : 'transparent',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     flexShrink: 0, fontSize: '12px', color: '#fff',
@@ -601,14 +601,14 @@ export function SyncModal({ open, event, htConfigured, lumaConfigured, ebConfigu
 
                   <span style={{ fontSize: '16px' }}>{icon}</span>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '14px', fontWeight: 500, color: '#e6edf3' }}>{label}</div>
-                    <div style={{ fontSize: '12px', color: result?.status === 'error' ? '#f85149' : result?.status === 'success' ? '#3fb950' : '#8b949e', marginTop: '2px' }}>
+                    <div style={{ fontSize: '14px', fontWeight: 500, color: '#211B16' }}>{label}</div>
+                    <div style={{ fontSize: '12px', color: result?.status === 'error' ? '#C2502E' : result?.status === 'success' ? '#4E7A4B' : '#8C7F6D', marginTop: '2px' }}>
                       {result ? result.message : note}
                     </div>
                   </div>
 
-                  {result?.status === 'success' && <span style={{ color: '#3fb950', fontSize: '18px' }}>✓</span>}
-                  {result?.status === 'error' && <span style={{ color: '#f85149', fontSize: '18px' }}>✗</span>}
+                  {result?.status === 'success' && <span style={{ color: '#4E7A4B', fontSize: '18px' }}>✓</span>}
+                  {result?.status === 'error' && <span style={{ color: '#C2502E', fontSize: '18px' }}>✗</span>}
                   {publishing && selected[key] && !result && (
                     <InlineLoader label="Publishing" />
                   )}
@@ -620,14 +620,14 @@ export function SyncModal({ open, event, htConfigured, lumaConfigured, ebConfigu
 
         {/* Footer */}
         <div style={{
-          padding: '16px 24px', borderTop: '1px solid #30363d',
+          padding: '16px 24px', borderTop: '1px solid #E8DFD0',
           display: 'flex', justifyContent: 'flex-end', gap: '10px',
         }}>
           <button
             onClick={handleClose}
             style={{
-              background: 'none', border: '1px solid #30363d', borderRadius: '6px',
-              color: '#8b949e', padding: '8px 16px', fontSize: '13px', cursor: 'pointer',
+              background: 'none', border: '1px solid #E8DFD0', borderRadius: '6px',
+              color: '#8C7F6D', padding: '8px 16px', fontSize: '13px', cursor: 'pointer',
             }}
           >
             {done ? 'Close' : 'Cancel'}
@@ -637,9 +637,9 @@ export function SyncModal({ open, event, htConfigured, lumaConfigured, ebConfigu
               onClick={handlePublish}
               disabled={!anySelected || publishing}
               style={{
-                background: anySelected && !publishing ? '#388bfd' : '#1c2128',
+                background: anySelected && !publishing ? '#D98A2B' : '#F1EADC',
                 border: 'none', borderRadius: '6px',
-                color: anySelected && !publishing ? '#fff' : '#8b949e',
+                color: anySelected && !publishing ? '#fff' : '#8C7F6D',
                 padding: '8px 20px', fontSize: '13px', fontWeight: 500,
                 cursor: anySelected && !publishing ? 'pointer' : 'default',
                 transition: 'all 0.15s',

@@ -1,16 +1,16 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { getSettings } from '@/lib/api'
-import { loadAllBookings, type BookingListItem } from '@/lib/bookings'
+import { fetchBookingsFromDb, syncChannelsFromApi } from '@/lib/data-api'
+import type { BookingListItem } from '@/lib/bookings'
 import { InlineLoader, PageLoader } from '@/components/Loader'
 import { getUser } from '@/lib/auth'
 import type { ChannelKey } from '@/lib/types'
 
 const CH_META: Record<ChannelKey, { label: string; icon: string; color: string }> = {
-  hightribe: { label: 'HighTribe', icon: '🏔', color: '#a78bfa' },
-  luma: { label: 'Luma', icon: '✨', color: '#22d3ee' },
-  eventbrite: { label: 'Eventbrite', icon: '🎫', color: '#fbbf24' },
+  hightribe: { label: 'HighTribe', icon: '🏔', color: '#7C5C8A' },
+  luma: { label: 'Luma', icon: '✨', color: '#7C5C8A' },
+  eventbrite: { label: 'Eventbrite', icon: '🎫', color: '#C2502E' },
 }
 
 type Filter = 'all' | ChannelKey
@@ -26,31 +26,28 @@ function formatDate(utc: string) {
 }
 
 function statusColor(status?: string) {
-  if (!status) return '#8b949e'
-  if (status === 'approved') return '#3fb950'
-  if (status === 'pending') return '#fbbf24'
-  if (status === 'rejected') return '#f85149'
-  return '#8b949e'
+  if (!status) return '#8C7F6D'
+  if (status === 'approved') return '#4E7A4B'
+  if (status === 'pending') return '#C2502E'
+  if (status === 'rejected') return '#C2502E'
+  return '#8C7F6D'
 }
 
 export default function BookingsPage() {
   const [bookings, setBookings] = useState<BookingListItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null)
   const [filter, setFilter] = useState<Filter>('all')
   const [query, setQuery] = useState('')
   const htLoggedIn = !!getUser()
 
-  const load = useCallback(async () => {
+  const loadFromDb = useCallback(async () => {
     setLoading(true)
     try {
-      const settings = await getSettings() as {
-        luma?: { configured?: boolean }
-        eventbrite?: { configured?: boolean; hasPrivateToken?: boolean }
-      }
-      setBookings(await loadAllBookings({
-        ebConfigured: !!(settings.eventbrite?.configured || settings.eventbrite?.hasPrivateToken),
-        lumaConfigured: !!settings.luma?.configured,
-      }))
+      const data = await fetchBookingsFromDb()
+      setBookings(data.bookings)
+      setLastSyncedAt(data.lastSyncedAt)
     } catch {
       setBookings([])
     } finally {
@@ -58,7 +55,19 @@ export default function BookingsPage() {
     }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  const syncAndLoad = useCallback(async () => {
+    setSyncing(true)
+    try {
+      await syncChannelsFromApi()
+      await loadFromDb()
+    } catch {
+      await loadFromDb()
+    } finally {
+      setSyncing(false)
+    }
+  }, [loadFromDb])
+
+  useEffect(() => { loadFromDb() }, [loadFromDb])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -83,17 +92,22 @@ export default function BookingsPage() {
     <div style={{ maxWidth: '960px' }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '24px', gap: '16px', flexWrap: 'wrap' }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700, color: '#e6edf3' }}>Bookings</h1>
-          <p style={{ margin: '4px 0 0', fontSize: '14px', color: '#8b949e' }}>
-            Incoming registrations from webhooks and connected channels
+          <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700, color: '#211B16' }}>Bookings</h1>
+          <p style={{ margin: '4px 0 0', fontSize: '14px', color: '#8C7F6D' }}>
+            Stored in local SQLite — updated by sync and webhooks
+            {lastSyncedAt && (
+              <span style={{ display: 'block', fontSize: '12px', marginTop: 4, opacity: 0.85 }}>
+                Last synced {formatDate(lastSyncedAt)}
+              </span>
+            )}
           </p>
         </div>
         <button
-          onClick={load}
-          disabled={loading}
-          style={{ background: '#1c2128', border: '1px solid #30363d', borderRadius: '6px', color: '#8b949e', padding: '8px 14px', fontSize: '13px', cursor: loading ? 'default' : 'pointer' }}
+          onClick={syncAndLoad}
+          disabled={loading || syncing}
+          style={{ background: '#F1EADC', border: '1px solid #E8DFD0', borderRadius: '6px', color: '#8C7F6D', padding: '8px 14px', fontSize: '13px', cursor: loading || syncing ? 'default' : 'pointer' }}
         >
-          {loading ? <InlineLoader label="Refreshing" /> : '↻ Refresh'}
+          {loading || syncing ? <InlineLoader label={syncing ? 'Syncing' : 'Loading'} /> : '↻ Sync from channels'}
         </button>
       </div>
 
@@ -106,10 +120,10 @@ export default function BookingsPage() {
               key={f}
               onClick={() => setFilter(f)}
               style={{
-                background: active ? '#1c2128' : 'transparent',
-                border: `1px solid ${active ? (meta?.color || '#388bfd') + '66' : '#30363d'}`,
+                background: active ? '#F1EADC' : 'transparent',
+                border: `1px solid ${active ? (meta?.color || '#D98A2B') + '66' : '#E8DFD0'}`,
                 borderRadius: '999px',
-                color: active ? '#e6edf3' : '#8b949e',
+                color: active ? '#211B16' : '#8C7F6D',
                 padding: '6px 14px',
                 fontSize: '13px',
                 cursor: 'pointer',
@@ -129,10 +143,10 @@ export default function BookingsPage() {
         style={{
           width: '100%',
           boxSizing: 'border-box',
-          background: '#161b22',
-          border: '1px solid #30363d',
+          background: '#FFFFFF',
+          border: '1px solid #E8DFD0',
           borderRadius: '8px',
-          color: '#e6edf3',
+          color: '#211B16',
           padding: '10px 14px',
           fontSize: '14px',
           marginBottom: '20px',
@@ -141,7 +155,7 @@ export default function BookingsPage() {
       />
 
       {!htLoggedIn && (
-        <div style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', fontSize: '13px', color: '#fbbf24' }}>
+        <div style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', fontSize: '13px', color: '#C2502E' }}>
           Sign in to HighTribe to load live bookings from your events API. Webhook registrations still appear below.
         </div>
       )}
@@ -149,10 +163,10 @@ export default function BookingsPage() {
       {loading ? (
         <PageLoader label="Loading bookings…" />
       ) : filtered.length === 0 ? (
-        <div style={{ background: '#161b22', border: '2px dashed #30363d', borderRadius: '10px', padding: '48px 24px', textAlign: 'center' }}>
+        <div style={{ background: '#FFFFFF', border: '2px dashed #E8DFD0', borderRadius: '10px', padding: '48px 24px', textAlign: 'center' }}>
           <div style={{ fontSize: '36px', marginBottom: '12px' }}>📋</div>
-          <div style={{ fontSize: '15px', color: '#e6edf3', fontWeight: 500, marginBottom: '8px' }}>No bookings yet</div>
-          <p style={{ color: '#8b949e', fontSize: '13px', margin: 0, lineHeight: 1.5 }}>
+          <div style={{ fontSize: '15px', color: '#211B16', fontWeight: 500, marginBottom: '8px' }}>No bookings yet</div>
+          <p style={{ color: '#8C7F6D', fontSize: '13px', margin: 0, lineHeight: 1.5 }}>
             When someone registers on HighTribe, Luma, or Eventbrite, they will appear here via webhooks.
           </p>
         </div>
@@ -164,8 +178,8 @@ export default function BookingsPage() {
               <div
                 key={b.id}
                 style={{
-                  background: '#161b22',
-                  border: '1px solid #30363d',
+                  background: '#FFFFFF',
+                  border: '1px solid #E8DFD0',
                   borderRadius: '10px',
                   padding: '16px 20px',
                   display: 'flex',
@@ -194,9 +208,9 @@ export default function BookingsPage() {
                 </div>
 
                 <div style={{ flex: 1, minWidth: '180px' }}>
-                  <div style={{ fontSize: '15px', fontWeight: 600, color: '#e6edf3' }}>{b.name}</div>
-                  <div style={{ fontSize: '13px', color: '#8b949e', marginTop: '2px' }}>{b.email}</div>
-                  <div style={{ fontSize: '13px', color: '#6e7681', marginTop: '4px' }}>{b.eventTitle}</div>
+                  <div style={{ fontSize: '15px', fontWeight: 600, color: '#211B16' }}>{b.name}</div>
+                  <div style={{ fontSize: '13px', color: '#8C7F6D', marginTop: '2px' }}>{b.email}</div>
+                  <div style={{ fontSize: '13px', color: '#8C7F6D', marginTop: '4px' }}>{b.eventTitle}</div>
                 </div>
 
                 <div style={{ textAlign: 'right', flexShrink: 0 }}>
@@ -209,7 +223,7 @@ export default function BookingsPage() {
                       {b.ticketCount != null && b.ticketCount > 0 ? ` · ${b.ticketCount} ticket${b.ticketCount === 1 ? '' : 's'}` : ''}
                     </div>
                   )}
-                  <div style={{ fontSize: '12px', color: '#6e7681', marginTop: '6px' }}>{formatDate(b.registeredAt)}</div>
+                  <div style={{ fontSize: '12px', color: '#8C7F6D', marginTop: '6px' }}>{formatDate(b.registeredAt)}</div>
                   <div style={{ fontSize: '10px', color: '#484f58', marginTop: '2px' }}>
                     {b.source === 'webhook' ? 'via webhook' : 'via API'}
                   </div>
@@ -221,7 +235,7 @@ export default function BookingsPage() {
       )}
 
       {!loading && filtered.length > 0 && (
-        <div style={{ marginTop: '16px', fontSize: '12px', color: '#6e7681', textAlign: 'center' }}>
+        <div style={{ marginTop: '16px', fontSize: '12px', color: '#8C7F6D', textAlign: 'center' }}>
           Showing {filtered.length} of {bookings.length} booking{bookings.length === 1 ? '' : 's'}
         </div>
       )}

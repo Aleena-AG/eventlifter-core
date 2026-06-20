@@ -112,10 +112,10 @@ export default function ChannelsPage() {
       <Toast toasts={toasts} onRemove={removeToast} />
 
       <div style={{ marginBottom: '28px' }}>
-        <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700, color: '#e6edf3' }}>
+        <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700, color: '#211B16' }}>
           Channels
         </h1>
-        <p style={{ margin: '4px 0 0', fontSize: '14px', color: '#8b949e' }}>
+        <p style={{ margin: '4px 0 0', fontSize: '14px', color: '#8C7F6D' }}>
           Connect your event publishing channels
         </p>
       </div>
@@ -143,12 +143,12 @@ export default function ChannelsPage() {
                       placeholder="Service URL (e.g. http://localhost:4000)"
                       style={{
                         width: '100%',
-                        background: '#0d1117',
-                        border: '1px solid #30363d',
+                        background: '#FBF7F0',
+                        border: '1px solid #E8DFD0',
                         borderRadius: '6px',
                         padding: '7px 10px',
                         fontSize: '13px',
-                        color: '#e6edf3',
+                        color: '#211B16',
                         outline: 'none',
                       }}
                     />
@@ -161,7 +161,7 @@ export default function ChannelsPage() {
                         ...BTN_BASE,
                         background: 'rgba(248,81,73,0.1)',
                         border: '1px solid rgba(248,81,73,0.4)',
-                        color: '#f85149',
+                        color: '#C2502E',
                         opacity: busy === ch ? 0.6 : 1,
                       }}
                     >
@@ -175,7 +175,7 @@ export default function ChannelsPage() {
                         ...BTN_BASE,
                         background: 'rgba(63,185,80,0.15)',
                         border: '1px solid rgba(63,185,80,0.4)',
-                        color: '#3fb950',
+                        color: '#4E7A4B',
                         opacity: busy === ch ? 0.6 : 1,
                       }}
                     >
@@ -196,7 +196,7 @@ export default function ChannelsPage() {
                         ...BTN_BASE,
                         background: 'rgba(248,81,73,0.1)',
                         border: '1px solid rgba(248,81,73,0.4)',
-                        color: '#f85149',
+                        color: '#C2502E',
                         opacity: busy === ch ? 0.6 : 1,
                       }}
                     >
@@ -210,7 +210,7 @@ export default function ChannelsPage() {
                         ...BTN_BASE,
                         background: 'rgba(251,191,36,0.15)',
                         border: '1px solid rgba(251,191,36,0.4)',
-                        color: '#fbbf24',
+                        color: '#C2502E',
                         opacity: busy === ch ? 0.6 : 1,
                       }}
                     >
@@ -231,12 +231,12 @@ export default function ChannelsPage() {
                       placeholder="Luma Plus API Key"
                       style={{
                         width: '100%',
-                        background: '#0d1117',
-                        border: '1px solid #30363d',
+                        background: '#FBF7F0',
+                        border: '1px solid #E8DFD0',
                         borderRadius: '6px',
                         padding: '7px 10px',
                         fontSize: '13px',
-                        color: '#e6edf3',
+                        color: '#211B16',
                         outline: 'none',
                       }}
                     />
@@ -249,7 +249,7 @@ export default function ChannelsPage() {
                         ...BTN_BASE,
                         background: 'rgba(248,81,73,0.1)',
                         border: '1px solid rgba(248,81,73,0.4)',
-                        color: '#f85149',
+                        color: '#C2502E',
                         opacity: busy === ch ? 0.6 : 1,
                       }}
                     >
@@ -263,7 +263,7 @@ export default function ChannelsPage() {
                         ...BTN_BASE,
                         background: 'rgba(34,211,238,0.15)',
                         border: '1px solid rgba(34,211,238,0.4)',
-                        color: '#22d3ee',
+                        color: '#7C5C8A',
                         opacity: busy === ch ? 0.6 : 1,
                       }}
                     >

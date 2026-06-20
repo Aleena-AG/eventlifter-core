@@ -20,7 +20,7 @@ function Dots({ on }: { on: ChannelKey[] }) {
   return (
     <span className="ew-dots">
       {ALL_CHANNELS.map(c => (
-        <i key={c} style={{ background: on.includes(c) ? CH_META[c].color : '#30363d' }} />
+        <i key={c} style={{ background: on.includes(c) ? CH_META[c].color : '#E8DFD0' }} />
       ))}
     </span>
   )
@@ -196,7 +196,7 @@ export function EwentcastWizard({
           <div className="ew-head">
             <span className="ew-eyebrow">Edit event</span>
             <h2>Could not load event</h2>
-            <p style={{ color: '#f85149' }}>{loadError}</p>
+            <p style={{ color: '#C2502E' }}>{loadError}</p>
           </div>
           <div className="ew-foot">
             <button type="button" className="ew-btn ghost" onClick={onClose}>Close</button>
@@ -257,7 +257,7 @@ export function EwentcastWizard({
         </div>
 
         <div className="ew-foot">
-          {saveError && <span className="note" style={{ color: '#f85149' }}>{saveError}</span>}
+          {saveError && <span className="note" style={{ color: '#C2502E' }}>{saveError}</span>}
           {!saveError && (
             <span className="note">
               Section {section + 1} of {SECTIONS.length}
@@ -299,7 +299,7 @@ export function EwentcastWizard({
 
         <div className="ew-castgrid">
           <div className="ew-master">
-            <span className="ew-eyebrow" style={{ color: '#a78bfa' }}>Master event</span>
+            <span className="ew-eyebrow" style={{ color: '#7C5C8A' }}>Master event</span>
             <div className="t">{String(ev.title)}</div>
             <div className="meta">
               <span>📅 {String(ev.date)} · {String(ev.time)}</span>
@@ -316,20 +316,20 @@ export function EwentcastWizard({
                 <div key={ch} className="ew-lane">
                   <span
                     className={`sig${st === 'publishing' ? ' pub' : ''}`}
-                    style={{ background: st === 'synced' ? '#3fb950' : st === 'publishing' ? CH_META[ch].color : '#30363d' }}
+                    style={{ background: st === 'synced' ? '#4E7A4B' : st === 'publishing' ? CH_META[ch].color : '#E8DFD0' }}
                   />
                   <span className="nm"><Swatch color={CH_META[ch].color} />{CH_META[ch].name}</span>
                   {st === 'synced' && url ? (
                     <a href={`https://${url}`} target="_blank" rel="noreferrer">{url} ↗</a>
                   ) : st === 'error' ? (
-                    <span className="mid" style={{ color: '#f85149' }}>{pub[ch]?.message}</span>
+                    <span className="mid" style={{ color: '#C2502E' }}>{pub[ch]?.message}</span>
                   ) : (
                     <span className="mid">{CH_META[ch].cap}</span>
                   )}
-                  {st === 'synced' && <span className="ew-pill" style={{ color: '#3fb950' }}>✓ Synced</span>}
+                  {st === 'synced' && <span className="ew-pill" style={{ color: '#4E7A4B' }}>✓ Synced</span>}
                   {st === 'publishing' && <span className="ew-pill" style={{ color: CH_META[ch].color }}><span className="ew-spin" /> Publishing</span>}
                   {st === 'queued' && <span className="ew-pill" style={{ color: 'var(--muted)' }}>◌ Queued</span>}
-                  {!st && <span className="ew-pill" style={{ color: '#6e7681' }}>Ready</span>}
+                  {!st && <span className="ew-pill" style={{ color: '#8C7F6D' }}>Ready</span>}
                 </div>
               )
             })}
@@ -388,7 +388,7 @@ export function EwentcastWizard({
                   <div className="ew-srcs"><span><Swatch color={CH_META[a.source].color} size={7} />{CH_META[a.source].name}</span></div>
                 </div>
               </div>
-              <span style={{ fontSize: 12, color: '#3fb950' }}>✓ Registered</span>
+              <span style={{ fontSize: 12, color: '#4E7A4B' }}>✓ Registered</span>
             </div>
           ))}
         </div>
@@ -410,18 +410,18 @@ export function EwentcastWizard({
       <div className="ew-wrap">
         <header className="ew-bar">
           <div className="ew-brand">
-            <svg width="34" height="34" viewBox="0 0 100 100" aria-label="EventLifter">
+            <svg width="34" height="34" viewBox="0 0 100 100" aria-label="Ewentcast">
               <defs>
                 <linearGradient id="ew-logo-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#388bfd" />
-                  <stop offset="100%" stopColor="#a78bfa" />
+                  <stop offset="0%" stopColor="#D98A2B" />
+                  <stop offset="100%" stopColor="#7C5C8A" />
                 </linearGradient>
               </defs>
               <rect width="100" height="100" rx="20" fill="url(#ew-logo-grad)" />
               <text x="50" y="62" textAnchor="middle" fill="#fff" fontSize="36" fontWeight="700" fontFamily="system-ui,sans-serif">E</text>
             </svg>
             <div>
-              <div className="name">EventLifter</div>
+              <div className="name">Ewentcast</div>
               <div className="tag">{isEdit ? 'Edit event on channel.' : 'Create once. Publish everywhere.'}</div>
             </div>
           </div>
@@ -432,14 +432,14 @@ export function EwentcastWizard({
                   <button type="button" className={i === step ? 'active' : ''} onClick={() => !isEdit && setStep(i)} disabled={isEdit && i > 0}>
                     <span className="n">{i + 1}</span>{isEdit ? 'Edit' : label}
                   </button>
-                  {!isEdit && i < WIZARD_STEPS.length - 1 && <span style={{ color: '#30363d' }}>·</span>}
+                  {!isEdit && i < WIZARD_STEPS.length - 1 && <span style={{ color: '#E8DFD0' }}>·</span>}
                 </span>
               ))}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--paper)', border: '1px solid var(--line)', borderRadius: 999, padding: '5px 6px 5px 12px' }}>
-              <span style={{ width: 7, height: 7, borderRadius: 999, background: '#3fb950', display: 'inline-block' }} />
+              <span style={{ width: 7, height: 7, borderRadius: 999, background: '#4E7A4B', display: 'inline-block' }} />
               <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>{connCount}/3</span>
-              <span style={{ width: 28, height: 28, borderRadius: 999, background: 'linear-gradient(135deg, #388bfd, #a78bfa)', color: '#fff', display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 700 }}>{initials}</span>
+              <span style={{ width: 28, height: 28, borderRadius: 999, background: 'linear-gradient(135deg, #D98A2B, #7C5C8A)', color: '#fff', display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 700 }}>{initials}</span>
             </div>
           </div>
         </header>

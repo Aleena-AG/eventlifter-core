@@ -7,7 +7,7 @@ import { getUser, clearAuth, authHeader, type HtUser } from '@/lib/auth'
 import { InlineLoader } from '@/components/Loader'
 
 const NAV_LINKS = [
-  { href: '/', label: 'Dashboard', icon: '⊞' },
+  { href: '/dashboard', label: 'Dashboard', icon: '⊞' },
   { href: '/events?create=1', label: 'Create Event', icon: '✦' },
   { href: '/channels', label: 'Channels', icon: '⛓' },
   { href: '/events', label: 'Events', icon: '📅' },
@@ -48,8 +48,8 @@ export function Sidebar() {
       style={{
         width: '228px',
         flexShrink: 0,
-        background: '#161b22',
-        borderRight: '1px solid #30363d',
+        background: '#FFFFFF',
+        borderRight: '1px solid #E8DFD0',
         display: 'flex',
         flexDirection: 'column',
         height: '100vh',
@@ -64,7 +64,7 @@ export function Sidebar() {
       <div
         style={{
           padding: '20px 16px',
-          borderBottom: '1px solid #30363d',
+          borderBottom: '1px solid #E8DFD0',
           display: 'flex',
           alignItems: 'center',
           gap: '10px',
@@ -75,7 +75,7 @@ export function Sidebar() {
             width: '32px',
             height: '32px',
             borderRadius: '8px',
-            background: 'linear-gradient(135deg, #388bfd, #a78bfa)',
+            background: '#211B16',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -83,13 +83,15 @@ export function Sidebar() {
             flexShrink: 0,
           }}
         >
-          ⚡
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M5 12h14M13 6l6 6-6 6" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
         </div>
         <div>
-          <div style={{ fontSize: '14px', fontWeight: 700, color: '#e6edf3', lineHeight: 1 }}>
-            EventLifter
+          <div style={{ fontSize: '14px', fontWeight: 700, color: '#211B16', lineHeight: 1 }}>
+            Ewentcast
           </div>
-          <div style={{ fontSize: '11px', color: '#8b949e', marginTop: '2px' }}>
+          <div style={{ fontSize: '11px', color: '#8C7F6D', marginTop: '2px' }}>
             Channel Manager
           </div>
         </div>
@@ -98,7 +100,7 @@ export function Sidebar() {
       {/* Nav */}
       <nav style={{ flex: 1, padding: '12px 8px' }}>
         {NAV_LINKS.map(({ href, label, icon }) => {
-          const active = pathname === href
+          const active = pathname === href || (href === '/dashboard' && pathname === '/dashboard')
           return (
             <Link
               key={href}
@@ -111,8 +113,8 @@ export function Sidebar() {
                 borderRadius: '6px',
                 marginBottom: '2px',
                 textDecoration: 'none',
-                color: active ? '#e6edf3' : '#8b949e',
-                background: active ? '#1c2128' : 'transparent',
+                color: active ? '#211B16' : '#8C7F6D',
+                background: active ? '#F1EADC' : 'transparent',
                 fontSize: '14px',
                 fontWeight: active ? 500 : 400,
                 transition: 'all 0.15s',
@@ -126,7 +128,7 @@ export function Sidebar() {
       </nav>
 
       {/* User info + logout */}
-      <div style={{ padding: '12px 16px', borderTop: '1px solid #30363d' }}>
+      <div style={{ padding: '12px 16px', borderTop: '1px solid #E8DFD0' }}>
         {user ? (
           <>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
@@ -135,7 +137,7 @@ export function Sidebar() {
                   width: '32px',
                   height: '32px',
                   borderRadius: '50%',
-                  background: 'linear-gradient(135deg, #a78bfa, #388bfd)',
+                  background: 'linear-gradient(135deg, #D98A2B, #7C5C8A)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -152,7 +154,7 @@ export function Sidebar() {
                   style={{
                     fontSize: '13px',
                     fontWeight: 600,
-                    color: '#e6edf3',
+                    color: '#211B16',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
@@ -163,7 +165,7 @@ export function Sidebar() {
                 <div
                   style={{
                     fontSize: '11px',
-                    color: '#8b949e',
+                    color: '#8C7F6D',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
@@ -179,9 +181,9 @@ export function Sidebar() {
               style={{
                 width: '100%',
                 background: 'none',
-                border: '1px solid #30363d',
+                border: '1px solid #E8DFD0',
                 borderRadius: '6px',
-                color: '#8b949e',
+                color: '#8C7F6D',
                 padding: '6px',
                 fontSize: '12px',
                 cursor: loggingOut ? 'default' : 'pointer',
@@ -201,7 +203,7 @@ export function Sidebar() {
             style={{
               display: 'block',
               textAlign: 'center',
-              background: '#388bfd',
+              background: '#D98A2B',
               borderRadius: '6px',
               color: '#fff',
               padding: '7px',

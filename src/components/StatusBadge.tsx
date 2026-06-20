@@ -8,20 +8,20 @@ interface StatusBadgeProps {
 }
 
 const STATUS_CONFIG: Record<string, { color: string; bg: string; label: string }> = {
-  synced: { color: '#3fb950', bg: 'rgba(63,185,80,0.15)', label: 'Synced' },
-  syncing: { color: '#388bfd', bg: 'rgba(56,139,253,0.15)', label: 'Syncing' },
-  pending: { color: '#e3b341', bg: 'rgba(227,179,65,0.15)', label: 'Pending' },
-  partial: { color: '#e3b341', bg: 'rgba(227,179,65,0.15)', label: 'Partial' },
-  failed: { color: '#f85149', bg: 'rgba(248,81,73,0.15)', label: 'Failed' },
-  manual: { color: '#8b949e', bg: 'rgba(139,148,158,0.15)', label: 'Manual' },
-  connected: { color: '#3fb950', bg: 'rgba(63,185,80,0.15)', label: 'Connected' },
-  disconnected: { color: '#8b949e', bg: 'rgba(139,148,158,0.15)', label: 'Disconnected' },
+  synced: { color: '#4E7A4B', bg: 'rgba(63,185,80,0.15)', label: 'Synced' },
+  syncing: { color: '#D98A2B', bg: 'rgba(56,139,253,0.15)', label: 'Syncing' },
+  pending: { color: '#D98A2B', bg: 'rgba(227,179,65,0.15)', label: 'Pending' },
+  partial: { color: '#D98A2B', bg: 'rgba(227,179,65,0.15)', label: 'Partial' },
+  failed: { color: '#C2502E', bg: 'rgba(248,81,73,0.15)', label: 'Failed' },
+  manual: { color: '#8C7F6D', bg: 'rgba(139,148,158,0.15)', label: 'Manual' },
+  connected: { color: '#4E7A4B', bg: 'rgba(63,185,80,0.15)', label: 'Connected' },
+  disconnected: { color: '#8C7F6D', bg: 'rgba(139,148,158,0.15)', label: 'Disconnected' },
 }
 
 export function StatusBadge({ status, label }: StatusBadgeProps) {
   const key = (status || '').toLowerCase()
   const config = STATUS_CONFIG[key] || {
-    color: '#8b949e',
+    color: '#8C7F6D',
     bg: 'rgba(139,148,158,0.15)',
     label: status || '—',
   }

@@ -8,25 +8,25 @@ import { getUser } from '@/lib/auth'
 import type { HtUser } from '@/lib/auth'
 
 const INPUT_STYLE: React.CSSProperties = {
-  width: '100%', background: '#0d1117', border: '1px solid #30363d',
+  width: '100%', background: '#FBF7F0', border: '1px solid #E8DFD0',
   borderRadius: '6px', padding: '7px 10px', fontSize: '13px',
-  color: '#e6edf3', outline: 'none',
+  color: '#211B16', outline: 'none',
 }
 
 const LABEL_STYLE: React.CSSProperties = {
-  display: 'block', fontSize: '12px', color: '#8b949e',
+  display: 'block', fontSize: '12px', color: '#8C7F6D',
   marginBottom: '5px', fontWeight: 500,
 }
 
 const BTN_PRIMARY: React.CSSProperties = {
-  background: '#388bfd', border: 'none', borderRadius: '6px',
+  background: '#D98A2B', border: 'none', borderRadius: '6px',
   color: '#fff', padding: '7px 16px', fontSize: '13px', fontWeight: 500,
   cursor: 'pointer',
 }
 
 const BTN_SECONDARY: React.CSSProperties = {
-  background: '#1c2128', border: '1px solid #30363d', borderRadius: '6px',
-  color: '#e6edf3', padding: '7px 16px', fontSize: '13px',
+  background: '#F1EADC', border: '1px solid #E8DFD0', borderRadius: '6px',
+  color: '#211B16', padding: '7px 16px', fontSize: '13px',
   cursor: 'pointer',
 }
 
@@ -35,16 +35,16 @@ function SectionCard({ title, icon, color, children }: {
 }) {
   return (
     <div style={{
-      background: '#161b22', border: '1px solid #30363d', borderRadius: '10px',
+      background: '#FFFFFF', border: '1px solid #E8DFD0', borderRadius: '10px',
       overflow: 'hidden', marginBottom: '20px',
     }}>
       <div style={{
         display: 'flex', alignItems: 'center', gap: '10px',
-        padding: '16px 20px', borderBottom: '1px solid #30363d',
+        padding: '16px 20px', borderBottom: '1px solid #E8DFD0',
         background: `${color}0a`,
       }}>
         <span style={{ fontSize: '18px' }}>{icon}</span>
-        <span style={{ fontSize: '15px', fontWeight: 600, color: '#e6edf3' }}>{title}</span>
+        <span style={{ fontSize: '15px', fontWeight: 600, color: '#211B16' }}>{title}</span>
       </div>
       <div style={{ padding: '20px' }}>{children}</div>
     </div>
@@ -63,8 +63,8 @@ function CopyButton({ value }: { value: string }) {
     <button
       onClick={copy}
       style={{
-        background: 'none', border: '1px solid #30363d', borderRadius: '4px',
-        color: copied ? '#3fb950' : '#8b949e', padding: '4px 8px', fontSize: '11px',
+        background: 'none', border: '1px solid #E8DFD0', borderRadius: '4px',
+        color: copied ? '#4E7A4B' : '#8C7F6D', padding: '4px 8px', fontSize: '11px',
         cursor: 'pointer', whiteSpace: 'nowrap',
       }}
     >
@@ -129,7 +129,7 @@ function WebhookSetup() {
         <div key={ch} style={{ marginBottom: '10px' }}>
           <div style={LABEL_STYLE}>{ch}</div>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <code style={{ flex: 1, fontSize: '12px', color: '#e6edf3', background: '#0d1117', padding: '8px 10px', borderRadius: '6px', border: '1px solid #30363d', overflow: 'auto' }}>{url}</code>
+            <code style={{ flex: 1, fontSize: '12px', color: '#211B16', background: '#FBF7F0', padding: '8px 10px', borderRadius: '6px', border: '1px solid #E8DFD0', overflow: 'auto' }}>{url}</code>
             <CopyButton value={url} />
           </div>
         </div>
@@ -140,13 +140,13 @@ function WebhookSetup() {
           <div style={LABEL_STYLE}>HighTribe Laravel .env (C:\laragon\www\HighTribe-Laravel-Backend)</div>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
             <pre style={{
-              flex: 1, margin: 0, fontSize: '12px', color: '#e6edf3', background: '#0d1117',
-              padding: '10px 12px', borderRadius: '6px', border: '1px solid #30363d', overflow: 'auto',
+              flex: 1, margin: 0, fontSize: '12px', color: '#211B16', background: '#FBF7F0',
+              padding: '10px 12px', borderRadius: '6px', border: '1px solid #E8DFD0', overflow: 'auto',
             }}>{laravelEnvBlock}</pre>
             <CopyButton value={laravelEnvBlock} />
           </div>
-          <p style={{ fontSize: '12px', color: '#6e7681', margin: '8px 0 0', lineHeight: 1.5 }}>
-            After saving, run <code style={{ color: '#e6edf3' }}>php artisan config:clear</code> in the Laravel project.
+          <p style={{ fontSize: '12px', color: '#8C7F6D', margin: '8px 0 0', lineHeight: 1.5 }}>
+            After saving, run <code style={{ color: '#211B16' }}>php artisan config:clear</code> in the Laravel project.
           </p>
         </div>
       )}
@@ -155,7 +155,7 @@ function WebhookSetup() {
         {loading ? <InlineLoader label="Registering" /> : 'Register webhooks on Luma + Eventbrite'}
       </button>
       {result && (
-        <pre style={{ marginTop: '12px', fontSize: '12px', color: '#8b949e', whiteSpace: 'pre-wrap' }}>{result}</pre>
+        <pre style={{ marginTop: '12px', fontSize: '12px', color: '#8C7F6D', whiteSpace: 'pre-wrap' }}>{result}</pre>
       )}
     </div>
   )
@@ -255,8 +255,8 @@ export default function SettingsPage() {
       <Toast toasts={toasts} onRemove={removeToast} />
 
       <div style={{ marginBottom: '28px' }}>
-        <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700, color: '#e6edf3' }}>Settings</h1>
-        <p style={{ margin: '4px 0 0', fontSize: '14px', color: '#8b949e' }}>
+        <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700, color: '#211B16' }}>Settings</h1>
+        <p style={{ margin: '4px 0 0', fontSize: '14px', color: '#8C7F6D' }}>
           Configure your channel integrations
         </p>
       </div>
@@ -266,7 +266,7 @@ export default function SettingsPage() {
       ) : (
         <>
           {/* Eventbrite */}
-          <SectionCard title="Eventbrite" icon="🎫" color="#fbbf24">
+          <SectionCard title="Eventbrite" icon="🎫" color="#C2502E">
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div>
@@ -331,9 +331,9 @@ export default function SettingsPage() {
               {eb.clientId && (
                 <div style={{
                   marginTop: '8px', padding: '14px 16px',
-                  background: '#1c2128', borderRadius: '8px', border: '1px solid #30363d',
+                  background: '#F1EADC', borderRadius: '8px', border: '1px solid #E8DFD0',
                 }}>
-                  <div style={{ fontSize: '13px', color: '#e6edf3', fontWeight: 500, marginBottom: '10px' }}>
+                  <div style={{ fontSize: '13px', color: '#211B16', fontWeight: 500, marginBottom: '10px' }}>
                     OAuth Connect Flow
                   </div>
                   <div style={{ display: 'flex', gap: '8px' }}>
@@ -361,7 +361,7 @@ export default function SettingsPage() {
           </SectionCard>
 
           {/* Luma */}
-          <SectionCard title="Luma" icon="✨" color="#22d3ee">
+          <SectionCard title="Luma" icon="✨" color="#7C5C8A">
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div>
@@ -415,30 +415,30 @@ export default function SettingsPage() {
           </SectionCard>
 
           {/* HighTribe — auto-configured via login */}
-          <SectionCard title="HighTribe" icon="🏔️" color="#a78bfa">
+          <SectionCard title="HighTribe" icon="🏔️" color="#7C5C8A">
             {htUser ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                 <div style={{
                   width: '48px', height: '48px', borderRadius: '50%', flexShrink: 0,
-                  background: 'linear-gradient(135deg, #a78bfa, #388bfd)',
+                  background: 'linear-gradient(135deg, #7C5C8A, #D98A2B)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontSize: '20px', fontWeight: 700, color: '#fff',
                 }}>
                   {htUser.name?.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase() || '?'}
                 </div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: '15px', fontWeight: 600, color: '#e6edf3', marginBottom: '4px' }}>
+                  <div style={{ fontSize: '15px', fontWeight: 600, color: '#211B16', marginBottom: '4px' }}>
                     {htUser.name}
                   </div>
-                  <div style={{ fontSize: '13px', color: '#8b949e', marginBottom: '8px' }}>
+                  <div style={{ fontSize: '13px', color: '#8C7F6D', marginBottom: '8px' }}>
                     {htUser.email}
-                    {htUser.username && <span style={{ marginLeft: '8px', color: '#a78bfa' }}>@{htUser.username}</span>}
+                    {htUser.username && <span style={{ marginLeft: '8px', color: '#7C5C8A' }}>@{htUser.username}</span>}
                   </div>
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                     <span style={{
                       fontSize: '12px', padding: '3px 10px', borderRadius: '20px',
                       background: 'rgba(63,185,80,0.1)', border: '1px solid rgba(63,185,80,0.3)',
-                      color: '#3fb950',
+                      color: '#4E7A4B',
                     }}>
                       ✓ Connected via login
                     </span>
@@ -446,7 +446,7 @@ export default function SettingsPage() {
                       <span style={{
                         fontSize: '12px', padding: '3px 10px', borderRadius: '20px',
                         background: 'rgba(167,139,250,0.1)', border: '1px solid rgba(167,139,250,0.3)',
-                        color: '#a78bfa',
+                        color: '#7C5C8A',
                       }}>
                         Business Profile
                       </span>
@@ -454,7 +454,7 @@ export default function SettingsPage() {
                     {htUser.type && (
                       <span style={{
                         fontSize: '12px', padding: '3px 10px', borderRadius: '20px',
-                        background: '#1c2128', border: '1px solid #30363d', color: '#8b949e',
+                        background: '#F1EADC', border: '1px solid #E8DFD0', color: '#8C7F6D',
                       }}>
                         {htUser.type}
                       </span>
@@ -466,15 +466,15 @@ export default function SettingsPage() {
               <div style={{
                 padding: '16px', background: 'rgba(167,139,250,0.06)',
                 borderRadius: '8px', border: '1px solid rgba(167,139,250,0.2)',
-                fontSize: '13px', color: '#8b949e', textAlign: 'center',
+                fontSize: '13px', color: '#8C7F6D', textAlign: 'center',
               }}>
                 HighTribe is configured automatically when you sign in.<br />
-                <a href="/login" style={{ color: '#a78bfa', textDecoration: 'none', marginTop: '6px', display: 'inline-block' }}>
+                <a href="/login" style={{ color: '#7C5C8A', textDecoration: 'none', marginTop: '6px', display: 'inline-block' }}>
                   Sign in to connect →
                 </a>
               </div>
             )}
-            <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #30363d' }}>
+            <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #E8DFD0' }}>
               <label style={LABEL_STYLE}>Webhook secret (shared with Laravel backend)</label>
               <input
                 type="password"
@@ -483,7 +483,7 @@ export default function SettingsPage() {
                 onChange={(e) => updateSection('hightribe', 'webhookSecret', e.target.value)}
                 placeholder="Generate a random string — same value goes in Laravel .env"
               />
-              <p style={{ fontSize: '12px', color: '#6e7681', margin: '8px 0 12px', lineHeight: 1.5 }}>
+              <p style={{ fontSize: '12px', color: '#8C7F6D', margin: '8px 0 12px', lineHeight: 1.5 }}>
                 HighTribe Laravel sends booking webhooks to EventLifter when a guest registers. Set the same secret in both apps.
               </p>
               <button
@@ -497,8 +497,8 @@ export default function SettingsPage() {
           </SectionCard>
 
           {/* Webhooks */}
-          <SectionCard title="Webhooks" icon="🔔" color="#3fb950">
-            <p style={{ fontSize: '13px', color: '#8b949e', margin: '0 0 14px', lineHeight: 1.5 }}>
+          <SectionCard title="Webhooks" icon="🔔" color="#4E7A4B">
+            <p style={{ fontSize: '13px', color: '#8C7F6D', margin: '0 0 14px', lineHeight: 1.5 }}>
               Luma + Eventbrite register here. HighTribe sends bookings from Laravel backend when env vars are set.
             </p>
             <WebhookSetup />
@@ -506,14 +506,14 @@ export default function SettingsPage() {
 
           {/* settings.json reference */}
           <div style={{
-            background: '#161b22', border: '1px solid #30363d',
+            background: '#FFFFFF', border: '1px solid #E8DFD0',
             borderRadius: '10px', overflow: 'hidden',
           }}>
             <div style={{
-              padding: '12px 20px', borderBottom: '1px solid #30363d',
+              padding: '12px 20px', borderBottom: '1px solid #E8DFD0',
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             }}>
-              <span style={{ fontSize: '13px', color: '#8b949e', fontWeight: 500 }}>
+              <span style={{ fontSize: '13px', color: '#8C7F6D', fontWeight: 500 }}>
                 settings.json keys
               </span>
               <CopyButton value={[
@@ -524,7 +524,7 @@ export default function SettingsPage() {
             </div>
             <pre style={{
               margin: 0, padding: '16px 20px', fontSize: '12px',
-              color: '#e6edf3', fontFamily: 'monospace', overflowX: 'auto',
+              color: '#211B16', fontFamily: 'monospace', overflowX: 'auto',
               lineHeight: 1.6,
             }}>
               {`eventbrite.clientId    = ${eb.clientId || '<not set>'}

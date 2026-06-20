@@ -102,9 +102,9 @@ const EB_SAMPLE: EbForm = {
 
 // ─── Shared constants ─────────────────────────────────────────────────────────
 const CH_META: Record<Channel, { label: string; icon: string; color: string }> = {
-  hightribe:  { label: 'HighTribe',  icon: '🏔', color: '#a78bfa' },
-  luma:       { label: 'Luma',       icon: '✨', color: '#22d3ee' },
-  eventbrite: { label: 'Eventbrite', icon: '🎫', color: '#fbbf24' },
+  hightribe:  { label: 'HighTribe',  icon: '🏔', color: '#7C5C8A' },
+  luma:       { label: 'Luma',       icon: '✨', color: '#7C5C8A' },
+  eventbrite: { label: 'Eventbrite', icon: '🎫', color: '#C2502E' },
 }
 const TIMEZONES = ['Asia/Karachi','Asia/Kolkata','UTC','America/New_York','America/Los_Angeles','Europe/London','Europe/Paris','Asia/Dubai','Asia/Tokyo','Australia/Sydney']
 // All currencies (for HighTribe/Luma which accept any)
@@ -131,9 +131,9 @@ const EB_CURRENCIES = [
 ]
 
 // ─── Style constants ──────────────────────────────────────────────────────────
-const INPUT: React.CSSProperties = { width:'100%', background:'#0d1117', border:'1px solid #30363d', borderRadius:'6px', padding:'8px 10px', fontSize:'13px', color:'#e6edf3', outline:'none', boxSizing:'border-box' }
-const LABEL: React.CSSProperties = { display:'block', fontSize:'12px', color:'#8b949e', marginBottom:'5px', fontWeight:500 }
-const SEC: React.CSSProperties = { fontSize:'11px', fontWeight:700, color:'#8b949e', letterSpacing:'0.06em', textTransform:'uppercase', marginBottom:'10px', paddingBottom:'6px', borderBottom:'1px solid #30363d' }
+const INPUT: React.CSSProperties = { width:'100%', background:'#FBF7F0', border:'1px solid #E8DFD0', borderRadius:'6px', padding:'8px 10px', fontSize:'13px', color:'#211B16', outline:'none', boxSizing:'border-box' }
+const LABEL: React.CSSProperties = { display:'block', fontSize:'12px', color:'#8C7F6D', marginBottom:'5px', fontWeight:500 }
+const SEC: React.CSSProperties = { fontSize:'11px', fontWeight:700, color:'#8C7F6D', letterSpacing:'0.06em', textTransform:'uppercase', marginBottom:'10px', paddingBottom:'6px', borderBottom:'1px solid #E8DFD0' }
 const GRID2: React.CSSProperties = { display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px' }
 const GRID3: React.CSSProperties = { display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'8px' }
 
@@ -390,7 +390,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
   // ─── Shared UI helpers ─────────────────────────────────────────────────────
   function SampleBtn({ onClick }: { onClick: () => void }) {
     return (
-      <button type="button" onClick={onClick} style={{ background:'rgba(167,139,250,0.1)', border:'1px solid rgba(167,139,250,0.35)', borderRadius:'6px', color:'#a78bfa', padding:'5px 12px', fontSize:'12px', cursor:'pointer' }}>
+      <button type="button" onClick={onClick} style={{ background:'rgba(167,139,250,0.1)', border:'1px solid rgba(167,139,250,0.35)', borderRadius:'6px', color:'#7C5C8A', padding:'5px 12px', fontSize:'12px', cursor:'pointer' }}>
         ✦ Fill Sample Data
       </button>
     )
@@ -400,14 +400,14 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
   }
   function AddBtn({ label, onClick }: { label: string; onClick: () => void }) {
     return (
-      <button type="button" onClick={onClick} style={{ background:'rgba(56,139,253,0.08)', border:'1px dashed rgba(56,139,253,0.4)', borderRadius:'6px', color:'#388bfd', padding:'6px 12px', fontSize:'12px', cursor:'pointer', width:'100%' }}>
+      <button type="button" onClick={onClick} style={{ background:'rgba(56,139,253,0.08)', border:'1px dashed rgba(56,139,253,0.4)', borderRadius:'6px', color:'#D98A2B', padding:'6px 12px', fontSize:'12px', cursor:'pointer', width:'100%' }}>
         + {label}
       </button>
     )
   }
   function RemoveBtn({ onClick }: { onClick: () => void }) {
     return (
-      <button type="button" onClick={onClick} style={{ background:'none', border:'none', color:'#f85149', fontSize:'16px', cursor:'pointer', padding:'0 4px', lineHeight:1, flexShrink:0 }}>×</button>
+      <button type="button" onClick={onClick} style={{ background:'none', border:'none', color:'#C2502E', fontSize:'16px', cursor:'pointer', padding:'0 4px', lineHeight:1, flexShrink:0 }}>×</button>
     )
   }
 
@@ -441,7 +441,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
         <Field label="Description *"><textarea required rows={3} style={{ ...INPUT, resize:'vertical', fontFamily:'inherit' }} value={ht.description} onChange={e => s('description')(e.target.value)} placeholder="Event description" /></Field>
         <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
           <input type="checkbox" id="ht_biz" checked={ht.isBusinessProfile} onChange={e => s('isBusinessProfile')(e.target.checked)} style={{ width:'15px', height:'15px', cursor:'pointer' }} />
-          <label htmlFor="ht_biz" style={{ fontSize:'13px', color:'#e6edf3', cursor:'pointer' }}>Business profile event</label>
+          <label htmlFor="ht_biz" style={{ fontSize:'13px', color:'#211B16', cursor:'pointer' }}>Business profile event</label>
         </div>
 
         {/* ── Dates ── */}
@@ -459,7 +459,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
         <Field label="Type">
           <div style={{ display:'flex', gap:'6px' }}>
             {(['venue','online','hybrid'] as const).map(t => (
-              <button key={t} type="button" onClick={() => s('locationType')(t)} style={{ flex:1, padding:'7px', borderRadius:'6px', border:`1px solid ${ht.locationType===t ? '#a78bfa66' : '#30363d'}`, background: ht.locationType===t ? 'rgba(167,139,250,0.1)' : '#1c2128', color: ht.locationType===t ? '#a78bfa' : '#8b949e', fontSize:'12px', cursor:'pointer' }}>
+              <button key={t} type="button" onClick={() => s('locationType')(t)} style={{ flex:1, padding:'7px', borderRadius:'6px', border:`1px solid ${ht.locationType===t ? '#7C5C8A66' : '#E8DFD0'}`, background: ht.locationType===t ? 'rgba(167,139,250,0.1)' : '#F1EADC', color: ht.locationType===t ? '#7C5C8A' : '#8C7F6D', fontSize:'12px', cursor:'pointer' }}>
                 {t === 'venue' ? '📍 In-person' : t === 'online' ? '💻 Online' : '🔀 Hybrid'}
               </button>
             ))}
@@ -486,9 +486,9 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
         {/* ── Tickets ── */}
         <div style={SEC}>Tickets</div>
         {ht.tickets.map((t, i) => (
-          <div key={i} style={{ background:'#0d1117', border:'1px solid #30363d', borderRadius:'8px', padding:'12px', marginBottom:'8px' }}>
+          <div key={i} style={{ background:'#FBF7F0', border:'1px solid #E8DFD0', borderRadius:'8px', padding:'12px', marginBottom:'8px' }}>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'8px' }}>
-              <span style={{ fontSize:'12px', fontWeight:600, color:'#a78bfa' }}>Ticket #{i+1}</span>
+              <span style={{ fontSize:'12px', fontWeight:600, color:'#7C5C8A' }}>Ticket #{i+1}</span>
               <RemoveBtn onClick={() => removeTicket(i)} />
             </div>
             <div style={GRID2}>
@@ -515,7 +515,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
             </div>
             <div style={{ display:'flex', alignItems:'center', gap:'8px', marginTop:'4px' }}>
               <input type="checkbox" id={`st_${i}`} checked={t.showTicket} onChange={e => updateTicket(i, 'showTicket', e.target.checked)} style={{ width:'14px', height:'14px', cursor:'pointer' }} />
-              <label htmlFor={`st_${i}`} style={{ fontSize:'12px', color:'#8b949e', cursor:'pointer' }}>Show ticket publicly</label>
+              <label htmlFor={`st_${i}`} style={{ fontSize:'12px', color:'#8C7F6D', cursor:'pointer' }}>Show ticket publicly</label>
             </div>
           </div>
         ))}
@@ -540,7 +540,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
             </div>
             <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
               <input type="checkbox" id="ht_refund" checked={ht.allowRefunds} onChange={e => s('allowRefunds')(e.target.checked)} style={{ width:'15px', height:'15px', cursor:'pointer' }} />
-              <label htmlFor="ht_refund" style={{ fontSize:'13px', color:'#e6edf3', cursor:'pointer' }}>Allow refunds</label>
+              <label htmlFor="ht_refund" style={{ fontSize:'13px', color:'#211B16', cursor:'pointer' }}>Allow refunds</label>
             </div>
           </>
         )}
@@ -558,9 +558,9 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
         {/* ── Itineraries ── */}
         <div style={SEC}>Itinerary / Schedule (optional)</div>
         {ht.itineraries.map((item, i) => (
-          <div key={i} style={{ background:'#0d1117', border:'1px solid #30363d', borderRadius:'8px', padding:'10px', marginBottom:'8px' }}>
+          <div key={i} style={{ background:'#FBF7F0', border:'1px solid #E8DFD0', borderRadius:'8px', padding:'10px', marginBottom:'8px' }}>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'6px' }}>
-              <span style={{ fontSize:'11px', color:'#8b949e' }}>Item {i+1}</span>
+              <span style={{ fontSize:'11px', color:'#8C7F6D' }}>Item {i+1}</span>
               <RemoveBtn onClick={() => removeItinerary(i)} />
             </div>
             <Field label="Title"><input type="text" style={INPUT} value={item.title} onChange={e => updateItinerary(i, 'title', e.target.value)} placeholder="e.g. Welcome & Registration" /></Field>
@@ -613,7 +613,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
         <div style={SEC}>Location</div>
         <div style={{ display:'flex', alignItems:'center', gap:'10px', marginBottom:'8px' }}>
           <input type="checkbox" id="lu_online" checked={lu.isOnline} onChange={e => s('isOnline')(e.target.checked)} style={{ width:'16px', height:'16px', cursor:'pointer' }} />
-          <label htmlFor="lu_online" style={{ fontSize:'13px', color:'#e6edf3', cursor:'pointer' }}>Online event</label>
+          <label htmlFor="lu_online" style={{ fontSize:'13px', color:'#211B16', cursor:'pointer' }}>Online event</label>
         </div>
         {lu.isOnline
           ? <Field label="Meeting URL"><input type="url" style={INPUT} value={lu.meetingUrl} onChange={e => s('meetingUrl')(e.target.value)} placeholder="https://zoom.us/..." /></Field>
@@ -630,7 +630,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
         <Field label="Capacity"><input type="number" min="1" style={INPUT} value={lu.capacity} onChange={e => s('capacity')(e.target.value)} placeholder="Unlimited" /></Field>
         <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
           <input type="checkbox" id="rsvp" checked={lu.requireRsvpApproval} onChange={e => s('requireRsvpApproval')(e.target.checked)} style={{ width:'16px', height:'16px', cursor:'pointer' }} />
-          <label htmlFor="rsvp" style={{ fontSize:'13px', color:'#e6edf3', cursor:'pointer' }}>Require RSVP approval</label>
+          <label htmlFor="rsvp" style={{ fontSize:'13px', color:'#211B16', cursor:'pointer' }}>Require RSVP approval</label>
         </div>
       </>
     )
@@ -657,7 +657,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
         <div style={SEC}>Location & Publishing</div>
         <div style={{ display:'flex', alignItems:'center', gap:'10px', marginBottom:'10px' }}>
           <input type="checkbox" id="eb_online" checked={eb.isOnline} onChange={e => s('isOnline')(e.target.checked)} style={{ width:'16px', height:'16px', cursor:'pointer' }} />
-          <label htmlFor="eb_online" style={{ fontSize:'13px', color:'#e6edf3', cursor:'pointer' }}>Online event</label>
+          <label htmlFor="eb_online" style={{ fontSize:'13px', color:'#211B16', cursor:'pointer' }}>Online event</label>
         </div>
         {!eb.isOnline && (
           <>
@@ -682,7 +682,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
         <div style={SEC}>Tickets</div>
         <div style={{ display:'flex', gap:'8px', marginBottom:'10px' }}>
           {(['free','paid'] as const).map(t => (
-            <button key={t} type="button" onClick={() => s('ticketType')(t)} style={{ flex:1, padding:'8px', borderRadius:'6px', border:`1px solid ${eb.ticketType===t ? '#388bfd66' : '#30363d'}`, background: eb.ticketType===t ? 'rgba(56,139,253,0.1)' : '#1c2128', color: eb.ticketType===t ? '#388bfd' : '#8b949e', fontSize:'13px', cursor:'pointer' }}>
+            <button key={t} type="button" onClick={() => s('ticketType')(t)} style={{ flex:1, padding:'8px', borderRadius:'6px', border:`1px solid ${eb.ticketType===t ? '#D98A2B66' : '#E8DFD0'}`, background: eb.ticketType===t ? 'rgba(56,139,253,0.1)' : '#F1EADC', color: eb.ticketType===t ? '#D98A2B' : '#8C7F6D', fontSize:'13px', cursor:'pointer' }}>
               {t === 'free' ? '🆓 Free' : '💳 Paid'}
             </button>
           ))}
@@ -694,8 +694,8 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
         {eb.ticketType === 'paid' && (
           <Field label={`Price (${eb.currency}) *`}><input required type="number" min="0.01" step="0.01" style={INPUT} value={eb.ticketPrice} onChange={e => s('ticketPrice')(e.target.value)} placeholder="10.00" /></Field>
         )}
-        <div style={{ background:'rgba(56,139,253,0.07)', border:'1px solid rgba(56,139,253,0.2)', borderRadius:'6px', padding:'8px 12px', fontSize:'12px', color:'#8b949e' }}>
-          Event created as <b style={{ color:'#e6edf3' }}>draft</b> — publish from Eventbrite dashboard after review.
+        <div style={{ background:'rgba(56,139,253,0.07)', border:'1px solid rgba(56,139,253,0.2)', borderRadius:'6px', padding:'8px 12px', fontSize:'12px', color:'#8C7F6D' }}>
+          Event created as <b style={{ color:'#211B16' }}>draft</b> — publish from Eventbrite dashboard after review.
         </div>
       </>
     )
@@ -713,7 +713,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
           return (
             <div key={c} style={{ display:'flex', alignItems:'center', gap:'10px', marginBottom:'8px' }}>
               <input type="checkbox" id={`sync_${c}`} checked={!!syncTo[c]} onChange={e => setSyncTo(s => ({ ...s, [c]: e.target.checked }))} style={{ width:'16px', height:'16px', cursor:'pointer' }} />
-              <label htmlFor={`sync_${c}`} style={{ fontSize:'13px', color: syncTo[c] ? m.color : '#8b949e', cursor:'pointer', display:'flex', alignItems:'center', gap:'6px' }}>
+              <label htmlFor={`sync_${c}`} style={{ fontSize:'13px', color: syncTo[c] ? m.color : '#8C7F6D', cursor:'pointer', display:'flex', alignItems:'center', gap:'6px' }}>
                 <span>{m.icon}</span>{m.label}
               </label>
             </div>
@@ -731,20 +731,20 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
 
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.78)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000, padding:'20px' }} onClick={e => { if (e.target === e.currentTarget) handleClose() }}>
-      <div style={{ background:'#161b22', border:'1px solid #30363d', borderRadius:'12px', width:'100%', maxWidth:'580px', maxHeight:'92vh', overflow:'hidden', display:'flex', flexDirection:'column' }}>
+      <div style={{ background:'#FFFFFF', border:'1px solid #E8DFD0', borderRadius:'12px', width:'100%', maxWidth:'580px', maxHeight:'92vh', overflow:'hidden', display:'flex', flexDirection:'column' }}>
 
         {/* Header */}
-        <div style={{ padding:'16px 22px', borderBottom:'1px solid #30363d', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+        <div style={{ padding:'16px 22px', borderBottom:'1px solid #E8DFD0', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
           <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
             <span style={{ fontSize:'18px' }}>{ch.icon}</span>
             <div>
-              <div style={{ fontSize:'15px', fontWeight:700, color:'#e6edf3' }}>{isCreate ? 'Create Event' : 'Edit Event'}</div>
+              <div style={{ fontSize:'15px', fontWeight:700, color:'#211B16' }}>{isCreate ? 'Create Event' : 'Edit Event'}</div>
               <div style={{ fontSize:'11px', color: ch.color, marginTop:'1px' }}>{ch.label}</div>
             </div>
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
             <SampleBtn onClick={sampleFns[channel]} />
-            <button onClick={handleClose} style={{ background:'none', border:'none', color:'#8b949e', fontSize:'20px', cursor:'pointer', lineHeight:1, padding:'4px' }}>×</button>
+            <button onClick={handleClose} style={{ background:'none', border:'none', color:'#8C7F6D', fontSize:'20px', cursor:'pointer', lineHeight:1, padding:'4px' }}>×</button>
           </div>
         </div>
 
@@ -754,7 +754,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
             {(Object.keys(CH_META) as Channel[]).map(c => {
               const m = CH_META[c]
               return (
-                <button key={c} onClick={() => setChannel(c)} style={{ flex:1, padding:'8px 6px', borderRadius:'8px', border:`1px solid ${channel===c ? m.color+'55' : '#30363d'}`, background: channel===c ? m.color+'12' : '#1c2128', color: channel===c ? m.color : '#8b949e', fontSize:'11px', fontWeight:600, cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', gap:'3px' }}>
+                <button key={c} onClick={() => setChannel(c)} style={{ flex:1, padding:'8px 6px', borderRadius:'8px', border:`1px solid ${channel===c ? m.color+'55' : '#E8DFD0'}`, background: channel===c ? m.color+'12' : '#F1EADC', color: channel===c ? m.color : '#8C7F6D', fontSize:'11px', fontWeight:600, cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', gap:'3px' }}>
                   <span style={{ fontSize:'16px' }}>{m.icon}</span>{m.label}
                 </button>
               )
@@ -771,7 +771,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
             <form id="ef-form" onSubmit={handleSubmit}>
               <div style={{ padding:'14px 22px', display:'flex', flexDirection:'column', gap:'12px' }}>
                 {error && (
-                  <div style={{ background:'rgba(248,81,73,0.1)', border:'1px solid rgba(248,81,73,0.4)', borderRadius:'6px', padding:'10px 14px', color:'#f85149', fontSize:'13px' }}>{error}</div>
+                  <div style={{ background:'rgba(248,81,73,0.1)', border:'1px solid rgba(248,81,73,0.4)', borderRadius:'6px', padding:'10px 14px', color:'#C2502E', fontSize:'13px' }}>{error}</div>
                 )}
                 {channel === 'hightribe'  && <HtBody />}
                 {channel === 'luma'       && <LumaBody />}
@@ -783,11 +783,11 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
         )}
 
         {/* Footer */}
-        <div style={{ padding:'13px 22px', borderTop:'1px solid #30363d', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
-          <span style={{ fontSize:'12px', color:'#8b949e', minHeight:'16px' }}>{statusMsg}</span>
+        <div style={{ padding:'13px 22px', borderTop:'1px solid #E8DFD0', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
+          <span style={{ fontSize:'12px', color:'#8C7F6D', minHeight:'16px' }}>{statusMsg}</span>
           <div style={{ display:'flex', gap:'8px' }}>
-            <button type="button" onClick={handleClose} style={{ background:'none', border:'1px solid #30363d', borderRadius:'6px', color:'#8b949e', padding:'7px 14px', fontSize:'13px', cursor:'pointer' }}>Cancel</button>
-            <button type="submit" form="ef-form" disabled={submitting || loadingEvent} style={{ background: submitting ? '#1c2128' : '#238636', border:'none', borderRadius:'6px', color: submitting ? '#8b949e' : '#fff', padding:'7px 20px', fontSize:'13px', fontWeight:600, cursor: submitting ? 'default' : 'pointer' }}>
+            <button type="button" onClick={handleClose} style={{ background:'none', border:'1px solid #E8DFD0', borderRadius:'6px', color:'#8C7F6D', padding:'7px 14px', fontSize:'13px', cursor:'pointer' }}>Cancel</button>
+            <button type="submit" form="ef-form" disabled={submitting || loadingEvent} style={{ background: submitting ? '#F1EADC' : '#238636', border:'none', borderRadius:'6px', color: submitting ? '#8C7F6D' : '#fff', padding:'7px 20px', fontSize:'13px', fontWeight:600, cursor: submitting ? 'default' : 'pointer' }}>
               {submitting ? <InlineLoader label="Saving" /> : isCreate ? `Create on ${ch.label}` : 'Save Changes'}
             </button>
           </div>

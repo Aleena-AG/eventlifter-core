@@ -43,9 +43,9 @@ function ToastItem({ toast, onRemove }: { toast: ToastItem; onRemove: (id: strin
   }, [toast.id, onRemove])
 
   const colors: Record<ToastType, { bg: string; border: string; icon: string }> = {
-    success: { bg: '#1a2e1a', border: '#3fb950', icon: '✓' },
-    error: { bg: '#2e1a1a', border: '#f85149', icon: '✕' },
-    info: { bg: '#1a1e2e', border: '#388bfd', icon: 'ℹ' },
+    success: { bg: '#1a2e1a', border: '#4E7A4B', icon: '✓' },
+    error: { bg: '#2e1a1a', border: '#C2502E', icon: '✕' },
+    info: { bg: '#1a1e2e', border: '#D98A2B', icon: 'ℹ' },
   }
 
   const c = colors[toast.type]
@@ -70,7 +70,7 @@ function ToastItem({ toast, onRemove }: { toast: ToastItem; onRemove: (id: strin
       onClick={() => onRemove(toast.id)}
     >
       <span style={{ color: c.border, fontWeight: 'bold', fontSize: '14px' }}>{c.icon}</span>
-      <span style={{ color: '#e6edf3', fontSize: '14px', flex: 1 }}>{toast.message}</span>
+      <span style={{ color: '#211B16', fontSize: '14px', flex: 1 }}>{toast.message}</span>
     </div>
   )
 }

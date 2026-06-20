@@ -10,13 +10,14 @@ import { PageLoader } from './Loader'
 export function ClientLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
+  const isLandingPage = pathname === '/'
   const isLoginPage = pathname === '/login'
   const isCreatePage = pathname === '/create'
-  const barePage = isLoginPage || isCreatePage
+  const barePage = isLandingPage || isLoginPage || isCreatePage
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
-    if (isLoginPage) {
+    if (isLandingPage || isLoginPage) {
       setReady(true)
       return
     }
@@ -30,23 +31,22 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
     }
     if (!getToken()) {
       router.replace('/login')
-      // don't setReady — keep screen blank while redirecting
     } else {
       setReady(true)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoginPage])
+  }, [isLandingPage, isLoginPage, isCreatePage])
 
-  // Loader until auth check completes
   if (!ready) {
     return (
       <div
         style={{
           minHeight: '100vh',
+          width: '100%',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          background: '#0d1117',
+          background: 'var(--canvas)',
         }}
       >
         <PageLoader label="Loading…" />
@@ -54,7 +54,6 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
     )
   }
 
-  // Login / create pages get a bare layout — no sidebar/topbar
   if (barePage) return <>{children}</>
 
   return (
@@ -67,7 +66,7 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
           display: 'flex',
           flexDirection: 'column',
           minHeight: '100vh',
-          background: '#0d1117',
+          background: 'var(--canvas)',
         }}
       >
         <Topbar />

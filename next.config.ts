@@ -3,6 +3,7 @@ import path from "path";
 
 const nextConfig: NextConfig = {
     reactStrictMode: false,
+    serverExternalPackages: ['better-sqlite3'],
 
     // TypeScript error bypass (Build fail nahi hogi)
     typescript: {

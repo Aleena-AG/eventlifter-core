@@ -4,3 +4,5 @@ dist/
 .next/
 _express_backup/
 settings.json
+data/*.db
+data/*.db-*

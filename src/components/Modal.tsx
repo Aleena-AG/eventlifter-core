@@ -49,8 +49,8 @@ export function Modal({ open, onClose, title, children, width = 600 }: ModalProp
       <div
         style={{
           position: 'relative',
-          background: '#161b22',
-          border: '1px solid #30363d',
+          background: '#FFFFFF',
+          border: '1px solid #E8DFD0',
           borderRadius: '10px',
           width: '100%',
           maxWidth: `${width}px`,
@@ -64,10 +64,10 @@ export function Modal({ open, onClose, title, children, width = 600 }: ModalProp
             alignItems: 'center',
             justifyContent: 'space-between',
             padding: '20px 24px',
-            borderBottom: '1px solid #30363d',
+            borderBottom: '1px solid #E8DFD0',
           }}
         >
-          <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: '#e6edf3' }}>
+          <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: '#211B16' }}>
             {title}
           </h2>
           <button
@@ -75,7 +75,7 @@ export function Modal({ open, onClose, title, children, width = 600 }: ModalProp
             style={{
               background: 'none',
               border: 'none',
-              color: '#8b949e',
+              color: '#8C7F6D',
               cursor: 'pointer',
               fontSize: '20px',
               padding: '0 4px',
