@@ -3,9 +3,9 @@
 
 async function get<T = unknown>(path: string): Promise<T> {
   const r = await fetch(path)
-  if (!r.ok) {
-    const d = await r.json().catch(() => ({}))
-    throw new Error((d as { error?: string }).error || `HTTP ${r.status}`)
+    if (!r.ok) {
+    const d = await r.json().catch(() => ({})) as { error?: string; message?: string }
+    throw new Error(d.error || d.message || `HTTP ${r.status}`)
   }
   return r.json() as Promise<T>
 }
@@ -16,9 +16,9 @@ async function post<T = unknown>(path: string, body: unknown = {}): Promise<T> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  if (!r.ok) {
-    const d = await r.json().catch(() => ({}))
-    throw new Error((d as { error?: string }).error || `HTTP ${r.status}`)
+    if (!r.ok) {
+    const d = await r.json().catch(() => ({})) as { error?: string; message?: string }
+    throw new Error(d.error || d.message || `HTTP ${r.status}`)
   }
   return r.json() as Promise<T>
 }
@@ -29,18 +29,18 @@ async function put<T = unknown>(path: string, body: unknown = {}): Promise<T> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  if (!r.ok) {
-    const d = await r.json().catch(() => ({}))
-    throw new Error((d as { error?: string }).error || `HTTP ${r.status}`)
+    if (!r.ok) {
+    const d = await r.json().catch(() => ({})) as { error?: string; message?: string }
+    throw new Error(d.error || d.message || `HTTP ${r.status}`)
   }
   return r.json() as Promise<T>
 }
 
 async function del<T = unknown>(path: string): Promise<T> {
   const r = await fetch(path, { method: 'DELETE' })
-  if (!r.ok) {
-    const d = await r.json().catch(() => ({}))
-    throw new Error((d as { error?: string }).error || `HTTP ${r.status}`)
+    if (!r.ok) {
+    const d = await r.json().catch(() => ({})) as { error?: string; message?: string }
+    throw new Error(d.error || d.message || `HTTP ${r.status}`)
   }
   return r.json() as Promise<T>
 }
