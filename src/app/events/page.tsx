@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { authHeader } from '@/lib/auth'
 import { fetchHtEventsPage, type HtEventListItem } from '@/lib/hightribe-events'
 import { Toast, useToast } from '@/components/Toast'
+import { InlineLoader, PageLoader } from '@/components/Loader'
 import { SyncModal, SyncSource } from '@/components/SyncModal'
 import { CreateEventWizardModal } from '@/components/ewentcast/CreateEventWizardModal'
 import type { ChannelKey } from '@/lib/types'
@@ -542,11 +543,11 @@ export default function EventsPage() {
               {htTotal !== null ? `${htTotal} events hosted by you` : 'Your hosted events'}
             </span>
             <button onClick={() => loadHtEvents(1)} disabled={htLoading} style={{ background:'#1c2128', border:'1px solid #30363d', borderRadius:'6px', color:'#8b949e', padding:'6px 14px', fontSize:'13px', cursor:'pointer' }}>
-              {htLoading ? '…' : '↻ Refresh'}
+              {htLoading ? <InlineLoader label="Refreshing" /> : '↻ Refresh'}
             </button>
           </div>
           {htLoading ? (
-            <div style={{ color:'#8b949e', fontSize:'14px', padding:'40px 0', textAlign:'center' }}>Loading HighTribe events…</div>
+            <PageLoader label="Loading HighTribe events…" />
           ) : htEvents.length === 0 ? (
             <EmptyState channel="HighTribe" />
           ) : (
@@ -596,11 +597,11 @@ export default function EventsPage() {
         <div>
           <div style={{ display:'flex', justifyContent:'flex-end', gap:'8px', marginBottom:'16px' }}>
             <button onClick={loadLumaEvents} disabled={lumaLoading} style={{ background:'#1c2128', border:'1px solid #30363d', borderRadius:'6px', color:'#8b949e', padding:'6px 14px', fontSize:'13px', cursor:'pointer' }}>
-              {lumaLoading ? '…' : '↻ Refresh'}
+              {lumaLoading ? <InlineLoader label="Refreshing" /> : '↻ Refresh'}
             </button>
           </div>
           {lumaLoading ? (
-            <div style={{ color:'#8b949e', fontSize:'14px', padding:'40px 0', textAlign:'center' }}>Loading Luma events…</div>
+            <PageLoader label="Loading Luma events…" />
           ) : lumaEvents.length === 0 ? (
             <EmptyState channel="Luma" />
           ) : (
@@ -637,11 +638,11 @@ export default function EventsPage() {
         <div>
           <div style={{ display:'flex', justifyContent:'flex-end', gap:'8px', marginBottom:'16px' }}>
             <button onClick={loadEbEvents} disabled={ebLoading} style={{ background:'#1c2128', border:'1px solid #30363d', borderRadius:'6px', color:'#8b949e', padding:'6px 14px', fontSize:'13px', cursor:'pointer' }}>
-              {ebLoading ? '…' : '↻ Refresh'}
+              {ebLoading ? <InlineLoader label="Refreshing" /> : '↻ Refresh'}
             </button>
           </div>
           {ebLoading ? (
-            <div style={{ color:'#8b949e', fontSize:'14px', padding:'40px 0', textAlign:'center' }}>Loading Eventbrite events…</div>
+            <PageLoader label="Loading Eventbrite events…" />
           ) : ebEvents.length === 0 ? (
             <EmptyState channel="Eventbrite" />
           ) : (

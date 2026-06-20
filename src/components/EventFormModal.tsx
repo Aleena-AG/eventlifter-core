@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { authHeader } from '@/lib/auth'
 import { buildEbTicketClass } from '@/lib/eventbrite-ticket'
+import { InlineLoader, PageLoader } from '@/components/Loader'
 
 export type Channel = 'hightribe' | 'luma' | 'eventbrite'
 export type FormMode = 'create' | 'edit'
@@ -762,7 +763,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
         )}
 
         {loadingEvent && (
-          <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', color:'#8b949e', fontSize:'14px' }}>Loading event…</div>
+          <PageLoader label="Loading event…" />
         )}
 
         {!loadingEvent && (
@@ -787,7 +788,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
           <div style={{ display:'flex', gap:'8px' }}>
             <button type="button" onClick={handleClose} style={{ background:'none', border:'1px solid #30363d', borderRadius:'6px', color:'#8b949e', padding:'7px 14px', fontSize:'13px', cursor:'pointer' }}>Cancel</button>
             <button type="submit" form="ef-form" disabled={submitting || loadingEvent} style={{ background: submitting ? '#1c2128' : '#238636', border:'none', borderRadius:'6px', color: submitting ? '#8b949e' : '#fff', padding:'7px 20px', fontSize:'13px', fontWeight:600, cursor: submitting ? 'default' : 'pointer' }}>
-              {submitting ? 'Saving…' : isCreate ? `Create on ${ch.label}` : 'Save Changes'}
+              {submitting ? <InlineLoader label="Saving" /> : isCreate ? `Create on ${ch.label}` : 'Save Changes'}
             </button>
           </div>
         </div>

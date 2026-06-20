@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { getSettings } from '@/lib/api'
 import { getUser } from '@/lib/auth'
 import { loadDashboardStats, type DashboardStats } from '@/lib/dashboard-stats'
+import { PageLoader, Spinner } from '@/components/Loader'
 import type { ChannelKey } from '@/lib/types'
 
 const CH_META: Record<ChannelKey, { label: string; icon: string; color: string }> = {
@@ -55,19 +56,19 @@ function ChannelStatCard({
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
         <div>
           <div style={{ fontSize: '24px', fontWeight: 700, color: '#e6edf3', lineHeight: 1.1 }}>
-            {loading ? '…' : configured ? stats?.events ?? 0 : '—'}
+            {loading ? '—' : configured ? stats?.events ?? 0 : '—'}
           </div>
           <div style={{ fontSize: '11px', color: '#8b949e', marginTop: '4px' }}>Events</div>
         </div>
         <div>
           <div style={{ fontSize: '24px', fontWeight: 700, color: '#e6edf3', lineHeight: 1.1 }}>
-            {loading ? '…' : configured ? stats?.tickets ?? 0 : '—'}
+            {loading ? '—' : configured ? stats?.tickets ?? 0 : '—'}
           </div>
           <div style={{ fontSize: '11px', color: '#8b949e', marginTop: '4px' }}>Tickets sold</div>
         </div>
         <div>
           <div style={{ fontSize: '24px', fontWeight: 700, color: meta.color, lineHeight: 1.1 }}>
-            {loading ? '…' : configured ? stats?.bookings ?? 0 : '—'}
+            {loading ? '—' : configured ? stats?.bookings ?? 0 : '—'}
           </div>
           <div style={{ fontSize: '11px', color: '#8b949e', marginTop: '4px' }}>Bookings</div>
         </div>
@@ -79,7 +80,9 @@ function ChannelStatCard({
 function SummaryCard({ label, value, sub, loading }: { label: string; value: string | number; sub?: string; loading: boolean }) {
   return (
     <div style={{ background: '#1c2128', border: '1px solid #30363d', borderRadius: '8px', padding: '14px 18px', flex: 1, minWidth: '140px' }}>
-      <div style={{ fontSize: '22px', fontWeight: 700, color: '#e6edf3' }}>{loading ? '…' : value}</div>
+      <div style={{ fontSize: '22px', fontWeight: 700, color: '#e6edf3' }}>
+        {loading ? '—' : value}
+      </div>
       <div style={{ fontSize: '12px', color: '#8b949e', marginTop: '2px' }}>{label}</div>
       {sub && <div style={{ fontSize: '11px', color: '#6e7681', marginTop: '4px' }}>{sub}</div>}
     </div>
@@ -141,26 +144,37 @@ export default function DashboardPage() {
         <button
           onClick={load}
           disabled={loading}
-          style={{ background: '#1c2128', border: '1px solid #30363d', borderRadius: '6px', color: '#8b949e', padding: '8px 14px', fontSize: '13px', cursor: loading ? 'default' : 'pointer' }}
+          style={{ background: '#1c2128', border: '1px solid #30363d', borderRadius: '6px', color: '#8b949e', padding: '8px 14px', fontSize: '13px', cursor: loading ? 'default' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8 }}
         >
-          {loading ? '…' : '↻ Refresh'}
+          {loading ? (
+            <>
+              <Spinner size={16} />
+              <span>Refreshing…</span>
+            </>
+          ) : '↻ Refresh'}
         </button>
       </div>
 
+      {loading ? (
+        <div style={{ background: '#161b22', border: '1px solid #30363d', borderRadius: '10px', marginBottom: '28px' }}>
+          <PageLoader label="Loading dashboard data…" />
+        </div>
+      ) : (
+        <>
       <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', marginBottom: '16px' }}>
         {(['hightribe', 'luma', 'eventbrite'] as ChannelKey[]).map(ch => (
-          <ChannelStatCard key={ch} channel={ch} stats={stats?.channels[ch]} loading={loading} />
+          <ChannelStatCard key={ch} channel={ch} stats={stats?.channels[ch]} loading={false} />
         ))}
       </div>
 
       <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '28px' }}>
-        <SummaryCard label="Total events listed" value={stats?.totalEvents ?? 0} loading={loading} />
-        <SummaryCard label="Total tickets sold" value={stats?.totalTickets ?? 0} sub="ticket units · all channels" loading={loading} />
-        <SummaryCard label="Total bookings" value={stats?.totalBookings ?? 0} sub="registrations · all channels" loading={loading} />
-        <SummaryCard label="Unique attendees" value={stats?.unifiedAttendees ?? 0} sub="deduped by email" loading={loading} />
+        <SummaryCard label="Total events listed" value={stats?.totalEvents ?? 0} loading={false} />
+        <SummaryCard label="Total tickets sold" value={stats?.totalTickets ?? 0} sub="ticket units · all channels" loading={false} />
+        <SummaryCard label="Total bookings" value={stats?.totalBookings ?? 0} sub="registrations · all channels" loading={false} />
+        <SummaryCard label="Unique attendees" value={stats?.unifiedAttendees ?? 0} sub="deduped by email" loading={false} />
       </div>
 
-      {!loading && !anyConfigured && (
+      {!anyConfigured && (
         <div style={{ background: '#161b22', border: '2px dashed #30363d', borderRadius: '10px', padding: '32px 24px', textAlign: 'center', marginBottom: '28px' }}>
           <div style={{ fontSize: '32px', marginBottom: '12px' }}>⚙️</div>
           <div style={{ fontSize: '16px', color: '#e6edf3', marginBottom: '8px', fontWeight: 500 }}>No channels configured yet</div>
@@ -178,9 +192,7 @@ export default function DashboardPage() {
             <Link href="/events" style={{ fontSize: '13px', color: '#388bfd', textDecoration: 'none' }}>All events →</Link>
           </div>
 
-          {loading ? (
-            <div style={{ color: '#8b949e', fontSize: '14px', padding: '20px 0' }}>Loading…</div>
-          ) : recent.length === 0 ? (
+          {recent.length === 0 ? (
             <div style={{ color: '#8b949e', fontSize: '14px', padding: '20px 0', textAlign: 'center' }}>
               No events yet.{' '}
               <Link href="/events?create=1" style={{ color: '#388bfd', textDecoration: 'none' }}>Create one →</Link>
@@ -211,12 +223,10 @@ export default function DashboardPage() {
         <div style={{ background: '#161b22', border: '1px solid #30363d', borderRadius: '10px', padding: '20px 24px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
             <h2 style={{ margin: 0, fontSize: '15px', fontWeight: 600, color: '#e6edf3' }}>Recent bookings</h2>
-            <span style={{ fontSize: '12px', color: '#6e7681' }}>via webhooks</span>
+            <Link href="/bookings" style={{ fontSize: '13px', color: '#388bfd', textDecoration: 'none' }}>All bookings →</Link>
           </div>
 
-          {loading ? (
-            <div style={{ color: '#8b949e', fontSize: '14px', padding: '20px 0' }}>Loading…</div>
-          ) : (stats?.recentBookings ?? []).length === 0 ? (
+          {(stats?.recentBookings ?? []).length === 0 ? (
             <div style={{ color: '#8b949e', fontSize: '14px', padding: '20px 0', textAlign: 'center', lineHeight: 1.5 }}>
               No bookings yet. Registrations on any channel will appear here.
             </div>
@@ -236,6 +246,9 @@ export default function DashboardPage() {
                       </span>
                     </div>
                     <div style={{ fontSize: '12px', color: '#8b949e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.eventTitle}</div>
+                    {b.email && b.email !== '—' && (
+                      <div style={{ fontSize: '12px', color: '#6e7681', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.email}</div>
+                    )}
                     <div style={{ fontSize: '11px', color: '#6e7681', marginTop: '3px' }}>{formatDate(b.registeredAt)}</div>
                   </div>
                 )
@@ -244,6 +257,8 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+        </>
+      )}
     </div>
   )
 }

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { setToken, setUser, isAuthenticated } from '@/lib/auth'
+import { InlineLoader } from '@/components/Loader'
 
 interface LoginResponse {
   status: boolean
@@ -205,7 +206,7 @@ export default function LoginPage() {
                 marginTop: '4px',
               }}
             >
-              {loading ? 'Signing in…' : 'Sign in'}
+              {loading ? <InlineLoader label="Signing in" /> : 'Sign in'}
             </button>
           </form>
         </div>

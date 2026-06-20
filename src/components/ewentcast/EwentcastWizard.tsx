@@ -10,6 +10,7 @@ import type { ChannelKey } from '@/lib/types'
 import {
   ALL_CHANNELS, CH_META, SAMPLE_EVENT, SECTIONS, WIZARD_STEPS,
 } from './config'
+import { InlineLoader, PageLoader } from '@/components/Loader'
 
 function Swatch({ color, size = 10 }: { color: string; size?: number }) {
   return <span className="ew-swatch" style={{ width: size, height: size, background: color }} />
@@ -185,11 +186,7 @@ export function EwentcastWizard({
     if (loadingEvent) {
       return (
         <div className="ew-view">
-          <div className="ew-head">
-            <span className="ew-eyebrow">{isEdit ? 'Edit event' : 'Step 1 · Master event'}</span>
-            <h2>{isEdit ? 'Loading event…' : 'Create it once'}</h2>
-          </div>
-          <p style={{ color: 'var(--muted)', fontSize: 14 }}>Fetching event details…</p>
+          <PageLoader label={isEdit ? 'Loading event…' : 'Preparing form…'} />
         </div>
       )
     }
@@ -275,7 +272,7 @@ export function EwentcastWizard({
             )}
             {isEdit ? (
               <button type="button" className="ew-btn primary" disabled={saving} onClick={saveEdit}>
-                {saving ? 'Saving…' : 'Save changes'}
+                {saving ? <InlineLoader label="Saving" /> : 'Save changes'}
               </button>
             ) : (
               <button type="button" className="ew-btn primary" disabled={liveTargets.length === 0} onClick={() => setStep(1)}>
@@ -348,7 +345,7 @@ export function EwentcastWizard({
             <button type="button" className="ew-btn primary" onClick={() => setStep(2)}>Open dashboard →</button>
           ) : (
             <button type="button" className="ew-btn primary" disabled={publishing || started} onClick={startPublish}>
-              {publishing || started ? 'Working…' : `Publish to ${liveTargets.length} channels`}
+              {publishing || started ? <InlineLoader label="Publishing" /> : `Publish to ${liveTargets.length} channels`}
             </button>
           )}
         </div>

@@ -66,13 +66,18 @@ export async function syncCapacityAcrossChannels(
 export async function handleBookingWebhook(
   sourceChannel: ChannelKey,
   channelEventId: string,
-  attendee: { email: string; name: string },
+  attendee: { email: string; name: string; registeredAt?: string },
 ): Promise<{ master: MasterEventRecord | null; synced: { channel: ChannelKey; ok: boolean; error?: string }[] }> {
   const { findMasterByChannelEvent, registerAttendee } = await import('@/lib/event-registry')
   const master = findMasterByChannelEvent(sourceChannel, channelEventId)
   if (!master) return { master: null, synced: [] }
 
-  registerAttendee(master.id, { email: attendee.email, name: attendee.name, source: sourceChannel })
+  registerAttendee(master.id, {
+    email: attendee.email,
+    name: attendee.name,
+    source: sourceChannel,
+    registeredAt: attendee.registeredAt,
+  })
   const updated = findMasterByChannelEvent(sourceChannel, channelEventId)!
   const synced = await syncCapacityAcrossChannels(updated, sourceChannel)
   return { master: updated, synced }

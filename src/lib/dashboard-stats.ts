@@ -1,6 +1,7 @@
 'use client'
 
 import { authHeader, getUser } from '@/lib/auth'
+import { loadAllBookings } from '@/lib/bookings'
 import { fetchHtEventsPage, fetchHtHostStats } from '@/lib/hightribe-events'
 import type { ChannelKey } from '@/lib/types'
 
@@ -249,11 +250,17 @@ export async function loadDashboardStats(settings: {
   const registryStats = registryByChannel(registryData.events || [])
   const bookingStats = bookingsFromRegistry(registryData.events || [])
 
-  const [lumaTickets, ebTickets, lumaBookings, ebBookings] = await Promise.all([
+  const [lumaTickets, ebTickets, lumaBookings, ebBookings, allBookings] = await Promise.all([
     lumaConfigured && lumaEvents.length ? fetchLumaTicketsSold(lumaEvents) : Promise.resolve(0),
     ebConfigured && ebEvents.length ? fetchEbTicketsSold(ebEvents) : Promise.resolve(0),
     lumaConfigured && lumaEvents.length ? fetchLumaBookings(lumaEvents) : Promise.resolve(0),
     ebConfigured && ebEvents.length ? fetchEbBookings(ebEvents) : Promise.resolve(0),
+    loadAllBookings({
+      ebConfigured,
+      lumaConfigured,
+      ebEvents,
+      lumaEvents,
+    }),
   ])
 
   channels.hightribe.tickets = htStats.ticketsSold
@@ -307,6 +314,12 @@ export async function loadDashboardStats(settings: {
     totalBookings,
     unifiedAttendees: registryStats.unified || totalBookings,
     recent: recent.slice(0, 5),
-    recentBookings: bookingStats.recent.slice(0, 8),
+    recentBookings: allBookings.slice(0, 8).map(b => ({
+      name: b.name,
+      email: b.email,
+      channel: b.channel,
+      eventTitle: b.eventTitle,
+      registeredAt: b.registeredAt,
+    })),
   }
 }

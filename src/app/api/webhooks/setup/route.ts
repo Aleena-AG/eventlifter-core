@@ -65,10 +65,18 @@ export async function POST(req: NextRequest) {
   }
 
   // ── HighTribe ───────────────────────────────────────────────────────────────
+  const htUrl = `${base}/api/webhooks/hightribe`
+  const htSecret = settings.hightribe.webhookSecret || ''
   results.hightribe = {
     ok: true,
-    url: `${base}/api/webhooks/hightribe`,
-    note: 'Configure this URL in HighTribe backend booking notifications or call manually after each booking.',
+    url: htUrl,
+    laravelEnv: {
+      CHANNEL_MANAGER_WEBHOOK_URL: htUrl,
+      CHANNEL_MANAGER_WEBHOOK_SECRET: htSecret || '<generate-a-secret-and-set-in-both-apps>',
+    },
+    note: htSecret
+      ? 'Add CHANNEL_MANAGER_WEBHOOK_URL and CHANNEL_MANAGER_WEBHOOK_SECRET to HighTribe Laravel .env, then php artisan config:clear.'
+      : 'Set hightribe.webhookSecret in settings.json first, then add both env vars to HighTribe Laravel .env.',
   }
 
   return NextResponse.json({ ok: true, webhooks: results, base })
@@ -82,6 +90,10 @@ export async function GET(req: NextRequest) {
       eventbrite: `${base}/api/webhooks/eventbrite`,
       hightribe: `${base}/api/webhooks/hightribe`,
     },
-    setup: 'POST /api/webhooks/setup to register on Luma + Eventbrite',
+    setup: 'POST /api/webhooks/setup to register on Luma + Eventbrite. HighTribe: set env vars on Laravel backend.',
+    hightribeLaravelEnv: [
+      'CHANNEL_MANAGER_WEBHOOK_URL=<this-app>/api/webhooks/hightribe',
+      'CHANNEL_MANAGER_WEBHOOK_SECRET=<same-as-settings.json-hightribe.webhookSecret>',
+    ],
   })
 }

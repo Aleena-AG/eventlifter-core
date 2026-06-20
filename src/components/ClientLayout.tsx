@@ -5,6 +5,7 @@ import { useRouter, usePathname } from 'next/navigation'
 import { getToken } from '@/lib/auth'
 import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
+import { PageLoader } from './Loader'
 
 export function ClientLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -36,8 +37,22 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoginPage])
 
-  // Blank screen until auth check completes (prevents flash of protected content)
-  if (!ready) return null
+  // Loader until auth check completes
+  if (!ready) {
+    return (
+      <div
+        style={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#0d1117',
+        }}
+      >
+        <PageLoader label="Loading…" />
+      </div>
+    )
+  }
 
   // Login / create pages get a bare layout — no sidebar/topbar
   if (barePage) return <>{children}</>

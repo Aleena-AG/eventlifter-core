@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { api } from '@/lib/api'
 import { Toast, useToast } from '@/components/Toast'
+import { InlineLoader, PageLoader } from '@/components/Loader'
 import { getUser } from '@/lib/auth'
 import type { HtUser } from '@/lib/auth'
 
@@ -76,10 +77,20 @@ function WebhookSetup() {
   const [loading, setLoading] = useState(false)
   const [endpoints, setEndpoints] = useState<Record<string, string>>({})
   const [result, setResult] = useState<string>('')
+  const [htEnv, setHtEnv] = useState<{ url?: string; secret?: string }>({})
 
   useEffect(() => {
-    fetch('/api/webhooks/setup').then(r => r.json()).then((d: { endpoints?: Record<string, string> }) => {
+    fetch('/api/webhooks/setup').then(r => r.json()).then((d: {
+      endpoints?: Record<string, string>
+      hightribeLaravelEnv?: string[]
+    }) => {
       if (d.endpoints) setEndpoints(d.endpoints)
+      if (d.hightribeLaravelEnv) {
+        setHtEnv({
+          url: d.endpoints?.hightribe,
+          secret: d.hightribeLaravelEnv[1]?.split('=')[1],
+        })
+      }
     }).catch(() => {})
   }, [])
 
@@ -88,10 +99,16 @@ function WebhookSetup() {
     setResult('')
     try {
       const res = await fetch('/api/webhooks/setup', { method: 'POST' })
-      const data = await res.json() as { webhooks?: Record<string, { ok?: boolean; error?: string; url?: string }> }
-      const lines = Object.entries(data.webhooks || {}).map(([ch, r]) =>
-        `${ch}: ${r.ok ? '✓ registered' : `✗ ${r.error || 'failed'}`}`,
-      )
+      const data = await res.json() as {
+        webhooks?: Record<string, { ok?: boolean; error?: string; url?: string; note?: string; laravelEnv?: Record<string, string> }>
+      }
+      const lines = Object.entries(data.webhooks || {}).map(([ch, r]) => {
+        if (ch === 'hightribe' && r.laravelEnv) {
+          setHtEnv({ url: r.laravelEnv.CHANNEL_MANAGER_WEBHOOK_URL, secret: r.laravelEnv.CHANNEL_MANAGER_WEBHOOK_SECRET })
+          return `${ch}: ${r.note || 'configure Laravel .env'}`
+        }
+        return `${ch}: ${r.ok ? '✓ registered' : `✗ ${r.error || 'failed'}`}`
+      })
       setResult(lines.join('\n'))
     } catch (e) {
       setResult(e instanceof Error ? e.message : 'Setup failed')
@@ -99,6 +116,12 @@ function WebhookSetup() {
       setLoading(false)
     }
   }
+
+  const laravelEnvBlock = htEnv.url
+    ? `CHANNEL_MANAGER_WEBHOOK_URL=${htEnv.url}\nCHANNEL_MANAGER_WEBHOOK_SECRET=${htEnv.secret || '<set-in-settings-first>'}`
+    : endpoints.hightribe
+      ? `CHANNEL_MANAGER_WEBHOOK_URL=${endpoints.hightribe}\nCHANNEL_MANAGER_WEBHOOK_SECRET=<same-as-settings-hightribe.webhookSecret>`
+      : ''
 
   return (
     <div>
@@ -111,8 +134,25 @@ function WebhookSetup() {
           </div>
         </div>
       ))}
+
+      {laravelEnvBlock && (
+        <div style={{ marginTop: '14px', marginBottom: '10px' }}>
+          <div style={LABEL_STYLE}>HighTribe Laravel .env (C:\laragon\www\HighTribe-Laravel-Backend)</div>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+            <pre style={{
+              flex: 1, margin: 0, fontSize: '12px', color: '#e6edf3', background: '#0d1117',
+              padding: '10px 12px', borderRadius: '6px', border: '1px solid #30363d', overflow: 'auto',
+            }}>{laravelEnvBlock}</pre>
+            <CopyButton value={laravelEnvBlock} />
+          </div>
+          <p style={{ fontSize: '12px', color: '#6e7681', margin: '8px 0 0', lineHeight: 1.5 }}>
+            After saving, run <code style={{ color: '#e6edf3' }}>php artisan config:clear</code> in the Laravel project.
+          </p>
+        </div>
+      )}
+
       <button onClick={setup} disabled={loading} style={{ ...BTN_PRIMARY, marginTop: '8px', opacity: loading ? 0.6 : 1 }}>
-        {loading ? 'Registering…' : 'Register webhooks on Luma + Eventbrite'}
+        {loading ? <InlineLoader label="Registering" /> : 'Register webhooks on Luma + Eventbrite'}
       </button>
       {result && (
         <pre style={{ marginTop: '12px', fontSize: '12px', color: '#8b949e', whiteSpace: 'pre-wrap' }}>{result}</pre>
@@ -208,6 +248,7 @@ export default function SettingsPage() {
   const DEFAULT_REDIRECT = 'http://localhost:3000/api/eventbrite/callback'
   const eb = settings.eventbrite || {}
   const lu = settings.luma || {}
+  const ht = settings.hightribe || {}
 
   return (
     <div style={{ maxWidth: '720px' }}>
@@ -221,7 +262,7 @@ export default function SettingsPage() {
       </div>
 
       {loading ? (
-        <div style={{ color: '#8b949e', fontSize: '14px' }}>Loading settings…</div>
+        <PageLoader label="Loading settings…" />
       ) : (
         <>
           {/* Eventbrite */}
@@ -275,7 +316,7 @@ export default function SettingsPage() {
                   disabled={saving === 'eventbrite'}
                   style={{ ...BTN_PRIMARY, opacity: saving === 'eventbrite' ? 0.6 : 1 }}
                 >
-                  {saving === 'eventbrite' ? 'Saving…' : 'Save'}
+                  {saving === 'eventbrite' ? <InlineLoader label="Saving" /> : 'Save'}
                 </button>
                 <button
                   onClick={testEventbrite}
@@ -360,7 +401,7 @@ export default function SettingsPage() {
                   disabled={saving === 'luma'}
                   style={{ ...BTN_PRIMARY, opacity: saving === 'luma' ? 0.6 : 1 }}
                 >
-                  {saving === 'luma' ? 'Saving…' : 'Save'}
+                  {saving === 'luma' ? <InlineLoader label="Saving" /> : 'Save'}
                 </button>
                 <button
                   onClick={testLuma}
@@ -433,12 +474,32 @@ export default function SettingsPage() {
                 </a>
               </div>
             )}
+            <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #30363d' }}>
+              <label style={LABEL_STYLE}>Webhook secret (shared with Laravel backend)</label>
+              <input
+                type="password"
+                style={INPUT_STYLE}
+                value={ht.webhookSecret || ''}
+                onChange={(e) => updateSection('hightribe', 'webhookSecret', e.target.value)}
+                placeholder="Generate a random string — same value goes in Laravel .env"
+              />
+              <p style={{ fontSize: '12px', color: '#6e7681', margin: '8px 0 12px', lineHeight: 1.5 }}>
+                HighTribe Laravel sends booking webhooks to EventLifter when a guest registers. Set the same secret in both apps.
+              </p>
+              <button
+                onClick={() => saveSection('hightribe')}
+                disabled={saving === 'hightribe'}
+                style={{ ...BTN_PRIMARY, opacity: saving === 'hightribe' ? 0.6 : 1 }}
+              >
+                {saving === 'hightribe' ? <InlineLoader label="Saving" /> : 'Save webhook secret'}
+              </button>
+            </div>
           </SectionCard>
 
           {/* Webhooks */}
           <SectionCard title="Webhooks" icon="🔔" color="#3fb950">
             <p style={{ fontSize: '13px', color: '#8b949e', margin: '0 0 14px', lineHeight: 1.5 }}>
-              Register webhooks on Luma + Eventbrite so ticket bookings on one channel auto-update capacity on the others.
+              Luma + Eventbrite register here. HighTribe sends bookings from Laravel backend when env vars are set.
             </p>
             <WebhookSetup />
           </SectionCard>

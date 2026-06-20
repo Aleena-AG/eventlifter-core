@@ -5,6 +5,7 @@ import { getSettings, updateSettings } from '@/lib/api'
 import type { ChannelKey } from '@/lib/types'
 import { CHANNEL_KEYS } from '@/lib/channels'
 import { ChannelCard } from '@/components/ChannelCard'
+import { InlineLoader, PageLoader } from '@/components/Loader'
 import { Toast, useToast } from '@/components/Toast'
 
 const BTN_BASE: React.CSSProperties = {
@@ -120,7 +121,7 @@ export default function ChannelsPage() {
       </div>
 
       {loading ? (
-        <div style={{ color: '#8b949e', fontSize: '14px' }}>Loading channels…</div>
+        <PageLoader label="Loading channels…" />
       ) : (
         <div
           style={{
@@ -164,7 +165,7 @@ export default function ChannelsPage() {
                         opacity: busy === ch ? 0.6 : 1,
                       }}
                     >
-                      {busy === ch ? 'Disconnecting…' : 'Disconnect'}
+                      {busy === ch ? <InlineLoader label="Disconnecting" /> : 'Disconnect'}
                     </button>
                   ) : (
                     <button
@@ -178,7 +179,7 @@ export default function ChannelsPage() {
                         opacity: busy === ch ? 0.6 : 1,
                       }}
                     >
-                      {busy === ch ? 'Connecting…' : 'Connect'}
+                      {busy === ch ? <InlineLoader label="Connecting" /> : 'Connect'}
                     </button>
                   )}
                 </div>
@@ -199,7 +200,7 @@ export default function ChannelsPage() {
                         opacity: busy === ch ? 0.6 : 1,
                       }}
                     >
-                      {busy === ch ? 'Disconnecting…' : 'Disconnect'}
+                      {busy === ch ? <InlineLoader label="Disconnecting" /> : 'Disconnect'}
                     </button>
                   ) : (
                     <button
@@ -252,7 +253,7 @@ export default function ChannelsPage() {
                         opacity: busy === ch ? 0.6 : 1,
                       }}
                     >
-                      {busy === ch ? 'Disconnecting…' : 'Disconnect'}
+                      {busy === ch ? <InlineLoader label="Disconnecting" /> : 'Disconnect'}
                     </button>
                   ) : (
                     <button
@@ -266,7 +267,7 @@ export default function ChannelsPage() {
                         opacity: busy === ch ? 0.6 : 1,
                       }}
                     >
-                      {busy === ch ? 'Connecting…' : 'Connect with API Key'}
+                      {busy === ch ? <InlineLoader label="Connecting" /> : 'Connect with API Key'}
                     </button>
                   )}
                 </div>

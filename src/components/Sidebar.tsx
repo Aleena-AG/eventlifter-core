@@ -4,12 +4,14 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
 import { getUser, clearAuth, authHeader, type HtUser } from '@/lib/auth'
+import { InlineLoader } from '@/components/Loader'
 
 const NAV_LINKS = [
   { href: '/', label: 'Dashboard', icon: '⊞' },
   { href: '/events?create=1', label: 'Create Event', icon: '✦' },
   { href: '/channels', label: 'Channels', icon: '⛓' },
   { href: '/events', label: 'Events', icon: '📅' },
+  { href: '/bookings', label: 'Bookings', icon: '📋' },
   { href: '/settings', label: 'Settings', icon: '⚙' },
 ]
 
@@ -190,7 +192,7 @@ export function Sidebar() {
                 opacity: loggingOut ? 0.5 : 1,
               }}
             >
-              ⎋ {loggingOut ? 'Signing out…' : 'Sign out'}
+              {loggingOut ? <InlineLoader label="Signing out" /> : '⎋ Sign out'}
             </button>
           </>
         ) : (

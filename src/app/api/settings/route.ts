@@ -19,6 +19,7 @@ export interface AppSettings {
   hightribe: {
     serviceUrl: string
     apiKey: string
+    webhookSecret: string
   }
 }
 
@@ -41,6 +42,7 @@ const DEFAULTS: AppSettings = {
   hightribe: {
     serviceUrl: '',
     apiKey: '',
+    webhookSecret: '',
   },
 }
 
@@ -89,7 +91,9 @@ export function GET() {
     },
     hightribe: {
       serviceUrl: d.hightribe.serviceUrl,
+      webhookSecret: mask(d.hightribe.webhookSecret),
       configured: !!d.hightribe.serviceUrl,
+      hasWebhookSecret: !!d.hightribe.webhookSecret,
     },
   })
 }
@@ -111,6 +115,7 @@ export async function PUT(req: NextRequest) {
     updated.eventbrite.publicToken = current.eventbrite.publicToken
   if (patch.luma?.apiKey?.includes('*')) updated.luma.apiKey = current.luma.apiKey
   if (patch.hightribe?.apiKey?.includes('*')) updated.hightribe.apiKey = current.hightribe.apiKey
+  if (patch.hightribe?.webhookSecret?.includes('*')) updated.hightribe.webhookSecret = current.hightribe.webhookSecret
   fs.writeFileSync(FILE, JSON.stringify(updated, null, 2))
   // Return safe view
   return GET()

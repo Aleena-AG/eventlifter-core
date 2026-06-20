@@ -5,6 +5,7 @@ import { authHeader } from '@/lib/auth'
 import { buildEbTicketClass, ebTicketQuantity } from '@/lib/eventbrite-ticket'
 import { resolveEbTimezone } from '@/lib/eventbrite-timezone'
 import { lumaEntryMatchesId, lumaEventToNorm, unwrapLumaEvent } from '@/lib/luma-event-utils'
+import { InlineLoader } from '@/components/Loader'
 
 export type SyncSource = 'hightribe' | 'luma' | 'eventbrite'
 
@@ -609,7 +610,7 @@ export function SyncModal({ open, event, htConfigured, lumaConfigured, ebConfigu
                   {result?.status === 'success' && <span style={{ color: '#3fb950', fontSize: '18px' }}>✓</span>}
                   {result?.status === 'error' && <span style={{ color: '#f85149', fontSize: '18px' }}>✗</span>}
                   {publishing && selected[key] && !result && (
-                    <span style={{ color: '#8b949e', fontSize: '12px' }}>publishing…</span>
+                    <InlineLoader label="Publishing" />
                   )}
                 </div>
               </div>
@@ -644,7 +645,7 @@ export function SyncModal({ open, event, htConfigured, lumaConfigured, ebConfigu
                 transition: 'all 0.15s',
               }}
             >
-              {publishing ? 'Publishing…' : 'Publish'}
+              {publishing ? <InlineLoader label="Publishing" /> : 'Publish'}
             </button>
           )}
         </div>
