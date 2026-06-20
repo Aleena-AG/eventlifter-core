@@ -4,8 +4,50 @@ import path from 'path'
 
 let db: Database.Database | null = null
 
-const DB_DIR = path.join(process.cwd(), 'data')
+/** Override on production: DATA_DIR=/var/www/eventlifter-core/data */
+const DB_DIR = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : path.join(process.cwd(), 'data')
 const DB_PATH = path.join(DB_DIR, 'eventlifter.db')
+
+export function getDbPaths() {
+  return {
+    dir: DB_DIR,
+    file: DB_PATH,
+    wal: `${DB_PATH}-wal`,
+    shm: `${DB_PATH}-shm`,
+  }
+}
+
+export function getDbStatus() {
+  const paths = getDbPaths()
+  let dirWritable = false
+  let fileReadable = false
+  try {
+    if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true })
+    fs.accessSync(DB_DIR, fs.constants.W_OK)
+    dirWritable = true
+  } catch {
+    dirWritable = false
+  }
+  if (fs.existsSync(DB_PATH)) {
+    try {
+      fs.accessSync(DB_PATH, fs.constants.R_OK)
+      fileReadable = true
+    } catch {
+      fileReadable = false
+    }
+  }
+  return {
+    ...paths,
+    cwd: process.cwd(),
+    dirExists: fs.existsSync(DB_DIR),
+    exists: fs.existsSync(DB_PATH),
+    dirWritable,
+    fileReadable,
+    sizeBytes: fs.existsSync(DB_PATH) ? fs.statSync(DB_PATH).size : 0,
+  }
+}
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS master_events (
@@ -164,15 +206,18 @@ function migrateFromJson(database: Database.Database) {
 export function getDb(): Database.Database {
   if (db) return db
 
-  if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true })
-
-  db = new Database(DB_PATH)
-  db.pragma('journal_mode = WAL')
-  db.pragma('foreign_keys = ON')
-  db.exec(SCHEMA)
-  migrateFromJson(db)
-
-  return db
+  try {
+    if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true })
+    db = new Database(DB_PATH)
+    db.pragma('journal_mode = WAL')
+    db.pragma('foreign_keys = ON')
+    db.exec(SCHEMA)
+    migrateFromJson(db)
+    return db
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    throw new Error(`SQLite failed at ${DB_PATH} (cwd=${process.cwd()}): ${msg}`)
+  }
 }
 
 export function getSyncMeta(key: string): string | null {

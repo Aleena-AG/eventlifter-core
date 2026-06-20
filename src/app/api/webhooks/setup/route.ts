@@ -10,90 +10,125 @@ function webhookBase(req: NextRequest): string {
   return `${proto}://${host}`
 }
 
+async function readJsonSafe(res: Response): Promise<Record<string, unknown>> {
+  const text = await res.text()
+  if (!text.trim()) return {}
+  try {
+    return JSON.parse(text) as Record<string, unknown>
+  } catch {
+    return { raw: text.slice(0, 500) }
+  }
+}
+
 /** Register webhooks on Luma + Eventbrite for ticket sync */
 export async function POST(req: NextRequest) {
-  const base = webhookBase(req)
-  const settings = loadSettings()
-  const results: Record<string, unknown> = {}
+  try {
+    const base = webhookBase(req)
+    const settings = loadSettings()
+    const results: Record<string, unknown> = {}
 
-  // ── Luma ──────────────────────────────────────────────────────────────────
-  if (settings.luma.apiKey) {
-    try {
-      const url = `${base}/api/webhooks/luma`
-      const { data } = await proxyLumaPath(['webhooks'], 'POST', {}, {
-        url,
-        events: ['guest.registered', 'guest.updated'],
-      })
-      results.luma = { ok: true, data }
-    } catch (e) {
-      results.luma = { ok: false, error: e instanceof Error ? e.message : String(e) }
+    // ── Luma ────────────────────────────────────────────────────────────────
+    if (settings.luma.apiKey) {
+      try {
+        const url = `${base}/api/webhooks/luma`
+        const { data } = await proxyLumaPath(['webhooks'], 'POST', {}, {
+          url,
+          events: ['guest.registered', 'guest.updated'],
+        })
+        results.luma = { ok: true, data }
+      } catch (e) {
+        results.luma = { ok: false, error: e instanceof Error ? e.message : String(e) }
+      }
+    } else {
+      results.luma = { ok: false, error: 'Luma API key not configured' }
     }
-  } else {
-    results.luma = { ok: false, error: 'Luma API key not configured' }
-  }
 
-  // ── Eventbrite ──────────────────────────────────────────────────────────────
-  if (settings.eventbrite.privateToken) {
-    try {
-      const orgRes = await fetch(`${EB_BASE}/users/me/organizations/`, {
-        headers: { Authorization: `Bearer ${settings.eventbrite.privateToken}` },
-      })
-      const orgData = await orgRes.json() as { organizations?: Array<{ id: string }> }
-      const orgId = orgData.organizations?.[0]?.id
-      if (!orgId) throw new Error('No Eventbrite organization found')
+    // ── Eventbrite ──────────────────────────────────────────────────────────
+    if (settings.eventbrite.privateToken) {
+      try {
+        const orgRes = await fetch(`${EB_BASE}/users/me/organizations/`, {
+          headers: { Authorization: `Bearer ${settings.eventbrite.privateToken}` },
+        })
+        const orgData = await readJsonSafe(orgRes)
+        if (!orgRes.ok) {
+          throw new Error(String(orgData.error_description || orgData.error || `HTTP ${orgRes.status}`))
+        }
+        const orgId = (orgData.organizations as Array<{ id: string }> | undefined)?.[0]?.id
+        if (!orgId) throw new Error('No Eventbrite organization found')
 
-      const webhookUrl = `${base}/api/webhooks/eventbrite`
-      const whRes = await fetch(`${EB_BASE}/organizations/${orgId}/webhooks/`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${settings.eventbrite.privateToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          endpoint_url: webhookUrl,
-          actions: 'order.placed,attendee.updated',
-          event_id: null,
-        }),
-      })
-      const whData = await whRes.json()
-      results.eventbrite = { ok: whRes.ok, data: whData, url: webhookUrl }
-    } catch (e) {
-      results.eventbrite = { ok: false, error: e instanceof Error ? e.message : String(e) }
+        const webhookUrl = `${base}/api/webhooks/eventbrite`
+        const whRes = await fetch(`${EB_BASE}/organizations/${orgId}/webhooks/`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${settings.eventbrite.privateToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            endpoint_url: webhookUrl,
+            actions: 'order.placed,attendee.updated',
+          }),
+        })
+        const whData = await readJsonSafe(whRes)
+        results.eventbrite = {
+          ok: whRes.ok,
+          data: whData,
+          url: webhookUrl,
+          error: whRes.ok ? undefined : String(whData.error_description || whData.error || `HTTP ${whRes.status}`),
+        }
+      } catch (e) {
+        results.eventbrite = { ok: false, error: e instanceof Error ? e.message : String(e) }
+      }
+    } else {
+      results.eventbrite = { ok: false, error: 'Eventbrite token not configured' }
     }
-  } else {
-    results.eventbrite = { ok: false, error: 'Eventbrite token not configured' }
-  }
 
-  // ── HighTribe ───────────────────────────────────────────────────────────────
-  const htUrl = `${base}/api/webhooks/hightribe`
-  const htSecret = settings.hightribe.webhookSecret || ''
-  results.hightribe = {
-    ok: true,
-    url: htUrl,
-    laravelEnv: {
-      CHANNEL_MANAGER_WEBHOOK_URL: htUrl,
-      CHANNEL_MANAGER_WEBHOOK_SECRET: htSecret || '<generate-a-secret-and-set-in-both-apps>',
-    },
-    note: htSecret
-      ? 'Add CHANNEL_MANAGER_WEBHOOK_URL and CHANNEL_MANAGER_WEBHOOK_SECRET to HighTribe Laravel .env, then php artisan config:clear.'
-      : 'Set hightribe.webhookSecret in settings.json first, then add both env vars to HighTribe Laravel .env.',
-  }
+    // ── HighTribe ─────────────────────────────────────────────────────────────
+    const htUrl = `${base}/api/webhooks/hightribe`
+    const htSecret = settings.hightribe.webhookSecret || ''
+    results.hightribe = {
+      ok: true,
+      url: htUrl,
+      laravelEnv: {
+        CHANNEL_MANAGER_WEBHOOK_URL: htUrl,
+        CHANNEL_MANAGER_WEBHOOK_SECRET: htSecret || '<generate-a-secret-and-set-in-both-apps>',
+      },
+      note: htSecret
+        ? 'Add CHANNEL_MANAGER_WEBHOOK_URL and CHANNEL_MANAGER_WEBHOOK_SECRET to HighTribe Laravel .env, then php artisan config:clear.'
+        : 'Set hightribe webhook secret in Settings first, then add both env vars to HighTribe Laravel .env.',
+    }
 
-  return NextResponse.json({ ok: true, webhooks: results, base })
+    return NextResponse.json({ ok: true, webhooks: results, base })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Webhook setup failed'
+    console.error('[webhooks/setup POST]', msg, e)
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 })
+  }
 }
 
 export async function GET(req: NextRequest) {
-  const base = webhookBase(req)
-  return NextResponse.json({
-    endpoints: {
-      luma: `${base}/api/webhooks/luma`,
-      eventbrite: `${base}/api/webhooks/eventbrite`,
-      hightribe: `${base}/api/webhooks/hightribe`,
-    },
-    setup: 'POST /api/webhooks/setup to register on Luma + Eventbrite. HighTribe: set env vars on Laravel backend.',
-    hightribeLaravelEnv: [
-      'CHANNEL_MANAGER_WEBHOOK_URL=<this-app>/api/webhooks/hightribe',
-      'CHANNEL_MANAGER_WEBHOOK_SECRET=<same-as-settings.json-hightribe.webhookSecret>',
-    ],
-  })
+  try {
+    const base = webhookBase(req)
+    let htSecret = ''
+    try {
+      htSecret = loadSettings().hightribe.webhookSecret || ''
+    } catch {
+      // settings unavailable — still return endpoint URLs
+    }
+
+    return NextResponse.json({
+      endpoints: {
+        luma: `${base}/api/webhooks/luma`,
+        eventbrite: `${base}/api/webhooks/eventbrite`,
+        hightribe: `${base}/api/webhooks/hightribe`,
+      },
+      setup: 'POST /api/webhooks/setup to register on Luma + Eventbrite. HighTribe: set env vars on Laravel backend.',
+      hightribeLaravelEnv: [
+        `CHANNEL_MANAGER_WEBHOOK_URL=${base}/api/webhooks/hightribe`,
+        `CHANNEL_MANAGER_WEBHOOK_SECRET=${htSecret || '<same-as-settings-hightribe-webhookSecret>'}`,
+      ],
+    })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Failed to load webhook setup info'
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 })
+  }
 }

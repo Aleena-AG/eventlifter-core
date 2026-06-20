@@ -99,8 +99,19 @@ function WebhookSetup() {
     setResult('')
     try {
       const res = await fetch('/api/webhooks/setup', { method: 'POST' })
-      const data = await res.json() as {
+      const text = await res.text()
+      let data: {
+        ok?: boolean
+        error?: string
         webhooks?: Record<string, { ok?: boolean; error?: string; url?: string; note?: string; laravelEnv?: Record<string, string> }>
+      } = {}
+      try {
+        data = text ? JSON.parse(text) : {}
+      } catch {
+        throw new Error(res.ok ? 'Invalid server response' : `HTTP ${res.status}: ${text.slice(0, 120) || 'empty response'}`)
+      }
+      if (!res.ok || data.error) {
+        throw new Error(data.error || `HTTP ${res.status}`)
       }
       const lines = Object.entries(data.webhooks || {}).map(([ch, r]) => {
         if (ch === 'hightribe' && r.laravelEnv) {
