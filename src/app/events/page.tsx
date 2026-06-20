@@ -3,8 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { authHeader } from '@/lib/auth'
-import { fetchEventsFromDb, syncChannelsFromApi } from '@/lib/data-api'
-import type { HtEventListItem } from '@/lib/hightribe-events'
+import { fetchHtEventsPage, type HtEventListItem } from '@/lib/hightribe-events'
 import { Toast, useToast } from '@/components/Toast'
 import { InlineLoader, PageLoader } from '@/components/Loader'
 import { SyncModal, SyncSource } from '@/components/SyncModal'
@@ -269,84 +268,59 @@ export default function EventsPage() {
   const loadHtEvents = useCallback(async (page = 1) => {
     setHtLoading(true)
     try {
-      const { events: cached } = await fetchEventsFromDb('hightribe')
-      const all = cached.map(c => (c.payload || {}) as HtEventListItem).filter(e => e.id)
-      const perPage = 12
-      const lastPage = Math.max(1, Math.ceil(all.length / perPage))
-      const currentPage = Math.min(page, lastPage)
-      const start = (currentPage - 1) * perPage
-      setHtEvents(all.slice(start, start + perPage) as HtEvent[])
+      const { events, currentPage, lastPage, total } = await fetchHtEventsPage(page, 12)
+      setHtEvents(events)
       setHtPage(currentPage)
       setHtLastPage(lastPage)
-      setHtTotal(all.length)
-    } catch { toast.error('Failed to load HighTribe events — sync first') }
+      setHtTotal(total)
+    } catch { toast.error('Failed to load HighTribe events') }
     finally { setHtLoading(false) }
   }, [toast])
-
-  const syncHtEvents = useCallback(async (page = 1) => {
-    setHtLoading(true)
-    try {
-      await syncChannelsFromApi()
-      await loadHtEvents(page)
-    } catch {
-      toast.error('Sync failed')
-      await loadHtEvents(page)
-    } finally { setHtLoading(false) }
-  }, [loadHtEvents, toast])
 
   const loadLumaEvents = useCallback(async () => {
     setLumaLoading(true)
     try {
-      const { events: cached } = await fetchEventsFromDb('luma')
-      setLumaEvents(cached.map(c => {
-        const p = c.payload as LumaEntry | undefined
-        if (p?.event) return p.event
-        return {
-          api_id: c.externalId,
-          name: c.title,
-          start_at: c.startUtc || '',
-          end_at: '',
-          timezone: 'UTC',
-        } as LumaEvent
-      }))
-    } catch { toast.error('Failed to load Luma events — sync first') }
+      const res = await fetch('/api/luma/events/hosted?upcoming_only=false&fetch_all=true', { headers: { Authorization: authHeader() } })
+      const raw = await res.json() as { data?: { entries?: LumaEntry[] }; entries?: LumaEntry[]; status?: string; message?: string; error?: string }
+      if (!res.ok || raw.status === 'error') {
+        toast.error(`Luma: ${raw.message || raw.error || `HTTP ${res.status}`}`)
+        return
+      }
+      const entries = raw.data?.entries || raw.entries || []
+      setLumaEvents(entries.map((e): LumaEvent | null => {
+        if (e.event) return e.event
+        if (e.id && e.name) {
+          return {
+            api_id: e.id,
+            name: e.name,
+            start_at: e.start_at || '',
+            end_at: e.end_at || '',
+            timezone: e.timezone || 'UTC',
+            url: e.url,
+            cover_url: e.cover_url,
+            geo_address_json: e.geo_address_json,
+            meeting_url: e.meeting_url,
+          }
+        }
+        return null
+      }).filter((e): e is LumaEvent => !!e))
+    } catch { toast.error('Failed to load Luma events') }
     finally { setLumaLoading(false) }
   }, [toast])
-
-  const syncLumaEvents = useCallback(async () => {
-    setLumaLoading(true)
-    try {
-      await syncChannelsFromApi()
-      await loadLumaEvents()
-    } catch {
-      toast.error('Sync failed')
-      await loadLumaEvents()
-    } finally { setLumaLoading(false) }
-  }, [loadLumaEvents, toast])
 
   const loadEbEvents = useCallback(async () => {
     setEbLoading(true)
     try {
-      const { events: cached } = await fetchEventsFromDb('eventbrite')
-      setEbEvents(cached.map(c => (c.payload || {
-        id: c.externalId,
-        name: { text: c.title },
-        start: { utc: c.startUtc },
-      }) as EbEvent))
-    } catch { toast.error('Failed to load Eventbrite events — sync first') }
+      const orgRes = await fetch('/api/eventbrite/users/me/organizations')
+      const orgData = await orgRes.json() as { organizations?: Array<{ id: string }> }
+      const orgs = orgData.organizations || []
+      if (orgs.length === 0) { setEbEvents([]); return }
+      const evtRes = await fetch(`/api/eventbrite/organizations/${orgs[0].id}/events?page_size=50`)
+      const evtData = await evtRes.json() as { events?: EbEvent[] }
+      setEbEvents(evtData.events || [])
+    } catch { toast.error('Failed to load Eventbrite events') }
     finally { setEbLoading(false) }
   }, [toast])
-
-  const syncEbEvents = useCallback(async () => {
-    setEbLoading(true)
-    try {
-      await syncChannelsFromApi()
-      await loadEbEvents()
-    } catch {
-      toast.error('Sync failed')
-      await loadEbEvents()
-    } finally { setEbLoading(false) }
-  }, [loadEbEvents, toast])
 
   // Load linked copies when delete dialog opens
   useEffect(() => {
@@ -568,8 +542,8 @@ export default function EventsPage() {
             <span style={{ fontSize:'13px', color:'#8C7F6D' }}>
               {htTotal !== null ? `${htTotal} events hosted by you` : 'Your hosted events'}
             </span>
-            <button onClick={() => syncHtEvents(1)} disabled={htLoading} style={{ background:'#F1EADC', border:'1px solid #E8DFD0', borderRadius:'6px', color:'#8C7F6D', padding:'6px 14px', fontSize:'13px', cursor:'pointer' }}>
-              {htLoading ? <InlineLoader label="Syncing" /> : '↻ Sync from channels'}
+            <button onClick={() => loadHtEvents(1)} disabled={htLoading} style={{ background:'#F1EADC', border:'1px solid #E8DFD0', borderRadius:'6px', color:'#8C7F6D', padding:'6px 14px', fontSize:'13px', cursor:'pointer' }}>
+              {htLoading ? <InlineLoader label="Refreshing" /> : '↻ Refresh'}
             </button>
           </div>
           {htLoading ? (
@@ -622,8 +596,8 @@ export default function EventsPage() {
       {tab === 'luma' && (
         <div>
           <div style={{ display:'flex', justifyContent:'flex-end', gap:'8px', marginBottom:'16px' }}>
-            <button onClick={syncLumaEvents} disabled={lumaLoading} style={{ background:'#F1EADC', border:'1px solid #E8DFD0', borderRadius:'6px', color:'#8C7F6D', padding:'6px 14px', fontSize:'13px', cursor:'pointer' }}>
-              {lumaLoading ? <InlineLoader label="Syncing" /> : '↻ Sync from channels'}
+            <button onClick={loadLumaEvents} disabled={lumaLoading} style={{ background:'#F1EADC', border:'1px solid #E8DFD0', borderRadius:'6px', color:'#8C7F6D', padding:'6px 14px', fontSize:'13px', cursor:'pointer' }}>
+              {lumaLoading ? <InlineLoader label="Refreshing" /> : '↻ Refresh'}
             </button>
           </div>
           {lumaLoading ? (
@@ -663,8 +637,8 @@ export default function EventsPage() {
       {tab === 'eventbrite' && (
         <div>
           <div style={{ display:'flex', justifyContent:'flex-end', gap:'8px', marginBottom:'16px' }}>
-            <button onClick={syncEbEvents} disabled={ebLoading} style={{ background:'#F1EADC', border:'1px solid #E8DFD0', borderRadius:'6px', color:'#8C7F6D', padding:'6px 14px', fontSize:'13px', cursor:'pointer' }}>
-              {ebLoading ? <InlineLoader label="Syncing" /> : '↻ Sync from channels'}
+            <button onClick={loadEbEvents} disabled={ebLoading} style={{ background:'#F1EADC', border:'1px solid #E8DFD0', borderRadius:'6px', color:'#8C7F6D', padding:'6px 14px', fontSize:'13px', cursor:'pointer' }}>
+              {ebLoading ? <InlineLoader label="Refreshing" /> : '↻ Refresh'}
             </button>
           </div>
           {ebLoading ? (

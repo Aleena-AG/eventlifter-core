@@ -4,8 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { getSettings } from '@/lib/api'
 import { getUser } from '@/lib/auth'
-import { fetchDashboardFromDb, syncChannelsFromApi } from '@/lib/data-api'
-import type { DashboardStats } from '@/lib/dashboard-stats'
+import { loadDashboardStats, type DashboardStats } from '@/lib/dashboard-stats'
 import { PageLoader, Spinner } from '@/components/Loader'
 import type { ChannelKey } from '@/lib/types'
 
@@ -110,17 +109,14 @@ export default function DashboardPage() {
   const [settings, setSettings] = useState<SafeSettings>({})
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [loading, setLoading] = useState(true)
-  const [syncing, setSyncing] = useState(false)
-  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null)
 
-  const loadFromDb = useCallback(async () => {
+  const load = useCallback(async () => {
     setLoading(true)
     try {
       const s = await getSettings() as SafeSettings
       setSettings(s)
-      const dash = await fetchDashboardFromDb()
+      const dash = await loadDashboardStats(s)
       setStats(dash)
-      setLastSyncedAt(dash.lastSyncedAt)
     } catch {
       setStats(null)
     } finally {
@@ -128,19 +124,7 @@ export default function DashboardPage() {
     }
   }, [])
 
-  const syncAndLoad = useCallback(async () => {
-    setSyncing(true)
-    try {
-      await syncChannelsFromApi()
-      await loadFromDb()
-    } catch {
-      await loadFromDb()
-    } finally {
-      setSyncing(false)
-    }
-  }, [loadFromDb])
-
-  useEffect(() => { loadFromDb() }, [loadFromDb])
+  useEffect(() => { load() }, [load])
 
   const htConfigured = !!getUser()
   const lumaConfigured = !!(settings.luma?.configured)
@@ -155,24 +139,19 @@ export default function DashboardPage() {
           <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700, color: '#211B16' }}>Dashboard</h1>
           <p style={{ margin: '4px 0 0', fontSize: '14px', color: '#8C7F6D' }}>
             Events, tickets, and bookings across all connected channels
-            {lastSyncedAt && (
-              <span style={{ display: 'block', fontSize: '12px', marginTop: 4, opacity: 0.85 }}>
-                Last synced {formatDate(lastSyncedAt)}
-              </span>
-            )}
           </p>
         </div>
         <button
-          onClick={syncAndLoad}
-          disabled={loading || syncing}
-          style={{ background: '#F1EADC', border: '1px solid #E8DFD0', borderRadius: '6px', color: '#8C7F6D', padding: '8px 14px', fontSize: '13px', cursor: loading || syncing ? 'default' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8 }}
+          onClick={load}
+          disabled={loading}
+          style={{ background: '#F1EADC', border: '1px solid #E8DFD0', borderRadius: '6px', color: '#8C7F6D', padding: '8px 14px', fontSize: '13px', cursor: loading ? 'default' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8 }}
         >
-          {loading || syncing ? (
+          {loading ? (
             <>
               <Spinner size={16} />
-              <span>{syncing ? 'Syncing…' : 'Loading…'}</span>
+              <span>Refreshing…</span>
             </>
-          ) : '↻ Sync from channels'}
+          ) : '↻ Refresh'}
         </button>
       </div>
 

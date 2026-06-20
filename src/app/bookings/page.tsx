@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { fetchBookingsFromDb, syncChannelsFromApi } from '@/lib/data-api'
-import type { BookingListItem } from '@/lib/bookings'
+import { getSettings } from '@/lib/api'
+import { loadAllBookings, type BookingListItem } from '@/lib/bookings'
 import { InlineLoader, PageLoader } from '@/components/Loader'
 import { getUser } from '@/lib/auth'
 import type { ChannelKey } from '@/lib/types'
@@ -36,18 +36,21 @@ function statusColor(status?: string) {
 export default function BookingsPage() {
   const [bookings, setBookings] = useState<BookingListItem[]>([])
   const [loading, setLoading] = useState(true)
-  const [syncing, setSyncing] = useState(false)
-  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null)
   const [filter, setFilter] = useState<Filter>('all')
   const [query, setQuery] = useState('')
   const htLoggedIn = !!getUser()
 
-  const loadFromDb = useCallback(async () => {
+  const load = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await fetchBookingsFromDb()
-      setBookings(data.bookings)
-      setLastSyncedAt(data.lastSyncedAt)
+      const settings = await getSettings() as {
+        luma?: { configured?: boolean }
+        eventbrite?: { configured?: boolean; hasPrivateToken?: boolean }
+      }
+      setBookings(await loadAllBookings({
+        ebConfigured: !!(settings.eventbrite?.configured || settings.eventbrite?.hasPrivateToken),
+        lumaConfigured: !!settings.luma?.configured,
+      }))
     } catch {
       setBookings([])
     } finally {
@@ -55,19 +58,7 @@ export default function BookingsPage() {
     }
   }, [])
 
-  const syncAndLoad = useCallback(async () => {
-    setSyncing(true)
-    try {
-      await syncChannelsFromApi()
-      await loadFromDb()
-    } catch {
-      await loadFromDb()
-    } finally {
-      setSyncing(false)
-    }
-  }, [loadFromDb])
-
-  useEffect(() => { loadFromDb() }, [loadFromDb])
+  useEffect(() => { load() }, [load])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -94,20 +85,15 @@ export default function BookingsPage() {
         <div>
           <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700, color: '#211B16' }}>Bookings</h1>
           <p style={{ margin: '4px 0 0', fontSize: '14px', color: '#8C7F6D' }}>
-            Stored in local SQLite — updated by sync and webhooks
-            {lastSyncedAt && (
-              <span style={{ display: 'block', fontSize: '12px', marginTop: 4, opacity: 0.85 }}>
-                Last synced {formatDate(lastSyncedAt)}
-              </span>
-            )}
+            Incoming registrations from webhooks and connected channels
           </p>
         </div>
         <button
-          onClick={syncAndLoad}
-          disabled={loading || syncing}
-          style={{ background: '#F1EADC', border: '1px solid #E8DFD0', borderRadius: '6px', color: '#8C7F6D', padding: '8px 14px', fontSize: '13px', cursor: loading || syncing ? 'default' : 'pointer' }}
+          onClick={load}
+          disabled={loading}
+          style={{ background: '#F1EADC', border: '1px solid #E8DFD0', borderRadius: '6px', color: '#8C7F6D', padding: '8px 14px', fontSize: '13px', cursor: loading ? 'default' : 'pointer' }}
         >
-          {loading || syncing ? <InlineLoader label={syncing ? 'Syncing' : 'Loading'} /> : '↻ Sync from channels'}
+          {loading ? <InlineLoader label="Refreshing" /> : '↻ Refresh'}
         </button>
       </div>
 
