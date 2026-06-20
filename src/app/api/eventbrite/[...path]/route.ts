@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { loadSettings } from '../../settings/route'
-import fs from 'fs'
-import path from 'path'
+import { loadSettings, saveSettings } from '../../settings/route'
 
 const EB_BASE = 'https://www.eventbriteapi.com/v3'
 const EB_AUTH_URL = 'https://www.eventbrite.com/oauth/authorize'
@@ -48,10 +46,9 @@ async function handler(
     const tokenData = (await tokenRes.json()) as Record<string, unknown>
     // Save token as privateToken in settings
     if (tokenData.access_token) {
-      const FILE = path.join(process.cwd(), 'settings.json')
       const current = loadSettings()
       current.eventbrite.privateToken = String(tokenData.access_token)
-      fs.writeFileSync(FILE, JSON.stringify(current, null, 2))
+      saveSettings(current)
     }
     return NextResponse.json({ connected: true, ...tokenData })
   }
