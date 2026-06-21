@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { getUser } from '@/lib/auth'
 import type { AttendeeRecord } from '@/lib/event-registry'
 import { publishToAllChannels, updateChannelEvent, type EventFormData } from '@/lib/publish-event'
+import type { EventCoverFiles } from '@/lib/cover-image'
 import { loadEventFormData } from '@/lib/event-form-data'
 import type { ChannelKey } from '@/lib/types'
 import {
@@ -45,6 +46,7 @@ export function EwentcastWizard({
   const [step, setStep] = useState(0)
   const [section, setSection] = useState(0)
   const [ev, setEv] = useState<EventFormData>({ ...SAMPLE_EVENT })
+  const [coverFile, setCoverFile] = useState<File | null>(null)
   const [targets, setTargets] = useState<ChannelKey[]>(
     isEdit && editChannel ? [editChannel] : [...ALL_CHANNELS],
   )
@@ -66,7 +68,7 @@ export function EwentcastWizard({
     setLoadError(null)
     setTargets([editChannel])
     loadEventFormData(editChannel, editEventId)
-      .then(data => { setEv(data); setLoadingEvent(false) })
+      .then(data => { setEv(data); setCoverFile(null); setLoadingEvent(false) })
       .catch(err => {
         setLoadError(err instanceof Error ? err.message : 'Failed to load event')
         setLoadingEvent(false)
@@ -109,12 +111,14 @@ export function EwentcastWizard({
     setTargets(prev => prev.includes(ch) ? prev.filter(x => x !== ch) : [...prev, ch])
   }
 
+  const coverFiles: EventCoverFiles = { cover: coverFile }
+
   async function saveEdit() {
     if (!editChannel || editEventId == null) return
     setSaving(true)
     setSaveError(null)
     try {
-      await updateChannelEvent(editChannel, editEventId, ev)
+      await updateChannelEvent(editChannel, editEventId, ev, coverFiles)
       onDone?.()
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Save failed')
@@ -134,7 +138,7 @@ export function EwentcastWizard({
       await new Promise(r => setTimeout(r, 300))
     }
 
-    const results = await publishToAllChannels(ev, liveTargets)
+    const results = await publishToAllChannels(ev, liveTargets, coverFiles)
     const next: PubState = {}
     for (const ch of liveTargets) {
       const r = results[ch]
@@ -175,6 +179,51 @@ export function EwentcastWizard({
           <span className={`track${on ? ' on' : ''}`}><span className="knob" /></span>
           <span style={{ fontSize: '13.5px' }}>{on ? 'On' : 'Off'}</span>
         </button>
+      )
+    } else if (f.type === 'cover') {
+      const preview = String(v ?? '')
+      ctrl = (
+        <div className="ew-cover-field">
+          {preview ? (
+            <img src={preview} alt="Cover preview" className="ew-cover-preview" />
+          ) : (
+            <div className="ew-cover-placeholder">No cover selected</div>
+          )}
+          <div className="ew-cover-actions">
+            <label className="ew-btn ghost ew-cover-upload">
+              Upload photo
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                hidden
+                onChange={e => {
+                  const file = e.target.files?.[0]
+                  if (!file) return
+                  setCoverFile(file)
+                  setField(f.k, URL.createObjectURL(file))
+                }}
+              />
+            </label>
+            {preview && (
+              <button
+                type="button"
+                className="ew-btn ghost"
+                onClick={() => { setCoverFile(null); setField(f.k, '') }}
+              >
+                Remove
+              </button>
+            )}
+          </div>
+          <input
+            type="url"
+            placeholder="Or paste image URL (https://…)"
+            value={preview.startsWith('blob:') ? '' : preview}
+            onChange={e => {
+              setCoverFile(null)
+              setField(f.k, e.target.value)
+            }}
+          />
+        </div>
       )
     } else {
       ctrl = <input value={String(v ?? '')} onChange={e => setField(f.k, e.target.value)} />
@@ -300,6 +349,14 @@ export function EwentcastWizard({
         <div className="ew-castgrid">
           <div className="ew-master">
             <span className="ew-eyebrow" style={{ color: '#7C5C8A' }}>Master event</span>
+            {ev.coverUrl && (
+              <img
+                src={String(ev.coverUrl)}
+                alt=""
+                className="ew-cover-preview"
+                style={{ marginBottom: 12, maxHeight: 140 }}
+              />
+            )}
             <div className="t">{String(ev.title)}</div>
             <div className="meta">
               <span>📅 {String(ev.date)} · {String(ev.time)}</span>

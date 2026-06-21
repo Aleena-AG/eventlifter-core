@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { authHeader } from '@/lib/auth'
 import { buildEbTicketClass } from '@/lib/eventbrite-ticket'
+import { postHtEvent, resolveCoverFileForHt } from '@/lib/cover-image'
 import { InlineLoader, PageLoader } from '@/components/Loader'
 
 export type Channel = 'hightribe' | 'luma' | 'eventbrite'
@@ -16,7 +17,7 @@ interface HtTicket {
 }
 interface HtItinerary { title: string; description: string }
 interface HtForm {
-  title: string; description: string
+  title: string; description: string; coverUrl: string
   startDate: string; startTime: string; endDate: string; endTime: string; timezone: string
   locationType: 'venue' | 'online' | 'hybrid'
   locationLabel: string; address: string; city: string; country: string
@@ -32,7 +33,7 @@ interface HtForm {
 }
 const EMPTY_TICKET: HtTicket = { name: '', currency: 'PKR', price: '0', quantity: '', bookingType: 'instant', showTicket: true, startDate: '', endDate: '' }
 const HT_EMPTY: HtForm = {
-  title: '', description: '', startDate: '', startTime: '10:00', endDate: '', endTime: '12:00',
+  title: '', description: '', coverUrl: '', startDate: '', startTime: '10:00', endDate: '', endTime: '12:00',
   timezone: 'Asia/Karachi', locationType: 'venue', locationLabel: '', address: '', city: '',
   country: '', lat: '', lng: '', onlineUrl: '', status: 'draft', isBusinessProfile: false,
   highlights: [], itineraries: [], policies: [], tickets: [],
@@ -160,11 +161,13 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
   const [statusMsg, setStatusMsg] = useState('')
   const [error, setError] = useState('')
   const [syncTo, setSyncTo] = useState<Partial<Record<Channel, boolean>>>({})
+  const [htCoverFile, setHtCoverFile] = useState<File | null>(null)
 
   useEffect(() => {
     if (!open) return
     setChannel(initChannel)
     setHt(HT_EMPTY); setLu(LUMA_EMPTY); setEb(EB_EMPTY)
+    setHtCoverFile(null)
     setError(''); setStatusMsg(''); setSyncTo({})
     if (mode === 'edit' && eventId) loadForEdit(initChannel, eventId)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -187,6 +190,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
         const ticketSetting = (e.ticket_setting || e.ticketSetting || {}) as Record<string, unknown>
         setHt({
           title: String(e.title || ''), description: String(e.description || ''),
+          coverUrl: String(e.cover_image || ''),
           startDate: dates.start_date || '', startTime: (dates.start_time || '10:00').slice(0, 5),
           endDate: dates.end_date || '', endTime: (dates.end_time || '12:00').slice(0, 5),
           timezone: dates.timezone || String(e.timezone || 'Asia/Karachi'),
@@ -319,7 +323,12 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
       : useTicketsEndpoint ? '/api/hightribe/events/with-tickets' : '/api/hightribe/events'
     const method = m === 'edit' ? 'PUT' : 'POST'
 
-    const res = await fetch(url, { method, headers: { 'Content-Type':'application/json', Authorization: authHeader() }, body: JSON.stringify(body) })
+    const res = await postHtEvent(
+      url,
+      body,
+      method,
+      await resolveCoverFileForHt(ht.coverUrl, htCoverFile),
+    )
     const data = await res.json() as { message?: string; error?: string; errors?: Record<string, string[]> }
     if (!res.ok) {
       const msg = data.message || data.error || (data.errors ? Object.values(data.errors).flat().join(', ') : `HTTP ${res.status}`)
@@ -439,6 +448,26 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
         <div style={SEC}>Event Details</div>
         <Field label="Title *"><input required type="text" style={INPUT} value={ht.title} onChange={e => s('title')(e.target.value)} placeholder="Event title" /></Field>
         <Field label="Description *"><textarea required rows={3} style={{ ...INPUT, resize:'vertical', fontFamily:'inherit' }} value={ht.description} onChange={e => s('description')(e.target.value)} placeholder="Event description" /></Field>
+        <Field label="Cover photo">
+          {ht.coverUrl && (
+            <img src={ht.coverUrl} alt="Cover" style={{ width:'100%', maxHeight:160, objectFit:'cover', borderRadius:8, marginBottom:8, border:'1px solid #E8DFD0' }} />
+          )}
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:8 }}>
+            <label style={{ background:'#F1EADC', border:'1px solid #E8DFD0', borderRadius:6, color:'#211B16', padding:'7px 14px', fontSize:13, cursor:'pointer' }}>
+              Upload photo
+              <input type="file" accept="image/*" hidden onChange={e => {
+                const file = e.target.files?.[0]
+                if (!file) return
+                setHtCoverFile(file)
+                s('coverUrl')(URL.createObjectURL(file))
+              }} />
+            </label>
+            {ht.coverUrl && (
+              <button type="button" style={{ background:'#F1EADC', border:'1px solid #E8DFD0', borderRadius:6, color:'#211B16', padding:'7px 14px', fontSize:13, cursor:'pointer' }} onClick={() => { setHtCoverFile(null); s('coverUrl')('') }}>Remove</button>
+            )}
+          </div>
+          <input type="url" style={INPUT} value={ht.coverUrl.startsWith('blob:') ? '' : ht.coverUrl} onChange={e => { setHtCoverFile(null); s('coverUrl')(e.target.value) }} placeholder="Or paste image URL" />
+        </Field>
         <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
           <input type="checkbox" id="ht_biz" checked={ht.isBusinessProfile} onChange={e => s('isBusinessProfile')(e.target.checked)} style={{ width:'15px', height:'15px', cursor:'pointer' }} />
           <label htmlFor="ht_biz" style={{ fontSize:'13px', color:'#211B16', cursor:'pointer' }}>Business profile event</label>

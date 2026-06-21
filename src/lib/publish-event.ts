@@ -4,6 +4,12 @@ import { authHeader } from '@/lib/auth'
 import type { ChannelKey } from '@/lib/types'
 import { buildEbTicketClass, ebTicketQuantity } from '@/lib/eventbrite-ticket'
 import { resolveEbTimezone } from '@/lib/eventbrite-timezone'
+import {
+  postHtEvent,
+  resolveCoverFileForHt,
+  resolveCoverUrl,
+  type EventCoverFiles,
+} from '@/lib/cover-image'
 
 export type EventFormData = Record<string, string | boolean>
 
@@ -27,6 +33,7 @@ function isInPerson(fmt: string) {
 export async function publishToChannel(
   ch: ChannelKey,
   ev: EventFormData,
+  files?: EventCoverFiles,
 ): Promise<{ eventId: string; ticketId?: string; url?: string }> {
   const fmt = String(ev.format || 'In person')
   const online = isOnline(fmt)
@@ -35,6 +42,11 @@ export async function publishToChannel(
   const startUtc = toIso(String(ev.date), String(ev.time), tz)
   const endUtc = toIso(String(ev.endDate || ev.date), String(ev.endTime || ev.time), tz)
   const cap = ebTicketQuantity(ev.capacity as string | number | undefined)
+  const coverUrl = String(ev.coverUrl || '')
+  const htCoverFile = ch === 'hightribe' ? await resolveCoverFileForHt(coverUrl, files?.cover) : undefined
+  const publicCoverUrl = ch !== 'hightribe'
+    ? await resolveCoverUrl(coverUrl, files?.cover)
+    : undefined
 
   if (ch === 'hightribe') {
     const startD = new Date(startUtc)
@@ -72,22 +84,14 @@ export async function publishToChannel(
         currency: String(ev.currency || 'USD'),
         quantity: cap,
       }]
-      const res = await fetch('/api/hightribe/events/with-tickets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: authHeader() },
-        body: JSON.stringify(body),
-      })
+      const res = await postHtEvent('/api/hightribe/events/with-tickets', body, 'POST', htCoverFile)
       const data = await res.json() as { data?: { id?: unknown; tickets?: Array<{ id?: unknown }> }; message?: string; errors?: Record<string, string[]> }
       if (!res.ok) throw new Error(data.message || (data.errors ? Object.values(data.errors).flat().join(', ') : `HTTP ${res.status}`))
       const id = String((data.data as Record<string, unknown>)?.id || '')
       const ticketId = String((data.data as { tickets?: Array<{ id?: unknown }> })?.tickets?.[0]?.id || '')
       return { eventId: id, ticketId }
     }
-    const res = await fetch('/api/hightribe/events', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: authHeader() },
-      body: JSON.stringify(body),
-    })
+    const res = await postHtEvent('/api/hightribe/events', body, 'POST', htCoverFile)
     const data = await res.json() as { data?: { id?: unknown }; message?: string; errors?: Record<string, string[]> }
     if (!res.ok) throw new Error(data.message || (data.errors ? Object.values(data.errors).flat().join(', ') : `HTTP ${res.status}`))
     return { eventId: String((data.data as Record<string, unknown>)?.id || '') }
@@ -100,7 +104,7 @@ export async function publishToChannel(
       end_at: endUtc,
       timezone: tz,
       description: ev.description || undefined,
-      cover_url: ev.coverUrl || undefined,
+      cover_url: publicCoverUrl || undefined,
       require_rsvp_approval: !!ev.requireApproval,
       capacity: cap,
     }
@@ -203,6 +207,7 @@ export async function updateChannelEvent(
   ch: ChannelKey,
   eventId: string | number,
   ev: EventFormData,
+  files?: EventCoverFiles,
 ): Promise<void> {
   const fmt = String(ev.format || 'In person')
   const online = fmt === 'Online' || fmt === 'Hybrid'
@@ -210,6 +215,11 @@ export async function updateChannelEvent(
   const tz = String(ev.timezone || 'UTC')
   const startUtc = toIso(String(ev.date), String(ev.time), tz)
   const endUtc = toIso(String(ev.endDate || ev.date), String(ev.endTime || ev.time), tz)
+  const coverUrl = String(ev.coverUrl || '')
+  const htCoverFile = ch === 'hightribe' ? await resolveCoverFileForHt(coverUrl, files?.cover) : undefined
+  const publicCoverUrl = ch !== 'hightribe'
+    ? await resolveCoverUrl(coverUrl, files?.cover)
+    : undefined
 
   if (ch === 'hightribe') {
     const startD = new Date(startUtc)
@@ -238,11 +248,7 @@ export async function updateChannelEvent(
         lng: ev.lng ? parseFloat(String(ev.lng)) : undefined,
       }
     }
-    const res = await fetch(`/api/hightribe/events/${eventId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', Authorization: authHeader() },
-      body: JSON.stringify(body),
-    })
+    const res = await postHtEvent(`/api/hightribe/events/${eventId}`, body, 'PUT', htCoverFile)
     const data = await res.json() as { message?: string; errors?: Record<string, string[]> }
     if (!res.ok) throw new Error(data.message || (data.errors ? Object.values(data.errors).flat().join(', ') : `HTTP ${res.status}`))
     return
@@ -256,7 +262,7 @@ export async function updateChannelEvent(
       end_at: endUtc,
       timezone: tz,
       description: ev.description || undefined,
-      cover_url: ev.coverUrl || undefined,
+      cover_url: publicCoverUrl || undefined,
       require_rsvp_approval: !!ev.requireApproval,
       capacity: ev.capacity ? parseInt(String(ev.capacity)) : undefined,
     }
@@ -303,6 +309,7 @@ export async function updateChannelEvent(
 export async function publishToAllChannels(
   ev: EventFormData,
   targets: ChannelKey[],
+  files?: EventCoverFiles,
 ): Promise<Partial<Record<ChannelKey, { status: 'synced' | 'error'; url?: string; message?: string }>>> {
   const masterRes = await fetch('/api/registry', {
     method: 'POST',
@@ -319,7 +326,7 @@ export async function publishToAllChannels(
 
   for (const ch of targets) {
     try {
-      const ref = await publishToChannel(ch, ev)
+      const ref = await publishToChannel(ch, ev, files)
       await fetch('/api/registry', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -14,7 +14,7 @@ export type FieldDef = {
   k: string
   label: string
   hint?: string
-  type?: 'textarea' | 'select' | 'toggle'
+  type?: 'textarea' | 'select' | 'toggle' | 'cover'
   opts?: string[]
   full?: boolean
   on: ChannelKey[]
@@ -25,7 +25,7 @@ export const SECTIONS: { key: string; label: string; fields: FieldDef[] }[] = [
     { k: 'title', label: 'Title', on: ALL_CHANNELS },
     { k: 'summary', label: 'Summary', hint: 'short line', on: ['hightribe', 'eventbrite'] },
     { k: 'description', label: 'Description', type: 'textarea', full: true, on: ALL_CHANNELS },
-    { k: 'coverUrl', label: 'Cover image', on: ALL_CHANNELS },
+    { k: 'coverUrl', label: 'Cover photo', hint: 'upload or paste URL', type: 'cover', full: true, on: ALL_CHANNELS },
     { k: 'category', label: 'Category', type: 'select', opts: ['Music', 'Food & Drink', 'Arts & Culture', 'Community', 'Business', 'Sports & Fitness'], on: ['hightribe', 'eventbrite'] },
     { k: 'tags', label: 'Tags', hint: 'comma separated', on: ['hightribe', 'luma'] },
   ]},
