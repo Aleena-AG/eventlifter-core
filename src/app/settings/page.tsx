@@ -188,6 +188,10 @@ export default function SettingsPage() {
   }
 
   const saveSection = async (section: keyof SettingsShape) => {
+    if ((section === 'luma' || section === 'eventbrite') && !getUser()) {
+      toast.error('Sign in to HighTribe first — Luma/Eventbrite keys are saved on your HighTribe account')
+      return
+    }
     setSaving(section)
     try {
       await api.updateSettings({ [section]: settings[section] })
@@ -238,6 +242,11 @@ export default function SettingsPage() {
         <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700, color: '#211B16' }}>Settings</h1>
         <p style={{ margin: '4px 0 0', fontSize: '14px', color: '#8C7F6D' }}>
           Configure your channel integrations
+          {htUser && (
+            <span style={{ display: 'block', fontSize: '12px', marginTop: 4 }}>
+              Luma & Eventbrite keys sync to your HighTribe account
+            </span>
+          )}
         </p>
       </div>
 

@@ -1,8 +1,17 @@
 // All requests go to Next.js App Router API routes (relative paths).
 // No Express backend needed.
 
-async function get<T = unknown>(path: string): Promise<T> {
-  const r = await fetch(path)
+import { authHeader } from './auth'
+
+function withAuth(headers: Record<string, string> = {}): Record<string, string> {
+  const auth = authHeader()
+  if (auth) headers.Authorization = auth
+  return headers
+}
+
+async function get<T = unknown>(path: string, opts?: { auth?: boolean }): Promise<T> {
+  const headers = opts?.auth === false ? undefined : withAuth()
+  const r = await fetch(path, headers ? { headers } : undefined)
     if (!r.ok) {
     const d = await r.json().catch(() => ({})) as { error?: string; message?: string }
     throw new Error(d.error || d.message || `HTTP ${r.status}`)
@@ -23,10 +32,13 @@ async function post<T = unknown>(path: string, body: unknown = {}): Promise<T> {
   return r.json() as Promise<T>
 }
 
-async function put<T = unknown>(path: string, body: unknown = {}): Promise<T> {
+async function put<T = unknown>(path: string, body: unknown = {}, opts?: { auth?: boolean }): Promise<T> {
   const r = await fetch(path, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(opts?.auth === false ? {} : withAuth()),
+    },
     body: JSON.stringify(body),
   })
     if (!r.ok) {
