@@ -148,7 +148,7 @@ export async function fetchEbBookingList(
       let hasMore = true
       while (hasMore && page <= 5) {
         const res = await fetch(
-          `/api/eventbrite/events/${e.id}/attendees?status=attending&page=${page}&page_size=200`,
+          `/api/eventbrite/events/${e.id}/attendees?status=attending&page=${page}&page_size=50`,
         )
         if (!res.ok) break
         const data = await res.json() as {
@@ -205,7 +205,7 @@ async function fetchEbEvents(): Promise<Array<{ id: string; name?: { text?: stri
   const orgData = await orgRes.json() as { organizations?: Array<{ id: string }> }
   const orgId = orgData.organizations?.[0]?.id
   if (!orgId) return []
-  const evtRes = await fetch(`/api/eventbrite/organizations/${orgId}/events?page_size=100`)
+  const evtRes = await fetch(`/api/eventbrite/organizations/${orgId}/events?page_size=50`)
   if (!evtRes.ok) return []
   const evtData = await evtRes.json() as { events?: Array<{ id: string; name?: { text?: string } }> }
   return evtData.events || []

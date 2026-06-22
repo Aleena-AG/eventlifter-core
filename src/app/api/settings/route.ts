@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { htDataToAppSettings } from '@/lib/channel-settings-shared'
+import { fetchHtChannelSettings } from '@/lib/ht-channel-settings'
 import {
   loadSettings,
   mergeSettingsPatch,
@@ -9,9 +11,20 @@ import {
 
 export { loadSettings, saveSettings } from '@/lib/settings-store'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    return NextResponse.json(toPublicSettingsView(loadSettings()))
+    let settings = loadSettings()
+    const auth = req.headers.get('authorization')?.trim()
+    if (auth) {
+      try {
+        const ht = await fetchHtChannelSettings(auth, false)
+        settings = mergeSettingsPatch(settings, htDataToAppSettings(ht))
+        saveSettings(settings)
+      } catch (e) {
+        console.warn('[settings GET] HighTribe channel sync failed:', e instanceof Error ? e.message : e)
+      }
+    }
+    return NextResponse.json(toPublicSettingsView(settings))
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Failed to load settings'
     return NextResponse.json({ error: msg }, { status: 500 })
