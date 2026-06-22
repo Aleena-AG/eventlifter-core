@@ -48,7 +48,7 @@ export default function BookingsPage() {
         eventbrite?: { configured?: boolean; hasPrivateToken?: boolean }
       }
       setBookings(await loadAllBookings({
-        ebConfigured: !!(settings.eventbrite?.configured || settings.eventbrite?.hasPrivateToken),
+        ebConfigured: !!settings.eventbrite?.hasPrivateToken,
         lumaConfigured: !!settings.luma?.configured,
       }))
     } catch {

@@ -1,6 +1,7 @@
 'use client'
 
-import { authHeader, getUser } from '@/lib/auth'
+import { getUser } from '@/lib/auth'
+import { channelFetch } from '@/lib/channel-fetch'
 import { fetchHtBookingsPage } from '@/lib/hightribe-events'
 import { lumaHostedEventRef } from '@/lib/luma-event-utils'
 import type { ChannelKey } from '@/lib/types'
@@ -148,7 +149,7 @@ export async function fetchEbBookingList(
       let page = 1
       let hasMore = true
       while (hasMore && page <= 5) {
-        const res = await fetch(
+        const res = await channelFetch(
           `/api/eventbrite/events/${e.id}/attendees?status=attending&page=${page}&page_size=50`,
         )
         if (!res.ok) break
@@ -178,9 +179,7 @@ export async function fetchLumaBookingList(
 
   await Promise.all(events.map(async (e) => {
     try {
-      const res = await fetch(`/api/luma/guests?event_id=${encodeURIComponent(e.api_id)}`, {
-        headers: { Authorization: authHeader() },
-      })
+      const res = await channelFetch(`/api/luma/guests?event_id=${encodeURIComponent(e.api_id)}`)
       if (!res.ok) return
       const raw = await res.json() as {
         data?: { entries?: Array<Record<string, unknown>> }
@@ -201,21 +200,19 @@ export async function fetchLumaBookingList(
 }
 
 async function fetchEbEvents(): Promise<Array<{ id: string; name?: { text?: string } }>> {
-  const orgRes = await fetch('/api/eventbrite/users/me/organizations')
+  const orgRes = await channelFetch('/api/eventbrite/users/me/organizations')
   if (!orgRes.ok) return []
   const orgData = await orgRes.json() as { organizations?: Array<{ id: string }> }
   const orgId = orgData.organizations?.[0]?.id
   if (!orgId) return []
-  const evtRes = await fetch(`/api/eventbrite/organizations/${orgId}/events?page_size=50`)
+  const evtRes = await channelFetch(`/api/eventbrite/organizations/${orgId}/events?page_size=50`)
   if (!evtRes.ok) return []
   const evtData = await evtRes.json() as { events?: Array<{ id: string; name?: { text?: string } }> }
   return evtData.events || []
 }
 
 async function fetchLumaEvents(): Promise<Array<{ api_id: string; name: string }>> {
-  const res = await fetch('/api/luma/events/hosted?upcoming_only=false&fetch_all=true', {
-    headers: { Authorization: authHeader() },
-  })
+  const res = await channelFetch('/api/luma/events/hosted?upcoming_only=false&fetch_all=true')
   if (!res.ok) return []
   const raw = await res.json() as { data?: { entries?: unknown[] }; entries?: unknown[] }
   const entries = raw.data?.entries || raw.entries || []

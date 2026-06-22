@@ -1,6 +1,6 @@
 'use client'
 
-import { authHeader, getUser } from '@/lib/auth'
+import { getUser } from '@/lib/auth'
 import { channelFetch } from '@/lib/channel-fetch'
 import { loadAllBookings } from '@/lib/bookings'
 import { fetchHtEventsPage, fetchHtHostStats } from '@/lib/hightribe-events'
@@ -106,7 +106,7 @@ async function fetchEbTicketsSold(events: Array<{ id: string }>): Promise<number
 async function fetchLumaBookings(events: Array<{ api_id: string }>): Promise<number> {
   const counts = await Promise.all(events.map(async (e) => {
     try {
-      const res = await fetch(`/api/luma/guests?event_id=${encodeURIComponent(e.api_id)}`)
+      const res = await channelFetch(`/api/luma/guests?event_id=${encodeURIComponent(e.api_id)}`)
       if (!res.ok) return 0
       const raw = await res.json() as {
         data?: { entries?: unknown[]; count?: number; total?: number }
@@ -128,7 +128,7 @@ async function fetchLumaBookings(events: Array<{ api_id: string }>): Promise<num
 async function fetchLumaTicketsSold(events: Array<{ api_id: string }>): Promise<number> {
   const counts = await Promise.all(events.map(async (e) => {
     try {
-      const res = await fetch(`/api/luma/ticket-types?event_id=${encodeURIComponent(e.api_id)}`)
+      const res = await channelFetch(`/api/luma/ticket-types?event_id=${encodeURIComponent(e.api_id)}`)
       if (!res.ok) return 0
       const raw = await res.json() as {
         data?: { entries?: Array<Record<string, unknown>>; ticket_types?: Array<Record<string, unknown>> }
@@ -175,12 +175,12 @@ async function fetchEbBookings(events: Array<{ id: string }>): Promise<number> {
 
 export async function loadDashboardStats(settings: {
   luma?: { configured?: boolean }
-  eventbrite?: { configured?: boolean; hasPrivateToken?: boolean }
+  eventbrite?: { configured?: boolean; hasPrivateToken?: boolean; oauthConfigured?: boolean }
 }): Promise<DashboardStats> {
   const htUser = getUser()
   const htConfigured = !!htUser
   const lumaConfigured = !!settings.luma?.configured
-  const ebConfigured = !!(settings.eventbrite?.configured || settings.eventbrite?.hasPrivateToken)
+  const ebConfigured = !!settings.eventbrite?.hasPrivateToken
 
   const channels: Record<ChannelKey, ChannelStats> = {
     hightribe: { events: 0, tickets: 0, bookings: 0, configured: htConfigured },
@@ -208,7 +208,7 @@ export async function loadDashboardStats(settings: {
     : Promise.resolve({ totalBookings: 0, ticketsSold: 0 })
 
   const lumaPromise = lumaConfigured
-    ? fetch('/api/luma/events/hosted?upcoming_only=false&fetch_all=true', { headers: { Authorization: authHeader() } })
+    ? channelFetch('/api/luma/events/hosted?upcoming_only=false&fetch_all=true')
       .then(async (res) => {
         if (!res.ok) return []
         const raw = await res.json() as { data?: { entries?: unknown[] }; entries?: unknown[] }
@@ -223,12 +223,12 @@ export async function loadDashboardStats(settings: {
 
   const ebPromise = ebConfigured
     ? (async () => {
-        const orgRes = await fetch('/api/eventbrite/users/me/organizations')
+        const orgRes = await channelFetch('/api/eventbrite/users/me/organizations')
         if (!orgRes.ok) return []
         const orgData = await orgRes.json() as { organizations?: Array<{ id: string }> }
         const orgId = orgData.organizations?.[0]?.id
         if (!orgId) return []
-        const evtRes = await fetch(`/api/eventbrite/organizations/${orgId}/events?page_size=50`)
+        const evtRes = await channelFetch(`/api/eventbrite/organizations/${orgId}/events?page_size=50`)
         if (!evtRes.ok) return []
         const evtData = await evtRes.json() as { events?: Array<{ id: string; name?: { text?: string }; start?: { utc?: string }; is_free?: boolean }> }
         return evtData.events || []

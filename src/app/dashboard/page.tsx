@@ -128,7 +128,7 @@ export default function DashboardPage() {
 
   const htConfigured = !!getUser()
   const lumaConfigured = !!(settings.luma?.configured)
-  const ebConfigured = !!(settings.eventbrite?.configured || settings.eventbrite?.hasPrivateToken)
+  const ebConfigured = !!settings.eventbrite?.hasPrivateToken
   const anyConfigured = lumaConfigured || ebConfigured || htConfigured
   const recent = stats?.recent ?? []
 
