@@ -9,6 +9,17 @@ export function lumaEventRecordId(e: Record<string, unknown>): string {
   return String(e.id || e.api_id || '')
 }
 
+/** Normalise a hosted-calendar list entry to id + display fields. */
+export function lumaHostedEventRef(entry: unknown): { id: string; name: string; start_at: string } {
+  const top = (entry && typeof entry === 'object') ? entry as Record<string, unknown> : {}
+  const ev = unwrapLumaEvent(entry)
+  return {
+    id: lumaEventRecordId(ev) || lumaEventRecordId(top),
+    name: lumaName(ev) || 'Untitled',
+    start_at: String(ev.start_at || top.start_at || ''),
+  }
+}
+
 export function lumaEntryMatchesId(entry: unknown, eventId: string | number): boolean {
   if (!entry || typeof entry !== 'object') return false
   const top = entry as Record<string, unknown>

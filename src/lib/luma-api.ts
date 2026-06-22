@@ -95,6 +95,61 @@ export async function listHostedEvents(query: Record<string, string> = {}): Prom
   return { entries: allEntries, count: allEntries.length, has_more: false, source: 'luma_calendar_hosted' }
 }
 
+function guestsQueryForEvent(eventId: string): Record<string, string> {
+  return { event_id: eventId, event_api_id: eventId }
+}
+
+/** List guests for one event — current + legacy Luma API paths, with pagination. */
+export async function listEventGuests(eventId: string): Promise<Record<string, unknown>> {
+  const id = String(eventId || '').trim()
+  if (!id) throw new LumaApiError('event_id required', 400)
+
+  const attempts: Array<{ path: string; baseQuery: Record<string, string> }> = [
+    { path: '/v1/events/guests/list', baseQuery: guestsQueryForEvent(id) },
+    { path: '/v1/event/get-guests', baseQuery: { event_api_id: id } },
+  ]
+
+  let lastErr: LumaApiError | null = null
+  for (const { path, baseQuery } of attempts) {
+    try {
+      const allEntries: unknown[] = []
+      const params = { ...baseQuery }
+      let cursor: string | null = null
+      let pages = 0
+      do {
+        if (cursor) params.pagination_cursor = cursor
+        else delete params.pagination_cursor
+        const page = await lumaRequest('GET', path, { query: params })
+        const entries = page.entries
+        if (Array.isArray(entries)) {
+          for (const entry of entries) {
+            if (entry && typeof entry === 'object' && 'guest' in (entry as Record<string, unknown>)) {
+              allEntries.push((entry as Record<string, unknown>).guest)
+            } else {
+              allEntries.push(entry)
+            }
+          }
+        }
+        cursor = page.next_cursor ? String(page.next_cursor) : null
+        if (!page.has_more) cursor = null
+        pages++
+      } while (cursor && pages < 50)
+
+      return { entries: allEntries, count: allEntries.length, total: allEntries.length }
+    } catch (e) {
+      if (e instanceof LumaApiError) lastErr = e
+    }
+  }
+
+  throw lastErr || new LumaApiError(`Could not list guests for event ${id}`, 404)
+}
+
+function ticketTypesQuery(query: Record<string, string>): Record<string, string> {
+  const eventId = query.event_id || query.event_api_id || query.api_id || query.id || ''
+  if (!eventId) throw new LumaApiError('event_id required', 400)
+  return { ...query, event_id: eventId, event_api_id: eventId }
+}
+
 /** Fetch one Luma event — tries current + legacy API params, then hosted list. */
 export async function getLumaEvent(eventId: string): Promise<Record<string, unknown>> {
   const attempts: Array<{ path: string; query: Record<string, string> }> = [
@@ -240,7 +295,7 @@ export async function proxyLumaPath(
   }
 
   if (path === 'ticket-types' && method === 'GET') {
-    return { data: await lumaRequest('GET', '/v1/event/ticket-types/list', { query }), status: 200 }
+    return { data: await lumaRequest('GET', '/v1/event/ticket-types/list', { query: ticketTypesQuery(query) }), status: 200 }
   }
 
   if (path === 'ticket-types' && method === 'PUT') {
@@ -248,7 +303,9 @@ export async function proxyLumaPath(
   }
 
   if (path === 'guests' && method === 'GET') {
-    return { data: await lumaRequest('GET', '/v1/event/guests/list', { query }), status: 200 }
+    const eventId = query.event_id || query.event_api_id || query.api_id || query.id
+    if (!eventId) throw new LumaApiError('event_id required', 400)
+    return { data: await listEventGuests(eventId), status: 200 }
   }
 
   // Fallback: pass through as /v1/{path}

@@ -69,7 +69,7 @@ export const api = {
   getLumaHostedEvents: (query?: Record<string, string>) =>
     get('/api/luma/events/hosted' + (query ? '?' + new URLSearchParams(query) : '')),
   getLumaGuests: (eventApiId: string) =>
-    get(`/api/luma/guests?event_api_id=${encodeURIComponent(eventApiId)}`),
+    get(`/api/luma/guests?event_id=${encodeURIComponent(eventApiId)}`),
   createLumaEvent: (body: object) => post('/api/luma/events/create', body),
   getLumaDiscover: (params?: Record<string, string>) =>
     get('/api/luma/discover' + (params ? '?' + new URLSearchParams(params) : '')),

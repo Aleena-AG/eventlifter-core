@@ -2,6 +2,7 @@
 
 import { authHeader, getUser } from '@/lib/auth'
 import { fetchHtBookingsPage } from '@/lib/hightribe-events'
+import { lumaHostedEventRef } from '@/lib/luma-event-utils'
 import type { ChannelKey } from '@/lib/types'
 
 export interface BookingListItem {
@@ -177,7 +178,7 @@ export async function fetchLumaBookingList(
 
   await Promise.all(events.map(async (e) => {
     try {
-      const res = await fetch(`/api/luma/guests?event_api_id=${encodeURIComponent(e.api_id)}`, {
+      const res = await fetch(`/api/luma/guests?event_id=${encodeURIComponent(e.api_id)}`, {
         headers: { Authorization: authHeader() },
       })
       if (!res.ok) return
@@ -219,12 +220,8 @@ async function fetchLumaEvents(): Promise<Array<{ api_id: string; name: string }
   const raw = await res.json() as { data?: { entries?: unknown[] }; entries?: unknown[] }
   const entries = raw.data?.entries || raw.entries || []
   return entries.map((entry: unknown) => {
-    const e = entry as Record<string, unknown>
-    const ev = (e.event || e) as Record<string, unknown>
-    return {
-      api_id: String(ev.id || ev.api_id || e.id || ''),
-      name: String(ev.name || e.name || 'Untitled'),
-    }
+    const ref = lumaHostedEventRef(entry)
+    return { api_id: ref.id, name: ref.name }
   }).filter(ev => ev.api_id)
 }
 

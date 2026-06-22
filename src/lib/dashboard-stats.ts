@@ -3,6 +3,7 @@
 import { authHeader, getUser } from '@/lib/auth'
 import { loadAllBookings } from '@/lib/bookings'
 import { fetchHtEventsPage, fetchHtHostStats } from '@/lib/hightribe-events'
+import { lumaHostedEventRef } from '@/lib/luma-event-utils'
 import type { ChannelKey } from '@/lib/types'
 
 export interface ChannelStats {
@@ -104,7 +105,7 @@ async function fetchEbTicketsSold(events: Array<{ id: string }>): Promise<number
 async function fetchLumaBookings(events: Array<{ api_id: string }>): Promise<number> {
   const counts = await Promise.all(events.map(async (e) => {
     try {
-      const res = await fetch(`/api/luma/guests?event_api_id=${encodeURIComponent(e.api_id)}`)
+      const res = await fetch(`/api/luma/guests?event_id=${encodeURIComponent(e.api_id)}`)
       if (!res.ok) return 0
       const raw = await res.json() as {
         data?: { entries?: unknown[]; count?: number; total?: number }
@@ -126,7 +127,7 @@ async function fetchLumaBookings(events: Array<{ api_id: string }>): Promise<num
 async function fetchLumaTicketsSold(events: Array<{ api_id: string }>): Promise<number> {
   const counts = await Promise.all(events.map(async (e) => {
     try {
-      const res = await fetch(`/api/luma/ticket-types?event_api_id=${encodeURIComponent(e.api_id)}`)
+      const res = await fetch(`/api/luma/ticket-types?event_id=${encodeURIComponent(e.api_id)}`)
       if (!res.ok) return 0
       const raw = await res.json() as {
         data?: { entries?: Array<Record<string, unknown>>; ticket_types?: Array<Record<string, unknown>> }
@@ -212,13 +213,8 @@ export async function loadDashboardStats(settings: {
         const raw = await res.json() as { data?: { entries?: unknown[] }; entries?: unknown[] }
         const entries = raw.data?.entries || raw.entries || []
         return entries.map((e: unknown) => {
-          const entry = e as Record<string, unknown>
-          const ev = (entry.event || entry) as Record<string, unknown>
-          return {
-            api_id: String(ev.id || ev.api_id || entry.id || ''),
-            name: String(ev.name || entry.name || 'Untitled'),
-            start_at: String(ev.start_at || entry.start_at || ''),
-          }
+          const ref = lumaHostedEventRef(e)
+          return { api_id: ref.id, name: ref.name, start_at: ref.start_at }
         }).filter((ev: { api_id: string }) => ev.api_id)
       })
       .catch(() => [])
