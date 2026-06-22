@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { loadSettings, saveSettings } from '../../settings/route'
+import { resolveAppSettings } from '@/lib/channel-settings-server'
+import { loadSettings, saveSettings } from '@/lib/settings-store'
 
 const EB_BASE = 'https://www.eventbriteapi.com/v3'
 const EB_AUTH_URL = 'https://www.eventbrite.com/oauth/authorize'
@@ -11,7 +12,7 @@ async function handler(
 ) {
   const { path: pathSegments } = await params
   const pathStr = pathSegments.join('/')
-  const settings = loadSettings()
+  const settings = await resolveAppSettings(req.headers.get('authorization'))
   const s = settings.eventbrite
 
   // OAuth connect redirect
@@ -58,7 +59,7 @@ async function handler(
     return NextResponse.json({
       oauthConfigured: !!(s.clientId && s.clientSecret),
       hasPrivateToken: !!s.privateToken,
-      connected: !!(s.privateToken || (s.clientId && s.clientSecret)),
+      connected: !!s.privateToken,
       redirectUri: s.redirectUri,
     })
   }

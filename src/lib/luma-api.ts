@@ -1,4 +1,4 @@
-import { loadSettings } from '@/app/api/settings/route'
+import type { AppSettings } from '@/lib/settings-types'
 import { lumaEntryMatchesId, unwrapLumaEvent } from '@/lib/luma-event-utils'
 
 export class LumaApiError extends Error {
@@ -12,20 +12,20 @@ export class LumaApiError extends Error {
   }
 }
 
-function getConfig() {
-  const s = loadSettings()
-  const apiKey = s.luma.apiKey
-  const base = (s.luma.apiBaseUrl || 'https://public-api.luma.com').replace(/\/$/, '')
+function getConfig(settings: AppSettings) {
+  const apiKey = settings.luma.apiKey
+  const base = (settings.luma.apiBaseUrl || 'https://public-api.luma.com').replace(/\/$/, '')
   if (!apiKey) throw new LumaApiError('Luma API key not configured. Go to Settings → Luma.', 400)
   return { apiKey, base }
 }
 
 async function lumaRequest(
+  settings: AppSettings,
   method: string,
   path: string,
   opts?: { query?: Record<string, string>; body?: unknown },
 ): Promise<Record<string, unknown>> {
-  const { apiKey, base } = getConfig()
+  const { apiKey, base } = getConfig(settings)
   const url = new URL(`${base}${path.startsWith('/') ? path : `/${path}`}`)
   if (opts?.query) {
     for (const [k, v] of Object.entries(opts.query)) {
@@ -58,7 +58,10 @@ async function lumaRequest(
 }
 
 /** Mirrors HighTribe Laravel LumaService::listHostedEvents */
-export async function listHostedEvents(query: Record<string, string> = {}): Promise<Record<string, unknown>> {
+export async function listHostedEvents(
+  settings: AppSettings,
+  query: Record<string, string> = {},
+): Promise<Record<string, unknown>> {
   const fetchAll = query.fetch_all === 'true'
   const upcomingOnly = query.upcoming_only !== 'false'
 
@@ -77,7 +80,7 @@ export async function listHostedEvents(query: Record<string, string> = {}): Prom
   }
 
   if (!fetchAll) {
-    const result = await lumaRequest('GET', '/v1/calendars/events/list', { query: params })
+    const result = await lumaRequest(settings, 'GET', '/v1/calendars/events/list', { query: params })
     return { ...result, source: 'luma_calendar_hosted' }
   }
 
@@ -86,7 +89,7 @@ export async function listHostedEvents(query: Record<string, string> = {}): Prom
   do {
     if (cursor) params.pagination_cursor = cursor
     else delete params.pagination_cursor
-    const page = await lumaRequest('GET', '/v1/calendars/events/list', { query: params })
+    const page = await lumaRequest(settings, 'GET', '/v1/calendars/events/list', { query: params })
     const entries = page.entries
     if (Array.isArray(entries)) allEntries.push(...entries)
     cursor = page.next_cursor ? String(page.next_cursor) : null
@@ -100,7 +103,10 @@ function guestsQueryForEvent(eventId: string): Record<string, string> {
 }
 
 /** List guests for one event — current + legacy Luma API paths, with pagination. */
-export async function listEventGuests(eventId: string): Promise<Record<string, unknown>> {
+export async function listEventGuests(
+  settings: AppSettings,
+  eventId: string,
+): Promise<Record<string, unknown>> {
   const id = String(eventId || '').trim()
   if (!id) throw new LumaApiError('event_id required', 400)
 
@@ -119,7 +125,7 @@ export async function listEventGuests(eventId: string): Promise<Record<string, u
       do {
         if (cursor) params.pagination_cursor = cursor
         else delete params.pagination_cursor
-        const page = await lumaRequest('GET', path, { query: params })
+        const page = await lumaRequest(settings, 'GET', path, { query: params })
         const entries = page.entries
         if (Array.isArray(entries)) {
           for (const entry of entries) {
@@ -151,7 +157,7 @@ function ticketTypesQuery(query: Record<string, string>): Record<string, string>
 }
 
 /** Fetch one Luma event — tries current + legacy API params, then hosted list. */
-export async function getLumaEvent(eventId: string): Promise<Record<string, unknown>> {
+export async function getLumaEvent(settings: AppSettings, eventId: string): Promise<Record<string, unknown>> {
   const attempts: Array<{ path: string; query: Record<string, string> }> = [
     { path: '/v1/events/get', query: { id: eventId } },
     { path: '/v1/events/get', query: { event_id: eventId } },
@@ -164,13 +170,13 @@ export async function getLumaEvent(eventId: string): Promise<Record<string, unkn
   let lastErr: LumaApiError | null = null
   for (const { path, query } of attempts) {
     try {
-      return await lumaRequest('GET', path, { query })
+      return await lumaRequest(settings, 'GET', path, { query })
     } catch (e) {
       if (e instanceof LumaApiError) lastErr = e
     }
   }
 
-  const list = await listHostedEvents({ upcoming_only: 'false', fetch_all: 'true' })
+  const list = await listHostedEvents(settings, { upcoming_only: 'false', fetch_all: 'true' })
   const entries = list.entries
   if (Array.isArray(entries)) {
     for (const entry of entries) {
@@ -186,6 +192,7 @@ export async function getLumaEvent(eventId: string): Promise<Record<string, unkn
 
 /** Two-step Luma cancel: request token, then confirm. */
 export async function cancelLumaEvent(
+  settings: AppSettings,
   eventId: string,
   opts?: { shouldRefund?: boolean },
 ): Promise<Record<string, unknown>> {
@@ -197,7 +204,7 @@ export async function cancelLumaEvent(
   outer: for (const path of requestPaths) {
     for (const reqBody of [{ event_id: id }, { api_id: id }]) {
       try {
-        tokenData = await lumaRequest('POST', path, { body: reqBody })
+        tokenData = await lumaRequest(settings, 'POST', path, { body: reqBody })
         break outer
       } catch { /* try next body/path */ }
     }
@@ -219,10 +226,10 @@ export async function cancelLumaEvent(
 
   for (const path of cancelPaths) {
     try {
-      return await lumaRequest('POST', path, { body: cancelBody })
+      return await lumaRequest(settings, 'POST', path, { body: cancelBody })
     } catch {
       try {
-        return await lumaRequest('POST', path, { body: { ...cancelBody, api_id: id } })
+        return await lumaRequest(settings, 'POST', path, { body: { ...cancelBody, api_id: id } })
       } catch { /* try next path */ }
     }
   }
@@ -234,30 +241,31 @@ export async function proxyLumaPath(
   pathSegments: string[],
   method: string,
   query: Record<string, string>,
-  body?: unknown,
+  body: unknown | undefined,
+  settings: AppSettings,
 ): Promise<{ data: unknown; status: number }> {
   const path = pathSegments.join('/')
 
   if (path === 'events/hosted' && method === 'GET') {
-    return { data: await listHostedEvents(query), status: 200 }
+    return { data: await listHostedEvents(settings, query), status: 200 }
   }
 
   if (path === 'events' && method === 'GET') {
     const eventId = query.api_id || query.id || query.event_id || query.event_api_id
     if (!eventId) throw new LumaApiError('api_id or event_id required', 400)
-    return { data: await getLumaEvent(eventId), status: 200 }
+    return { data: await getLumaEvent(settings, eventId), status: 200 }
   }
 
   if (path === 'events' && method === 'POST') {
-    return { data: await lumaRequest('POST', '/v1/events/create', { body }), status: 201 }
+    return { data: await lumaRequest(settings, 'POST', '/v1/events/create', { body }), status: 201 }
   }
 
   if (path === 'events' && method === 'PUT') {
-    return { data: await lumaRequest('POST', '/v1/events/update', { body }), status: 200 }
+    return { data: await lumaRequest(settings, 'POST', '/v1/events/update', { body }), status: 200 }
   }
 
   if (path === 'events/create' && method === 'POST') {
-    return { data: await lumaRequest('POST', '/v1/events/create', { body }), status: 201 }
+    return { data: await lumaRequest(settings, 'POST', '/v1/events/create', { body }), status: 201 }
   }
 
   if (path === 'events/cancel' && method === 'POST') {
@@ -265,53 +273,53 @@ export async function proxyLumaPath(
     const eventId = String(b.event_id || b.api_id || b.id || '')
     if (!eventId) throw new LumaApiError('event_id required', 400)
     return {
-      data: await cancelLumaEvent(eventId, { shouldRefund: !!b.should_refund }),
+      data: await cancelLumaEvent(settings, eventId, { shouldRefund: !!b.should_refund }),
       status: 200,
     }
   }
 
   if (path === 'users/self' && method === 'GET') {
-    return { data: await lumaRequest('GET', '/v1/users/get-self'), status: 200 }
+    return { data: await lumaRequest(settings, 'GET', '/v1/users/get-self'), status: 200 }
   }
 
   if (path === 'calendars' && method === 'GET') {
-    return { data: await lumaRequest('GET', '/v1/calendars/get'), status: 200 }
+    return { data: await lumaRequest(settings, 'GET', '/v1/calendars/get'), status: 200 }
   }
 
   if (path === 'webhooks' && method === 'GET') {
-    return { data: await lumaRequest('GET', '/v1/webhooks/list', { query }), status: 200 }
+    return { data: await lumaRequest(settings, 'GET', '/v1/webhooks/list', { query }), status: 200 }
   }
 
   if (path === 'webhooks' && method === 'POST') {
-    return { data: await lumaRequest('POST', '/v2/webhooks/create', { body }), status: 201 }
+    return { data: await lumaRequest(settings, 'POST', '/v2/webhooks/create', { body }), status: 201 }
   }
 
   if (path === 'webhooks' && method === 'PUT') {
-    return { data: await lumaRequest('POST', '/v2/webhooks/update', { body }), status: 200 }
+    return { data: await lumaRequest(settings, 'POST', '/v2/webhooks/update', { body }), status: 200 }
   }
 
   if (path === 'webhooks' && method === 'DELETE') {
-    return { data: await lumaRequest('POST', '/v1/webhooks/delete', { body }), status: 200 }
+    return { data: await lumaRequest(settings, 'POST', '/v1/webhooks/delete', { body }), status: 200 }
   }
 
   if (path === 'ticket-types' && method === 'GET') {
-    return { data: await lumaRequest('GET', '/v1/event/ticket-types/list', { query: ticketTypesQuery(query) }), status: 200 }
+    return { data: await lumaRequest(settings, 'GET', '/v1/event/ticket-types/list', { query: ticketTypesQuery(query) }), status: 200 }
   }
 
   if (path === 'ticket-types' && method === 'PUT') {
-    return { data: await lumaRequest('POST', '/v1/event/ticket-types/update', { body }), status: 200 }
+    return { data: await lumaRequest(settings, 'POST', '/v1/event/ticket-types/update', { body }), status: 200 }
   }
 
   if (path === 'guests' && method === 'GET') {
     const eventId = query.event_id || query.event_api_id || query.api_id || query.id
     if (!eventId) throw new LumaApiError('event_id required', 400)
-    return { data: await listEventGuests(eventId), status: 200 }
+    return { data: await listEventGuests(settings, eventId), status: 200 }
   }
 
   // Fallback: pass through as /v1/{path}
   const lumaPath = `/v1/${path.replace(/\//g, '/')}`
-  if (method === 'GET') return { data: await lumaRequest('GET', lumaPath, { query }), status: 200 }
-  if (method === 'POST') return { data: await lumaRequest('POST', lumaPath, { body }), status: 200 }
-  if (method === 'PUT') return { data: await lumaRequest('POST', lumaPath.replace('/update', '/update'), { body }), status: 200 }
+  if (method === 'GET') return { data: await lumaRequest(settings, 'GET', lumaPath, { query }), status: 200 }
+  if (method === 'POST') return { data: await lumaRequest(settings, 'POST', lumaPath, { body }), status: 200 }
+  if (method === 'PUT') return { data: await lumaRequest(settings, 'POST', lumaPath.replace('/update', '/update'), { body }), status: 200 }
   throw new LumaApiError(`Unsupported Luma route: ${method} ${path}`, 404)
 }

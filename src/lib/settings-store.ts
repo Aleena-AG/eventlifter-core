@@ -146,7 +146,8 @@ export function toPublicSettingsView(d: AppSettings) {
       redirectUri: d.eventbrite.redirectUri,
       privateToken: maskSecret(d.eventbrite.privateToken),
       publicToken: maskSecret(d.eventbrite.publicToken),
-      configured: !!(d.eventbrite.clientId && d.eventbrite.clientSecret),
+      configured: !!d.eventbrite.privateToken,
+      oauthConfigured: !!(d.eventbrite.clientId && d.eventbrite.clientSecret),
       hasPrivateToken: !!d.eventbrite.privateToken,
     },
     luma: {

@@ -1,6 +1,7 @@
 'use client'
 
 import { authHeader, getUser } from '@/lib/auth'
+import { channelFetch } from '@/lib/channel-fetch'
 import { loadAllBookings } from '@/lib/bookings'
 import { fetchHtEventsPage, fetchHtHostStats } from '@/lib/hightribe-events'
 import { lumaHostedEventRef } from '@/lib/luma-event-utils'
@@ -91,7 +92,7 @@ function ticketSoldFromRecord(t: Record<string, unknown>): number {
 async function fetchEbTicketsSold(events: Array<{ id: string }>): Promise<number> {
   const counts = await Promise.all(events.map(async (e) => {
     try {
-      const res = await fetch(`/api/eventbrite/events/${e.id}/ticket_classes`)
+      const res = await channelFetch(`/api/eventbrite/events/${e.id}/ticket_classes`)
       if (!res.ok) return 0
       const data = await res.json() as { ticket_classes?: Array<{ quantity_sold?: number }> }
       return (data.ticket_classes || []).reduce((s, tc) => s + (tc.quantity_sold || 0), 0)
@@ -152,7 +153,7 @@ async function fetchEbBookings(events: Array<{ id: string }>): Promise<number> {
       let page = 1
       let hasMore = true
       while (hasMore && page <= 5) {
-        const res = await fetch(
+        const res = await channelFetch(
           `/api/eventbrite/events/${e.id}/attendees?status=attending&page=${page}&page_size=50`,
         )
         if (!res.ok) break
