@@ -1,11 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
-  appSettingsToHtPatch,
-  fetchHtChannelSettings,
-  htDataToAppSettings,
-  saveHtChannelSettings,
-} from '@/lib/ht-channel-settings'
-import {
   loadSettings,
   mergeSettingsPatch,
   saveSettings,
@@ -15,52 +9,32 @@ import {
 
 export { loadSettings, saveSettings } from '@/lib/settings-store'
 
-export async function GET(req: NextRequest) {
+export async function GET() {
   try {
-    const auth = req.headers.get('authorization')?.trim()
-    let settings = loadSettings()
-
-    if (auth) {
-      try {
-        const ht = await fetchHtChannelSettings(auth, true)
-        settings = mergeSettingsPatch(settings, htDataToAppSettings(ht))
-      } catch (e) {
-        console.warn('[settings GET] HighTribe channel settings fetch failed:', e)
-      }
-    }
-
-    return NextResponse.json(toPublicSettingsView(settings))
+    return NextResponse.json(toPublicSettingsView(loadSettings()))
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Failed to load settings'
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }
 
+/** Local cache only (webhook secret). Luma/Eventbrite keys live on HighTribe API. */
 export async function PUT(req: NextRequest) {
   try {
-    const auth = req.headers.get('authorization')?.trim()
+    const localOnly = req.nextUrl.searchParams.get('localOnly') === '1'
     const patch = await req.json() as Partial<AppSettings>
-    let updated = loadSettings()
+    let updated = mergeSettingsPatch(loadSettings(), patch)
 
-    if (patch.hightribe) {
-      updated = mergeSettingsPatch(updated, { hightribe: patch.hightribe })
-    }
-
-    const hasChannelPatch = !!(patch.luma || patch.eventbrite)
-    if (hasChannelPatch) {
-      if (!auth) {
-        return NextResponse.json(
-          { error: 'Login to HighTribe to save Luma/Eventbrite settings' },
-          { status: 401 },
-        )
+    if (!localOnly) {
+      const auth = req.headers.get('authorization')?.trim()
+      if (patch.luma || patch.eventbrite) {
+        if (!auth) {
+          return NextResponse.json(
+            { error: 'Use HighTribe channel-integrations API for Luma/Eventbrite keys' },
+            { status: 400 },
+          )
+        }
       }
-
-      const channelPatch: Partial<AppSettings> = {}
-      if (patch.luma) channelPatch.luma = patch.luma
-      if (patch.eventbrite) channelPatch.eventbrite = patch.eventbrite
-
-      const htSaved = await saveHtChannelSettings(auth, appSettingsToHtPatch(channelPatch))
-      updated = mergeSettingsPatch(updated, htDataToAppSettings(htSaved))
     }
 
     saveSettings(updated)

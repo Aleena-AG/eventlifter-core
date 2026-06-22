@@ -1,26 +1,9 @@
 import fs from 'fs'
 import path from 'path'
 
-export interface AppSettings {
-  eventbrite: {
-    clientId: string
-    clientSecret: string
-    redirectUri: string
-    privateToken: string
-    publicToken: string
-  }
-  luma: {
-    apiKey: string
-    calendarId: string
-    apiBaseUrl: string
-    discoverBaseUrl: string
-  }
-  hightribe: {
-    serviceUrl: string
-    apiKey: string
-    webhookSecret: string
-  }
-}
+import type { AppSettings } from '@/lib/settings-types'
+
+export type { AppSettings }
 
 const DEFAULTS: AppSettings = {
   eventbrite: {

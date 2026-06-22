@@ -1,11 +1,17 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { api } from '@/lib/api'
 import { Toast, useToast } from '@/components/Toast'
 import { InlineLoader, PageLoader } from '@/components/Loader'
-import { getUser } from '@/lib/auth'
+import { authHeader, getUser } from '@/lib/auth'
 import type { HtUser } from '@/lib/auth'
+import {
+  appSettingsToHtPatch,
+  fetchChannelSettingsViaProxy,
+  htDataToPublicForm,
+  saveChannelSettingsViaProxy,
+} from '@/lib/channel-settings-client'
 
 const INPUT_STYLE: React.CSSProperties = {
   width: '100%', background: '#FBF7F0', border: '1px solid #E8DFD0',
@@ -154,27 +160,62 @@ export default function SettingsPage() {
   const [testing, setTesting] = useState<string | null>(null)
   const [oauthHostId, setOauthHostId] = useState('')
   const [htUser, setHtUser] = useState<HtUser | null>(null)
+  const [channelLoadError, setChannelLoadError] = useState<string | null>(null)
   const { toasts, toast, removeToast } = useToast()
 
   useEffect(() => {
     setHtUser(getUser())
   }, [])
 
-  useEffect(() => {
-    loadSettings()
-  }, [])
-
-  const loadSettings = async () => {
+  const loadSettings = useCallback(async () => {
     setLoading(true)
+    setChannelLoadError(null)
     try {
-      const s = await api.getSettings()
-      setSettings(s as SettingsShape)
+      const local = await api.getSettings() as SettingsShape
+      const merged: SettingsShape = {
+        hightribe: local.hightribe || {},
+        luma: local.luma || {},
+        eventbrite: local.eventbrite || {},
+      }
+
+      if (getUser()) {
+        try {
+          const ht = await fetchChannelSettingsViaProxy(true)
+          const fromHt = htDataToPublicForm(ht)
+          if (fromHt.luma) {
+            merged.luma = {
+              apiKey: fromHt.luma.apiKey || merged.luma?.apiKey || '',
+              calendarId: fromHt.luma.calendarId || merged.luma?.calendarId || '',
+              apiBaseUrl: fromHt.luma.apiBaseUrl || merged.luma?.apiBaseUrl || 'https://public-api.luma.com',
+              discoverBaseUrl: fromHt.luma.discoverBaseUrl || merged.luma?.discoverBaseUrl || 'https://api.lu.ma',
+            }
+          }
+          if (fromHt.eventbrite) {
+            merged.eventbrite = {
+              clientId: fromHt.eventbrite.clientId || merged.eventbrite?.clientId || '',
+              clientSecret: fromHt.eventbrite.clientSecret || merged.eventbrite?.clientSecret || '',
+              redirectUri: fromHt.eventbrite.redirectUri || merged.eventbrite?.redirectUri || '',
+              privateToken: fromHt.eventbrite.privateToken || merged.eventbrite?.privateToken || '',
+              publicToken: fromHt.eventbrite.publicToken || merged.eventbrite?.publicToken || '',
+            }
+          }
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : 'Could not load channel keys from HighTribe'
+          setChannelLoadError(msg)
+        }
+      }
+
+      setSettings(merged)
     } catch {
       setSettings({})
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    loadSettings()
+  }, [loadSettings])
 
   const updateSection = (
     section: keyof SettingsShape,
@@ -194,9 +235,35 @@ export default function SettingsPage() {
     }
     setSaving(section)
     try {
-      await api.updateSettings({ [section]: settings[section] })
+      if (section === 'luma' || section === 'eventbrite') {
+        const patch = section === 'luma'
+          ? {
+              luma: {
+                apiKey: settings.luma?.apiKey || '',
+                calendarId: settings.luma?.calendarId || '',
+                apiBaseUrl: settings.luma?.apiBaseUrl || '',
+                discoverBaseUrl: settings.luma?.discoverBaseUrl || '',
+              },
+            }
+          : {
+              eventbrite: {
+                clientId: settings.eventbrite?.clientId || '',
+                clientSecret: settings.eventbrite?.clientSecret || '',
+                redirectUri: settings.eventbrite?.redirectUri || '',
+                privateToken: settings.eventbrite?.privateToken || '',
+                publicToken: settings.eventbrite?.publicToken || '',
+              },
+            }
+        const saved = await saveChannelSettingsViaProxy(appSettingsToHtPatch(patch))
+        await fetch('/api/settings?localOnly=1', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', Authorization: authHeader() },
+          body: JSON.stringify(htDataToPublicForm(saved)),
+        })
+      } else {
+        await api.updateSettings({ [section]: settings[section] })
+      }
       toast.success(`${section} settings saved`)
-      // Reload to get masked values from server
       await loadSettings()
     } catch (err) {
       toast.error(`Save failed: ${err instanceof Error ? err.message : String(err)}`)
@@ -249,6 +316,16 @@ export default function SettingsPage() {
           )}
         </p>
       </div>
+
+      {channelLoadError && (
+        <div style={{
+          background: 'rgba(194,80,46,0.08)', border: '1px solid rgba(194,80,46,0.3)',
+          borderRadius: '8px', padding: '12px 16px', marginBottom: '16px',
+          fontSize: '13px', color: '#C2502E', lineHeight: 1.5,
+        }}>
+          Could not load Luma/Eventbrite keys from HighTribe: {channelLoadError}
+        </div>
+      )}
 
       {loading ? (
         <PageLoader label="Loading settings…" />
