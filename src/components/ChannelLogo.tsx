@@ -1,6 +1,5 @@
 'use client'
 
-import Image from 'next/image'
 import type { ChannelKey } from '@/lib/types'
 import { CHANNEL_LOGOS, CHANNEL_META } from '@/lib/channels'
 
@@ -28,12 +27,12 @@ export function ChannelLogo({ channel, size = 40 }: ChannelLogoProps) {
         padding: Math.round(size * 0.1),
       }}
     >
-      <Image
+      <img
         src={CHANNEL_LOGOS[channel]}
         alt={`${meta.name} logo`}
         width={size}
         height={size}
-        style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+        style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
       />
     </div>
   )

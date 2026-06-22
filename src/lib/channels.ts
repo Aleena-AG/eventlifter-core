@@ -74,7 +74,7 @@ export const CHANNEL_KEYS: ChannelKey[] = ['hightribe', 'eventbrite', 'luma']
 
 export const CHANNEL_LOGOS: Record<ChannelKey, string> = {
   hightribe: '/channels/hightribe.png',
-  eventbrite: '/channels/eventbrite.png',
+  eventbrite: '/channels/eventbrite.svg',
   luma: '/channels/luma.png',
 }
 
