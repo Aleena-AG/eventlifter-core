@@ -11,20 +11,22 @@ type ChannelLogoProps = {
 export function ChannelLogo({ channel, size = 40 }: ChannelLogoProps) {
   const meta = CHANNEL_META[channel]
 
+  const isFavicon = channel === 'hightribe'
+
   return (
     <div
       style={{
         width: size,
         height: size,
         borderRadius: Math.max(6, Math.round(size * 0.2)),
-        background: '#FBF7F0',
-        border: `1px solid ${meta.color}33`,
+        background: isFavicon ? 'transparent' : '#FBF7F0',
+        border: isFavicon ? 'none' : `1px solid ${meta.color}33`,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         overflow: 'hidden',
         flexShrink: 0,
-        padding: Math.round(size * 0.1),
+        padding: isFavicon ? 0 : Math.round(size * 0.1),
       }}
     >
       <img
