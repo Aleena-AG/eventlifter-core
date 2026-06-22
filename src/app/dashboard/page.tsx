@@ -5,13 +5,14 @@ import Link from 'next/link'
 import { getSettings } from '@/lib/api'
 import { getUser } from '@/lib/auth'
 import { loadDashboardStats, type DashboardStats } from '@/lib/dashboard-stats'
+import { ChannelLogo } from '@/components/ChannelLogo'
 import { PageLoader, Spinner } from '@/components/Loader'
 import type { ChannelKey } from '@/lib/types'
 
-const CH_META: Record<ChannelKey, { label: string; icon: string; color: string }> = {
-  hightribe: { label: 'HighTribe', icon: '🏔', color: '#D98A2B' },
-  luma: { label: 'Luma', icon: '✨', color: '#7C5C8A' },
-  eventbrite: { label: 'Eventbrite', icon: '🎫', color: '#C2502E' },
+const CH_META: Record<ChannelKey, { label: string; color: string }> = {
+  hightribe: { label: 'HighTribe', color: '#D98A2B' },
+  luma: { label: 'Luma', color: '#7C5C8A' },
+  eventbrite: { label: 'Eventbrite', color: '#C2502E' },
 }
 
 function ChannelStatCard({
@@ -36,8 +37,9 @@ function ChannelStatCard({
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-        <span style={{ fontSize: '14px', fontWeight: 600, color: meta.color }}>
-          {meta.icon} {meta.label}
+        <span style={{ fontSize: '14px', fontWeight: 600, color: meta.color, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <ChannelLogo channel={channel} size={22} />
+          {meta.label}
         </span>
         <span
           style={{
@@ -210,8 +212,9 @@ export default function DashboardPage() {
                       <div style={{ fontSize: '14px', fontWeight: 500, color: '#211B16', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{evt.title}</div>
                       <div style={{ fontSize: '12px', color: '#8C7F6D', marginTop: '3px' }}>{formatDate(evt.startUtc)}</div>
                     </div>
-                    <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: meta.color + '14', border: `1px solid ${meta.color}44`, color: meta.color, flexShrink: 0 }}>
-                      {meta.icon} {meta.label}
+                    <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: meta.color + '14', border: `1px solid ${meta.color}44`, color: meta.color, flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <ChannelLogo channel={evt.channel} size={16} />
+                      {meta.label}
                     </span>
                   </div>
                 )
@@ -241,9 +244,7 @@ export default function DashboardPage() {
                   >
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '4px' }}>
                       <div style={{ fontSize: '14px', fontWeight: 500, color: '#211B16', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.name}</div>
-                      <span style={{ fontSize: '10px', padding: '2px 7px', borderRadius: '4px', background: meta.color + '14', border: `1px solid ${meta.color}44`, color: meta.color, flexShrink: 0 }}>
-                        {meta.icon}
-                      </span>
+                      <ChannelLogo channel={b.channel} size={18} />
                     </div>
                     <div style={{ fontSize: '12px', color: '#8C7F6D', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.eventTitle}</div>
                     {b.email && b.email !== '—' && (

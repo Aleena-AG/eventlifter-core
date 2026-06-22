@@ -12,6 +12,8 @@ import {
   htDataToPublicForm,
   saveChannelSettingsViaProxy,
 } from '@/lib/channel-settings-client'
+import { ChannelLogo } from '@/components/ChannelLogo'
+import type { ChannelKey } from '@/lib/types'
 
 const INPUT_STYLE: React.CSSProperties = {
   width: '100%', background: '#FBF7F0', border: '1px solid #E8DFD0',
@@ -36,8 +38,12 @@ const BTN_SECONDARY: React.CSSProperties = {
   cursor: 'pointer',
 }
 
-function SectionCard({ title, icon, color, children }: {
-  title: string; icon: string; color: string; children: React.ReactNode
+function SectionCard({ title, icon, channel, color, children }: {
+  title: string
+  icon?: string
+  channel?: ChannelKey
+  color: string
+  children: React.ReactNode
 }) {
   return (
     <div style={{
@@ -49,7 +55,7 @@ function SectionCard({ title, icon, color, children }: {
         padding: '16px 20px', borderBottom: '1px solid #E8DFD0',
         background: `${color}0a`,
       }}>
-        <span style={{ fontSize: '18px' }}>{icon}</span>
+        {channel ? <ChannelLogo channel={channel} size={28} /> : <span style={{ fontSize: '18px' }}>{icon}</span>}
         <span style={{ fontSize: '15px', fontWeight: 600, color: '#211B16' }}>{title}</span>
       </div>
       <div style={{ padding: '20px' }}>{children}</div>
@@ -158,7 +164,6 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
   const [testing, setTesting] = useState<string | null>(null)
-  const [oauthHostId, setOauthHostId] = useState('')
   const [htUser, setHtUser] = useState<HtUser | null>(null)
   const [channelLoadError, setChannelLoadError] = useState<string | null>(null)
   const { toasts, toast, removeToast } = useToast()
@@ -332,7 +337,7 @@ export default function SettingsPage() {
       ) : (
         <>
           {/* Eventbrite */}
-          <SectionCard title="Eventbrite" icon="🎫" color="#C2502E">
+          <SectionCard title="Eventbrite" channel="eventbrite" color="#C2502E">
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div>
@@ -392,42 +397,11 @@ export default function SettingsPage() {
                   {testing === 'eventbrite' ? 'Testing…' : 'Test Connection'}
                 </button>
               </div>
-
-              {/* OAuth flow */}
-              {eb.clientId && (
-                <div style={{
-                  marginTop: '8px', padding: '14px 16px',
-                  background: '#F1EADC', borderRadius: '8px', border: '1px solid #E8DFD0',
-                }}>
-                  <div style={{ fontSize: '13px', color: '#211B16', fontWeight: 500, marginBottom: '10px' }}>
-                    OAuth Connect Flow
-                  </div>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <input
-                      type="text" style={{ ...INPUT_STYLE, flex: 1 }}
-                      value={oauthHostId}
-                      onChange={(e) => setOauthHostId(e.target.value)}
-                      placeholder="Your host ID (optional)"
-                    />
-                    <button
-                      onClick={() => {
-                        const url = oauthHostId.trim()
-                          ? `/api/eventbrite/connect?hostId=${encodeURIComponent(oauthHostId)}`
-                          : '/api/eventbrite/connect'
-                        window.open(url, '_blank')
-                      }}
-                      style={BTN_PRIMARY}
-                    >
-                      Connect via OAuth →
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
           </SectionCard>
 
           {/* Luma */}
-          <SectionCard title="Luma" icon="✨" color="#7C5C8A">
+          <SectionCard title="Luma" channel="luma" color="#7C5C8A">
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div>
@@ -448,16 +422,14 @@ export default function SettingsPage() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div>
                   <label style={LABEL_STYLE}>API Base URL</label>
-                  <input type="url" style={INPUT_STYLE}
-                    value={lu.apiBaseUrl || ''}
-                    onChange={(e) => updateSection('luma', 'apiBaseUrl', e.target.value)}
+                  <input type="url" readOnly style={{ ...INPUT_STYLE, cursor: 'default', color: '#8C7F6D' }}
+                    value={lu.apiBaseUrl || 'https://public-api.luma.com'}
                     placeholder="https://public-api.luma.com" />
                 </div>
                 <div>
                   <label style={LABEL_STYLE}>Discover Base URL</label>
-                  <input type="url" style={INPUT_STYLE}
-                    value={lu.discoverBaseUrl || ''}
-                    onChange={(e) => updateSection('luma', 'discoverBaseUrl', e.target.value)}
+                  <input type="url" readOnly style={{ ...INPUT_STYLE, cursor: 'default', color: '#8C7F6D' }}
+                    value={lu.discoverBaseUrl || 'https://api.lu.ma'}
                     placeholder="https://api.lu.ma" />
                 </div>
               </div>
@@ -481,7 +453,7 @@ export default function SettingsPage() {
           </SectionCard>
 
           {/* HighTribe — auto-configured via login */}
-          <SectionCard title="HighTribe" icon="🏔️" color="#7C5C8A">
+          <SectionCard title="HighTribe" channel="hightribe" color="#7C5C8A">
             {htUser ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                 <div style={{
@@ -569,39 +541,6 @@ export default function SettingsPage() {
             </p>
             <WebhookSetup />
           </SectionCard>
-
-          {/* settings.json reference */}
-          <div style={{
-            background: '#FFFFFF', border: '1px solid #E8DFD0',
-            borderRadius: '10px', overflow: 'hidden',
-          }}>
-            <div style={{
-              padding: '12px 20px', borderBottom: '1px solid #E8DFD0',
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            }}>
-              <span style={{ fontSize: '13px', color: '#8C7F6D', fontWeight: 500 }}>
-                settings.json keys
-              </span>
-              <CopyButton value={[
-                `eventbrite.clientId=${eb.clientId || ''}`,
-                `eventbrite.redirectUri=${eb.redirectUri || DEFAULT_REDIRECT}`,
-                `luma.calendarId=${lu.calendarId || ''}`,
-              ].join('\n')} />
-            </div>
-            <pre style={{
-              margin: 0, padding: '16px 20px', fontSize: '12px',
-              color: '#211B16', fontFamily: 'monospace', overflowX: 'auto',
-              lineHeight: 1.6,
-            }}>
-              {`eventbrite.clientId    = ${eb.clientId || '<not set>'}
-eventbrite.redirectUri = ${eb.redirectUri || DEFAULT_REDIRECT}
-
-luma.calendarId        = ${lu.calendarId || '<not set>'}
-luma.apiBaseUrl        = ${lu.apiBaseUrl || 'https://public-api.luma.com'}
-
-hightribe              = configured via login (token stored in browser)`}
-            </pre>
-          </div>
         </>
       )}
     </div>

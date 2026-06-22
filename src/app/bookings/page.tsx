@@ -3,14 +3,15 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { getSettings } from '@/lib/api'
 import { loadAllBookings, type BookingListItem } from '@/lib/bookings'
+import { ChannelLogo } from '@/components/ChannelLogo'
 import { InlineLoader, PageLoader } from '@/components/Loader'
 import { getUser } from '@/lib/auth'
 import type { ChannelKey } from '@/lib/types'
 
-const CH_META: Record<ChannelKey, { label: string; icon: string; color: string }> = {
-  hightribe: { label: 'HighTribe', icon: '🏔', color: '#7C5C8A' },
-  luma: { label: 'Luma', icon: '✨', color: '#7C5C8A' },
-  eventbrite: { label: 'Eventbrite', icon: '🎫', color: '#C2502E' },
+const CH_META: Record<ChannelKey, { label: string; color: string }> = {
+  hightribe: { label: 'HighTribe', color: '#7C5C8A' },
+  luma: { label: 'Luma', color: '#7C5C8A' },
+  eventbrite: { label: 'Eventbrite', color: '#C2502E' },
 }
 
 type Filter = 'all' | ChannelKey
@@ -115,7 +116,7 @@ export default function BookingsPage() {
                 cursor: 'pointer',
               }}
             >
-              {f === 'all' ? 'All' : `${meta!.icon} ${meta!.label}`} ({counts[f]})
+              {f === 'all' ? 'All' : meta!.label} ({counts[f]})
             </button>
           )
         })}
@@ -200,8 +201,9 @@ export default function BookingsPage() {
                 </div>
 
                 <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                  <span style={{ fontSize: '11px', padding: '3px 9px', borderRadius: '4px', background: meta.color + '14', border: `1px solid ${meta.color}44`, color: meta.color }}>
-                    {meta.icon} {meta.label}
+                  <span style={{ fontSize: '11px', padding: '3px 9px', borderRadius: '4px', background: meta.color + '14', border: `1px solid ${meta.color}44`, color: meta.color, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <ChannelLogo channel={b.channel} size={16} />
+                    {meta.label}
                   </span>
                   {b.status && (
                     <div style={{ fontSize: '11px', color: statusColor(b.status), marginTop: '6px', textTransform: 'capitalize' }}>

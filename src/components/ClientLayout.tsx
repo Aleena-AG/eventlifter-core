@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { getToken } from '@/lib/auth'
 import { Sidebar } from './Sidebar'
-import { Topbar } from './Topbar'
 import { PageLoader } from './Loader'
 
 export function ClientLayout({ children }: { children: React.ReactNode }) {
@@ -69,7 +68,6 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
           background: 'var(--canvas)',
         }}
       >
-        <Topbar />
         <main style={{ flex: 1, padding: '28px 32px', overflowY: 'auto' }}>
           {children}
         </main>
