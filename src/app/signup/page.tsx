@@ -64,7 +64,7 @@ export default function SignupPage() {
           <Link href="/" style={{ textDecoration: 'none', color: 'inherit' }}>
             <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700, color: '#211B16' }}>Create Ewentcast account</h1>
             <p style={{ margin: '8px 0 0', fontSize: '14px', color: '#8C7F6D' }}>
-              $20/month · Luma & Eventbrite included · Connect HighTribe anytime
+              $20/month · Luma & Eventbrite included · 7-day money-back guarantee
             </p>
           </Link>
         </div>

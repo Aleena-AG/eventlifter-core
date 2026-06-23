@@ -19,6 +19,7 @@ const FEATURES = [
   { icon: '🔔', text: 'Real-time webhook bookings sync' },
   { icon: '📋', text: 'Unified bookings dashboard' },
   { icon: '🏔', text: 'Optional HighTribe connect for HT events' },
+  { icon: '🛡', text: '7-day money-back guarantee' },
 ]
 
 function SubscribeContent() {
@@ -94,8 +95,10 @@ function SubscribeContent() {
 
   if (loading) {
     return (
-      <div style={{ position: 'fixed', inset: 0, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#FBF7F0' }}>
-        <PageLoader label="Loading subscription…" />
+      <div style={{ position: 'fixed', inset: 0, width: '100%', overflowY: 'auto', background: '#FBF7F0' }}>
+        <div style={{ minHeight: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 24px', boxSizing: 'border-box' }}>
+          <PageLoader label="Loading subscription…" />
+        </div>
       </div>
     )
   }
@@ -107,16 +110,19 @@ function SubscribeContent() {
         inset: 0,
         width: '100%',
         background: '#FBF7F0',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '24px',
-        boxSizing: 'border-box',
         overflowY: 'auto',
         zIndex: 9999,
       }}
     >
-      <div style={{ width: '100%', maxWidth: '440px' }}>
+      <div
+        style={{
+          width: '100%',
+          maxWidth: '440px',
+          margin: '0 auto',
+          padding: '48px 24px 40px',
+          boxSizing: 'border-box',
+        }}
+      >
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: '28px' }}>
           <Link href="/" style={{ textDecoration: 'none', color: 'inherit' }}>
@@ -170,6 +176,16 @@ function SubscribeContent() {
                   <span style={{ fontSize: '16px', fontWeight: 500, color: '#8C7F6D' }}>/mo</span>
                 </div>
                 <div style={{ fontSize: '13px', color: '#8C7F6D', marginTop: '6px' }}>Billed monthly · Cancel anytime</div>
+                <div
+                  style={{
+                    display: 'inline-block', marginTop: '10px',
+                    fontSize: '12px', fontWeight: 600, color: '#4E7A4B',
+                    background: 'rgba(78,122,75,0.1)', border: '1px solid rgba(78,122,75,0.25)',
+                    borderRadius: '20px', padding: '4px 12px',
+                  }}
+                >
+                  7-day money-back guarantee
+                </div>
               </div>
 
               {/* Channel logos */}
@@ -269,8 +285,10 @@ function SubscribeContent() {
               >
                 {checkoutLoading ? <InlineLoader label="Opening Stripe checkout" /> : `Subscribe — $${price}/mo`}
               </button>
-              <p style={{ textAlign: 'center', margin: '12px 0 0', fontSize: '11px', color: '#8C7F6D' }}>
+              <p style={{ textAlign: 'center', margin: '12px 0 0', fontSize: '11px', color: '#8C7F6D', lineHeight: 1.5 }}>
                 Secure payment via Stripe · Same as HighTribe billing
+                <br />
+                Not satisfied? Full refund within 7 days — contact support.
               </p>
               <button
                 type="button"
@@ -325,8 +343,10 @@ export default function SubscribePage() {
   return (
     <Suspense
       fallback={
-        <div style={{ position: 'fixed', inset: 0, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#FBF7F0' }}>
-          <PageLoader label="Loading…" />
+        <div style={{ position: 'fixed', inset: 0, width: '100%', overflowY: 'auto', background: '#FBF7F0' }}>
+          <div style={{ minHeight: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 24px' }}>
+            <PageLoader label="Loading…" />
+          </div>
         </div>
       }
     >
