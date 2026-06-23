@@ -3,7 +3,7 @@
 import { useState, useEffect, Suspense } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { getToken } from '@/lib/auth'
+import { getToken, getUser, clearAuth, authHeader, type HtUser } from '@/lib/auth'
 import {
   fetchEwentcastMe,
   getEwentcastAccount,
@@ -30,6 +30,8 @@ function SubscribeContent() {
   const [checkoutLoading, setCheckoutLoading] = useState(false)
   const [error, setError] = useState('')
   const [account, setAccount] = useState<EwentcastAccount | null>(null)
+  const [user, setUser] = useState<HtUser | null>(null)
+  const [loggingOut, setLoggingOut] = useState(false)
 
   const refresh = async () => {
     const data = await fetchEwentcastMe()
@@ -42,7 +44,10 @@ function SubscribeContent() {
       router.replace('/login')
       return
     }
-    refresh().finally(() => setLoading(false))
+    refresh().finally(() => {
+      setUser(getUser())
+      setLoading(false)
+    })
   }, [router])
 
   useEffect(() => {
@@ -68,6 +73,20 @@ function SubscribeContent() {
     } finally {
       setCheckoutLoading(false)
     }
+  }
+
+  const handleLogout = async () => {
+    setLoggingOut(true)
+    try {
+      await fetch('/api/hightribe/logout', {
+        method: 'POST',
+        headers: { Authorization: authHeader(), Accept: 'application/json' },
+      })
+    } catch {
+      // clear locally regardless
+    }
+    clearAuth()
+    router.replace('/login')
   }
 
   const price = account?.subscription_amount_usd ?? 20
@@ -253,6 +272,20 @@ function SubscribeContent() {
               <p style={{ textAlign: 'center', margin: '12px 0 0', fontSize: '11px', color: '#8C7F6D' }}>
                 Secure payment via Stripe · Same as HighTribe billing
               </p>
+              <button
+                type="button"
+                onClick={handleLogout}
+                disabled={loggingOut}
+                style={{
+                  width: '100%', marginTop: '14px',
+                  background: 'none', border: '1px solid #E8DFD0', borderRadius: '10px',
+                  color: '#8C7F6D', padding: '10px', fontSize: '13px',
+                  cursor: loggingOut ? 'default' : 'pointer',
+                  opacity: loggingOut ? 0.6 : 1,
+                }}
+              >
+                {loggingOut ? <InlineLoader label="Signing out" /> : 'Sign out — pay later or use another account'}
+              </button>
             </>
           ) : (
             <Link
@@ -268,14 +301,18 @@ function SubscribeContent() {
           )}
         </div>
 
-        <p style={{ textAlign: 'center', marginTop: '20px', fontSize: '12px', color: '#8C7F6D', lineHeight: 1.6 }}>
-          <Link href="/settings" style={{ color: '#D98A2B', textDecoration: 'none' }}>Settings</Link>
-          {' · '}
+        {user && (
+          <p style={{ textAlign: 'center', marginTop: '16px', fontSize: '12px', color: '#8C7F6D' }}>
+            Signed in as <strong style={{ color: '#211B16' }}>{user.email}</strong>
+          </p>
+        )}
+
+        <p style={{ textAlign: 'center', marginTop: user ? '8px' : '20px', fontSize: '12px', color: '#8C7F6D', lineHeight: 1.6 }}>
           HighTribe connect is optional
           {!active && (
             <>
               {' · '}
-              <Link href="/login" style={{ color: '#8C7F6D', textDecoration: 'none' }}>Sign in with HighTribe</Link>
+              <Link href="/signup" style={{ color: '#8C7F6D', textDecoration: 'none' }}>Create another account</Link>
             </>
           )}
         </p>
