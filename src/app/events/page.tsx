@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { authHeader } from '@/lib/auth'
+import { getEwentcastAccount, htApiAuthHeader, isEwentcastSignupUser } from '@/lib/ewentcast-session'
 import { fetchHtEventsPage, type HtEventListItem } from '@/lib/hightribe-events'
 import { Toast, useToast } from '@/components/Toast'
 import { InlineLoader, PageLoader } from '@/components/Loader'
@@ -22,7 +23,7 @@ type DeleteLink = { channel: ChannelKey; eventId: string | number }
 
 async function deleteOnChannel(channel: ChannelKey, id: string | number): Promise<void> {
   if (channel === 'hightribe') {
-    const res = await fetch(`/api/hightribe/events/${id}`, { method: 'DELETE', headers: { Authorization: authHeader() } })
+    const res = await fetch(`/api/hightribe/events/${id}`, { method: 'DELETE', headers: { Authorization: htApiAuthHeader() } })
     if (!res.ok) { const d = await res.json() as { message?: string }; throw new Error(d.message || `HTTP ${res.status}`) }
     return
   }
@@ -435,7 +436,8 @@ export default function EventsPage() {
   }, [])
 
   useEffect(() => {
-    if (tab === 'hightribe' && htEvents.length === 0 && !htLoading) loadHtEvents(1)
+    const htAvailable = !isEwentcastSignupUser() || !!getEwentcastAccount()?.ht_connected
+    if (tab === 'hightribe' && htAvailable && htEvents.length === 0 && !htLoading) loadHtEvents(1)
     if (tab === 'luma' && lumaEvents.length === 0 && !lumaLoading) loadLumaEvents()
     if (tab === 'eventbrite' && ebEvents.length === 0 && !ebLoading) loadEbEvents()
   }, [tab]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -538,6 +540,14 @@ export default function EventsPage() {
       {/* ── HighTribe tab ───────────────────────────────────────────────────── */}
       {tab === 'hightribe' && (
         <div>
+          {isEwentcastSignupUser() && !getEwentcastAccount()?.ht_connected ? (
+            <div style={{ padding: '24px', background: '#FFFFFF', border: '1px solid #E8DFD0', borderRadius: '10px', textAlign: 'center' }}>
+              <p style={{ margin: '0 0 12px', fontSize: '14px', color: '#211B16' }}>Connect HighTribe to load your HT events</p>
+              <p style={{ margin: '0 0 16px', fontSize: '13px', color: '#8C7F6D' }}>Luma and Eventbrite work without this step.</p>
+              <a href="/settings" style={{ color: '#D98A2B', fontWeight: 600, textDecoration: 'none' }}>Go to Settings → Connect HighTribe</a>
+            </div>
+          ) : (
+          <>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'16px', gap:'8px' }}>
             <span style={{ fontSize:'13px', color:'#8C7F6D' }}>
               {htTotal !== null ? `${htTotal} events hosted by you` : 'Your hosted events'}
@@ -588,6 +598,8 @@ export default function EventsPage() {
                 </div>
               )}
             </>
+          )}
+          </>
           )}
         </div>
       )}

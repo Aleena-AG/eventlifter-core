@@ -29,6 +29,8 @@ export function setToken(token: string): void {
 export function clearAuth(): void {
   localStorage.removeItem(TOKEN_KEY)
   localStorage.removeItem(USER_KEY)
+  localStorage.removeItem('ewentcast_account')
+  localStorage.removeItem('ht_link_token')
 }
 
 export function getUser(): HtUser | null {

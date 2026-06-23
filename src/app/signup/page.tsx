@@ -3,29 +3,13 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { setToken, setUser, isAuthenticated } from '@/lib/auth'
-import { fetchEwentcastMe } from '@/lib/ewentcast-session'
+import { isAuthenticated } from '@/lib/auth'
+import { registerEwentcast } from '@/lib/ewentcast-session'
 import { InlineLoader } from '@/components/Loader'
 
-interface LoginResponse {
-  status: boolean
-  message?: string
-  token?: string
-  user?: {
-    id: string | number
-    name: string
-    email: string
-    username?: string
-    type?: string
-    location?: string
-    has_business_profile?: boolean
-    profile?: { avatar?: string; bio?: string }
-  }
-  error?: string
-}
-
-export default function LoginPage() {
+export default function SignupPage() {
   const router = useRouter()
+  const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -37,28 +21,25 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!email || !password) { setError('Email and password are required'); return }
+    if (!name || !email || !password) {
+      setError('All fields are required')
+      return
+    }
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters')
+      return
+    }
     setLoading(true)
     setError('')
     try {
-      const res = await fetch('/api/hightribe/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ email, password }),
-      })
-      const data: LoginResponse = await res.json()
-
-      if (!res.ok || !data.status || !data.token) {
-        setError(data.message || data.error || 'Login failed. Check your credentials.')
-        return
+      const { ewentcast } = await registerEwentcast({ name, email, password })
+      if (ewentcast.subscription_active) {
+        router.replace('/dashboard')
+      } else {
+        router.replace('/subscribe')
       }
-
-      setToken(data.token)
-      if (data.user) setUser(data.user)
-      await fetchEwentcastMe()
-      router.replace('/dashboard')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Network error. Please try again.')
+      setError(err instanceof Error ? err.message : 'Signup failed')
     } finally {
       setLoading(false)
     }
@@ -78,12 +59,12 @@ export default function LoginPage() {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#FBF7F0', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px', zIndex: 9999 }}>
-      <div style={{ width: '100%', maxWidth: '400px' }}>
-        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+      <div style={{ width: '100%', maxWidth: '420px' }}>
+        <div style={{ textAlign: 'center', marginBottom: '28px' }}>
           <Link href="/" style={{ textDecoration: 'none', color: 'inherit' }}>
-            <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700, color: '#211B16' }}>Ewentcast</h1>
-            <p style={{ margin: '6px 0 0', fontSize: '14px', color: '#8C7F6D' }}>
-              Sign in with your HighTribe account
+            <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700, color: '#211B16' }}>Create Ewentcast account</h1>
+            <p style={{ margin: '8px 0 0', fontSize: '14px', color: '#8C7F6D' }}>
+              $20/month · Luma & Eventbrite included · Connect HighTribe anytime
             </p>
           </Link>
         </div>
@@ -97,23 +78,26 @@ export default function LoginPage() {
             )}
 
             <div>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '7px' }}>Name</label>
+              <input type="text" required value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" style={inputStyle} />
+            </div>
+            <div>
               <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '7px' }}>Email</label>
               <input type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" style={inputStyle} />
             </div>
-
             <div>
               <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '7px' }}>Password</label>
-              <input type="password" required autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" style={inputStyle} />
+              <input type="password" required minLength={8} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Min. 8 characters" style={inputStyle} />
             </div>
 
-            <button type="submit" disabled={loading} style={{ width: '100%', background: loading ? '#F1EADC' : '#D98A2B', border: 'none', borderRadius: '11px', color: loading ? '#8C7F6D' : '#fff', padding: '12px', fontSize: '14px', fontWeight: 600, cursor: loading ? 'default' : 'pointer' }}>
-              {loading ? <InlineLoader label="Signing in" /> : 'Sign in'}
+            <button type="submit" disabled={loading} style={{ width: '100%', background: loading ? '#F1EADC' : '#D98A2B', border: 'none', borderRadius: '11px', color: loading ? '#8C7F6D' : '#fff', padding: '12px', fontSize: '14px', fontWeight: 600, cursor: loading ? 'default' : 'pointer', marginTop: '4px' }}>
+              {loading ? <InlineLoader label="Creating account" /> : 'Sign up — $20/mo'}
             </button>
           </form>
 
           <p style={{ textAlign: 'center', marginTop: '18px', fontSize: '13px', color: '#8C7F6D' }}>
-            New to Ewentcast?{' '}
-            <Link href="/signup" style={{ color: '#D98A2B', textDecoration: 'none' }}>Sign up — $20/mo</Link>
+            Already have HighTribe?{' '}
+            <Link href="/login" style={{ color: '#D98A2B', textDecoration: 'none' }}>Sign in</Link>
           </p>
         </div>
       </div>

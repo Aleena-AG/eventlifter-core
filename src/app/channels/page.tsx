@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { getSettings } from '@/lib/api'
 import { getUser } from '@/lib/auth'
+import { getEwentcastAccount, isEwentcastSignupUser } from '@/lib/ewentcast-session'
 import type { ChannelKey } from '@/lib/types'
 import { CHANNEL_KEYS } from '@/lib/channels'
 import { ChannelCard } from '@/components/ChannelCard'
@@ -35,7 +36,10 @@ export default function ChannelsPage() {
   }, [load])
 
   const isConnected = (ch: ChannelKey): boolean => {
-    if (ch === 'hightribe') return !!getUser()
+    if (ch === 'hightribe') {
+      if (isEwentcastSignupUser()) return !!getEwentcastAccount()?.ht_connected
+      return !!getUser()
+    }
     if (ch === 'luma') return !!settings.luma?.configured
     if (ch === 'eventbrite') return !!settings.eventbrite?.hasPrivateToken
     return false

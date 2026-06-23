@@ -13,6 +13,8 @@ import {
   saveChannelSettingsViaProxy,
 } from '@/lib/channel-settings-client'
 import { ChannelLogo } from '@/components/ChannelLogo'
+import { ConnectHightribeSection } from '@/components/ConnectHightribeSection'
+import { getEwentcastAccount, isEwentcastSignupUser } from '@/lib/ewentcast-session'
 import type { ChannelKey } from '@/lib/types'
 
 const INPUT_STYLE: React.CSSProperties = {
@@ -85,16 +87,24 @@ function CopyButton({ value }: { value: string }) {
   )
 }
 
-function WebhookSetup() {
+const WEBHOOK_CHANNELS = ['luma', 'eventbrite'] as const
+
+function WebhooksPanel() {
   const [loading, setLoading] = useState(false)
   const [endpoints, setEndpoints] = useState<Record<string, string>>({})
-  const [result, setResult] = useState<string>('')
+  const [result, setResult] = useState('')
 
   useEffect(() => {
     fetch('/api/webhooks/setup').then(r => r.json()).then((d: {
       endpoints?: Record<string, string>
     }) => {
-      if (d.endpoints) setEndpoints(d.endpoints)
+      if (d.endpoints) {
+        const filtered: Record<string, string> = {}
+        for (const ch of WEBHOOK_CHANNELS) {
+          if (d.endpoints[ch]) filtered[ch] = d.endpoints[ch]
+        }
+        setEndpoints(filtered)
+      }
     }).catch(() => {})
   }, [])
 
@@ -117,10 +127,9 @@ function WebhookSetup() {
       if (!res.ok || data.error) {
         throw new Error(data.error || `HTTP ${res.status}`)
       }
-      const lines = Object.entries(data.webhooks || {}).map(([ch, r]) => {
-        if (ch === 'hightribe') {
-          return `${ch}: ${r.ok ? '✓ ready' : `✗ ${r.error || 'failed'}`}`
-        }
+      const lines = WEBHOOK_CHANNELS.map((ch) => {
+        const r = data.webhooks?.[ch]
+        if (!r) return `${ch}: ✗ no response`
         return `${ch}: ${r.ok ? '✓ registered' : `✗ ${r.error || 'failed'}`}`
       })
       setResult(lines.join('\n'))
@@ -131,8 +140,109 @@ function WebhookSetup() {
     }
   }
 
+  const stepStyle: React.CSSProperties = {
+    fontSize: '13px', color: '#211B16', lineHeight: 1.65, marginBottom: '8px',
+  }
+  const noteStyle: React.CSSProperties = {
+    fontSize: '12px', color: '#8C7F6D', lineHeight: 1.55, margin: '0 0 16px',
+    padding: '10px 12px', background: '#FBF7F0', borderRadius: '6px', border: '1px solid #E8DFD0',
+  }
+  const sectionHead: React.CSSProperties = {
+    fontSize: '14px', fontWeight: 600, color: '#211B16', margin: '0 0 8px',
+    display: 'flex', alignItems: 'center', gap: '8px',
+  }
+  const subHead: React.CSSProperties = {
+    ...LABEL_STYLE, fontWeight: 600, marginTop: '12px', marginBottom: '6px', color: '#211B16',
+  }
+  const urlBox: React.CSSProperties = {
+    fontSize: '12px', color: '#211B16', background: '#FBF7F0', padding: '8px 10px',
+    borderRadius: '6px', border: '1px solid #E8DFD0', wordBreak: 'break-all', margin: '6px 0 10px',
+  }
+
+  const lumaUrl = endpoints.luma || 'https://your-domain.com/api/webhooks/luma'
+  const ebUrl = endpoints.eventbrite || 'https://your-domain.com/api/webhooks/eventbrite'
+  const isLocalhost = lumaUrl.includes('localhost')
+
   return (
     <div>
+      <p style={noteStyle}>
+        <strong>Important:</strong> Webhooks sirf <strong>public HTTPS</strong> URL par kaam karte hain (production).
+        {isLocalhost && (
+          <span style={{ display: 'block', marginTop: '6px', color: '#C2502E' }}>
+            ⚠ Abhi localhost URL hai — Luma/Eventbrite yahan register nahi karenge. Pehle Vercel par deploy karo.
+          </span>
+        )}
+        {' '}Event pehle Ewentcast se publish/sync hona chahiye, warna booking skip ho jati hai.
+      </p>
+
+      <div style={{ marginBottom: '24px', paddingBottom: '20px', borderBottom: '1px solid #E8DFD0' }}>
+        <div style={sectionHead}>
+          <ChannelLogo channel="luma" size={22} />
+          Luma webhook — register kaise karein
+        </div>
+        <p style={{ ...stepStyle, marginBottom: '12px', color: '#8C7F6D' }}>
+          Pehle credentials save karo (upar <strong>Settings → Luma</strong> section):
+        </p>
+        <ol style={{ margin: '0 0 14px', paddingLeft: '20px' }}>
+          <li style={stepStyle}><a href="https://lu.ma" target="_blank" rel="noreferrer" style={{ color: '#7C5C8A' }}>lu.ma</a> → Settings → Developer → <strong>API Key</strong> (Luma Plus required)</li>
+          <li style={stepStyle}><strong>Calendar ID</strong> copy karo (<code>cal-xxxxx</code>)</li>
+          <li style={stepStyle}>Ewentcast Settings mein paste karo → <strong>Save</strong> → <strong>Test Connection</strong></li>
+        </ol>
+        <div style={subHead}>Option A — Auto register (recommended)</div>
+        <ol style={{ margin: '0 0 12px', paddingLeft: '20px' }}>
+          <li style={stepStyle}>Neeche scroll karo → <strong>Register webhooks on Luma + Eventbrite</strong> button dabao</li>
+          <li style={stepStyle}>Result mein <code>luma: ✓ registered</code> aana chahiye</li>
+          <li style={stepStyle}>Auto events: <code>guest.registered</code>, <code>guest.updated</code></li>
+        </ol>
+        <div style={subHead}>Option B — Manual (Luma dashboard / API)</div>
+        <ol style={{ margin: 0, paddingLeft: '20px' }}>
+          <li style={stepStyle}>Luma Plus account se webhook create karo</li>
+          <li style={stepStyle}><strong>Webhook URL</strong> yeh paste karo:</li>
+        </ol>
+        <div style={urlBox}>{lumaUrl}</div>
+        <CopyButton value={lumaUrl} />
+        <ol start={3} style={{ margin: '10px 0 0', paddingLeft: '20px' }}>
+          <li style={stepStyle}><strong>Events:</strong> Guest registered, Guest updated</li>
+          <li style={stepStyle}>Save → linked Luma event par test guest register karo → <strong>Bookings</strong> check karo</li>
+        </ol>
+      </div>
+
+      <div style={{ marginBottom: '24px', paddingBottom: '20px', borderBottom: '1px solid #E8DFD0' }}>
+        <div style={sectionHead}>
+          <ChannelLogo channel="eventbrite" size={22} />
+          Eventbrite webhook — register kaise karein
+        </div>
+        <p style={{ ...stepStyle, marginBottom: '12px', color: '#8C7F6D' }}>
+          Pehle credentials save karo (upar <strong>Settings → Eventbrite</strong> section):
+        </p>
+        <ol style={{ margin: '0 0 14px', paddingLeft: '20px' }}>
+          <li style={stepStyle}><a href="https://www.eventbrite.com/platform/api" target="_blank" rel="noreferrer" style={{ color: '#C2502E' }}>Eventbrite Developer</a> → app → <strong>Client ID</strong> + <strong>Client Secret</strong></li>
+          <li style={stepStyle}><strong>Private Token</strong> generate karo (webhook ke liye zaroori)</li>
+          <li style={stepStyle}><strong>Redirect URI</strong> production URL set karo</li>
+          <li style={stepStyle}>Ewentcast Settings mein save karo → <strong>Test Connection</strong></li>
+        </ol>
+        <div style={subHead}>Option A — Auto register (recommended)</div>
+        <ol style={{ margin: '0 0 12px', paddingLeft: '20px' }}>
+          <li style={stepStyle}><strong>Register webhooks on Luma + Eventbrite</strong> button dabao (neeche)</li>
+          <li style={stepStyle}>Result mein <code>eventbrite: ✓ registered</code> aana chahiye</li>
+          <li style={stepStyle}>Auto actions: <code>order.placed</code>, <code>attendee.updated</code></li>
+        </ol>
+        <div style={subHead}>Option B — Manual (Eventbrite dashboard / API)</div>
+        <ol style={{ margin: 0, paddingLeft: '20px' }}>
+          <li style={stepStyle}>Eventbrite → Organization → Webhooks create karo</li>
+          <li style={stepStyle}><strong>Endpoint URL</strong> yeh paste karo:</li>
+        </ol>
+        <div style={urlBox}>{ebUrl}</div>
+        <CopyButton value={ebUrl} />
+        <ol start={3} style={{ margin: '10px 0 0', paddingLeft: '20px' }}>
+          <li style={stepStyle}><strong>Actions:</strong> Order placed, Attendee updated</li>
+          <li style={stepStyle}>Save → linked event par test ticket buy karo → <strong>Bookings</strong> check karo</li>
+        </ol>
+      </div>
+
+      <div style={{ ...LABEL_STYLE, marginBottom: '10px', fontSize: '13px', color: '#211B16', fontWeight: 600 }}>
+        Auto register (Luma + Eventbrite ek saath)
+      </div>
       {Object.entries(endpoints).map(([ch, url]) => (
         <div key={ch} style={{ marginBottom: '10px' }}>
           <div style={LABEL_STYLE}>{ch}</div>
@@ -147,8 +257,17 @@ function WebhookSetup() {
         {loading ? <InlineLoader label="Registering" /> : 'Register webhooks on Luma + Eventbrite'}
       </button>
       {result && (
-        <pre style={{ marginTop: '12px', fontSize: '12px', color: '#8C7F6D', whiteSpace: 'pre-wrap' }}>{result}</pre>
+        <pre style={{ marginTop: '12px', fontSize: '12px', color: '#8C7F6D', whiteSpace: 'pre-wrap', background: '#FBF7F0', padding: '10px', borderRadius: '6px', border: '1px solid #E8DFD0' }}>{result}</pre>
       )}
+
+      <div style={{ ...noteStyle, marginTop: '16px', marginBottom: 0 }}>
+        <strong>Errors?</strong>
+        <ul style={{ margin: '6px 0 0', paddingLeft: '18px' }}>
+          <li><code>Luma API key not configured</code> → Luma keys save karo</li>
+          <li><code>Eventbrite token not configured</code> → Private Token set karo</li>
+          <li>Webhook aati hai lekin booking nahi → event Ewentcast se pehle link/sync karo</li>
+        </ul>
+      </div>
     </div>
   )
 }
@@ -304,7 +423,6 @@ export default function SettingsPage() {
   const DEFAULT_REDIRECT = 'http://localhost:3000/api/eventbrite/callback'
   const eb = settings.eventbrite || {}
   const lu = settings.luma || {}
-  const ht = settings.hightribe || {}
 
   return (
     <div style={{ maxWidth: '720px' }}>
@@ -478,7 +596,7 @@ export default function SettingsPage() {
                       background: 'rgba(63,185,80,0.1)', border: '1px solid rgba(63,185,80,0.3)',
                       color: '#4E7A4B',
                     }}>
-                      ✓ Connected via login
+                      {isEwentcastSignupUser() ? '✓ Ewentcast account' : '✓ Connected via login'}
                     </span>
                     {htUser.has_business_profile && (
                       <span style={{
@@ -512,34 +630,25 @@ export default function SettingsPage() {
                 </a>
               </div>
             )}
-            <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #E8DFD0' }}>
-              <label style={LABEL_STYLE}>Webhook secret (shared with Laravel backend)</label>
-              <input
-                type="password"
-                style={INPUT_STYLE}
-                value={ht.webhookSecret || ''}
-                onChange={(e) => updateSection('hightribe', 'webhookSecret', e.target.value)}
-                placeholder="Generate a random string — same value goes in Laravel .env"
-              />
-              <p style={{ fontSize: '12px', color: '#8C7F6D', margin: '8px 0 12px', lineHeight: 1.5 }}>
-                HighTribe Laravel sends booking webhooks to EventLifter when a guest registers. Set the same secret in both apps.
+            {!isEwentcastSignupUser() && (
+              <p style={{ fontSize: '12px', color: '#8C7F6D', margin: htUser ? '16px 0 0' : '12px 0 0', lineHeight: 1.5 }}>
+                HighTribe bookings load via your login — no webhook setup required.
               </p>
-              <button
-                onClick={() => saveSection('hightribe')}
-                disabled={saving === 'hightribe'}
-                style={{ ...BTN_PRIMARY, opacity: saving === 'hightribe' ? 0.6 : 1 }}
-              >
-                {saving === 'hightribe' ? <InlineLoader label="Saving" /> : 'Save webhook secret'}
-              </button>
-            </div>
+            )}
+            {isEwentcastSignupUser() && getEwentcastAccount()?.ht_connected && (
+              <p style={{ fontSize: '12px', color: '#8C7F6D', margin: '16px 0 0', lineHeight: 1.5 }}>
+                HighTribe events and bookings are available through your linked account.
+              </p>
+            )}
+            <ConnectHightribeSection />
           </SectionCard>
 
           {/* Webhooks */}
           <SectionCard title="Webhooks" icon="🔔" color="#4E7A4B">
             <p style={{ fontSize: '13px', color: '#8C7F6D', margin: '0 0 14px', lineHeight: 1.5 }}>
-              Luma + Eventbrite register here. HighTribe sends bookings from Laravel backend when env vars are set.
+              Register Luma and Eventbrite webhooks so new guest registrations appear instantly in Bookings.
             </p>
-            <WebhookSetup />
+            <WebhooksPanel />
           </SectionCard>
         </>
       )}
