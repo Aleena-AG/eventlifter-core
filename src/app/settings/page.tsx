@@ -166,82 +166,82 @@ function WebhooksPanel() {
   return (
     <div>
       <p style={noteStyle}>
-        <strong>Important:</strong> Webhooks sirf <strong>public HTTPS</strong> URL par kaam karte hain (production).
+        <strong>Important:</strong> Webhooks only work on a <strong>public HTTPS</strong> URL (production).
         {isLocalhost && (
           <span style={{ display: 'block', marginTop: '6px', color: '#C2502E' }}>
-            ⚠ Abhi localhost URL hai — Luma/Eventbrite yahan register nahi karenge. Pehle Vercel par deploy karo.
+            ⚠ You are on localhost — Luma and Eventbrite will not register webhooks here. Deploy to Vercel first.
           </span>
         )}
-        {' '}Event pehle Ewentcast se publish/sync hona chahiye, warna booking skip ho jati hai.
+        {' '}Events must be published or synced through Ewentcast first, otherwise bookings are skipped.
       </p>
 
       <div style={{ marginBottom: '24px', paddingBottom: '20px', borderBottom: '1px solid #E8DFD0' }}>
         <div style={sectionHead}>
           <ChannelLogo channel="luma" size={22} />
-          Luma webhook — register kaise karein
+          How to register Luma webhooks
         </div>
         <p style={{ ...stepStyle, marginBottom: '12px', color: '#8C7F6D' }}>
-          Pehle credentials save karo (upar <strong>Settings → Luma</strong> section):
+          First, save your credentials in the <strong>Luma</strong> section above:
         </p>
         <ol style={{ margin: '0 0 14px', paddingLeft: '20px' }}>
           <li style={stepStyle}><a href="https://lu.ma" target="_blank" rel="noreferrer" style={{ color: '#7C5C8A' }}>lu.ma</a> → Settings → Developer → <strong>API Key</strong> (Luma Plus required)</li>
-          <li style={stepStyle}><strong>Calendar ID</strong> copy karo (<code>cal-xxxxx</code>)</li>
-          <li style={stepStyle}>Ewentcast Settings mein paste karo → <strong>Save</strong> → <strong>Test Connection</strong></li>
+          <li style={stepStyle}>Copy your <strong>Calendar ID</strong> (<code>cal-xxxxx</code>)</li>
+          <li style={stepStyle}>Paste into Ewentcast Settings → <strong>Save</strong> → <strong>Test Connection</strong></li>
         </ol>
         <div style={subHead}>Option A — Auto register (recommended)</div>
         <ol style={{ margin: '0 0 12px', paddingLeft: '20px' }}>
-          <li style={stepStyle}>Neeche scroll karo → <strong>Register webhooks on Luma + Eventbrite</strong> button dabao</li>
-          <li style={stepStyle}>Result mein <code>luma: ✓ registered</code> aana chahiye</li>
-          <li style={stepStyle}>Auto events: <code>guest.registered</code>, <code>guest.updated</code></li>
+          <li style={stepStyle}>Scroll down and click <strong>Register webhooks on Luma + Eventbrite</strong></li>
+          <li style={stepStyle}>You should see <code>luma: ✓ registered</code> in the result</li>
+          <li style={stepStyle}>Auto-registered events: <code>guest.registered</code>, <code>guest.updated</code></li>
         </ol>
         <div style={subHead}>Option B — Manual (Luma dashboard / API)</div>
         <ol style={{ margin: 0, paddingLeft: '20px' }}>
-          <li style={stepStyle}>Luma Plus account se webhook create karo</li>
-          <li style={stepStyle}><strong>Webhook URL</strong> yeh paste karo:</li>
+          <li style={stepStyle}>Create a webhook from your Luma Plus account</li>
+          <li style={stepStyle}>Paste this <strong>Webhook URL</strong>:</li>
         </ol>
         <div style={urlBox}>{lumaUrl}</div>
         <CopyButton value={lumaUrl} />
         <ol start={3} style={{ margin: '10px 0 0', paddingLeft: '20px' }}>
           <li style={stepStyle}><strong>Events:</strong> Guest registered, Guest updated</li>
-          <li style={stepStyle}>Save → linked Luma event par test guest register karo → <strong>Bookings</strong> check karo</li>
+          <li style={stepStyle}>Save → register a test guest on a linked Luma event → check <strong>Bookings</strong></li>
         </ol>
       </div>
 
       <div style={{ marginBottom: '24px', paddingBottom: '20px', borderBottom: '1px solid #E8DFD0' }}>
         <div style={sectionHead}>
           <ChannelLogo channel="eventbrite" size={22} />
-          Eventbrite webhook — register kaise karein
+          How to register Eventbrite webhooks
         </div>
         <p style={{ ...stepStyle, marginBottom: '12px', color: '#8C7F6D' }}>
-          Pehle credentials save karo (upar <strong>Settings → Eventbrite</strong> section):
+          First, save your credentials in the <strong>Eventbrite</strong> section above:
         </p>
         <ol style={{ margin: '0 0 14px', paddingLeft: '20px' }}>
-          <li style={stepStyle}><a href="https://www.eventbrite.com/platform/api" target="_blank" rel="noreferrer" style={{ color: '#C2502E' }}>Eventbrite Developer</a> → app → <strong>Client ID</strong> + <strong>Client Secret</strong></li>
-          <li style={stepStyle}><strong>Private Token</strong> generate karo (webhook ke liye zaroori)</li>
-          <li style={stepStyle}><strong>Redirect URI</strong> production URL set karo</li>
-          <li style={stepStyle}>Ewentcast Settings mein save karo → <strong>Test Connection</strong></li>
+          <li style={stepStyle}><a href="https://www.eventbrite.com/platform/api" target="_blank" rel="noreferrer" style={{ color: '#C2502E' }}>Eventbrite Developer</a> → your app → <strong>Client ID</strong> + <strong>Client Secret</strong></li>
+          <li style={stepStyle}>Generate a <strong>Private Token</strong> (required for webhooks)</li>
+          <li style={stepStyle}>Set <strong>Redirect URI</strong> to your production URL</li>
+          <li style={stepStyle}>Save in Ewentcast Settings → <strong>Test Connection</strong></li>
         </ol>
         <div style={subHead}>Option A — Auto register (recommended)</div>
         <ol style={{ margin: '0 0 12px', paddingLeft: '20px' }}>
-          <li style={stepStyle}><strong>Register webhooks on Luma + Eventbrite</strong> button dabao (neeche)</li>
-          <li style={stepStyle}>Result mein <code>eventbrite: ✓ registered</code> aana chahiye</li>
-          <li style={stepStyle}>Auto actions: <code>order.placed</code>, <code>attendee.updated</code></li>
+          <li style={stepStyle}>Click <strong>Register webhooks on Luma + Eventbrite</strong> below</li>
+          <li style={stepStyle}>You should see <code>eventbrite: ✓ registered</code> in the result</li>
+          <li style={stepStyle}>Auto-registered actions: <code>order.placed</code>, <code>attendee.updated</code></li>
         </ol>
         <div style={subHead}>Option B — Manual (Eventbrite dashboard / API)</div>
         <ol style={{ margin: 0, paddingLeft: '20px' }}>
-          <li style={stepStyle}>Eventbrite → Organization → Webhooks create karo</li>
-          <li style={stepStyle}><strong>Endpoint URL</strong> yeh paste karo:</li>
+          <li style={stepStyle}>Eventbrite → your Organization → create a Webhook</li>
+          <li style={stepStyle}>Paste this <strong>Endpoint URL</strong>:</li>
         </ol>
         <div style={urlBox}>{ebUrl}</div>
         <CopyButton value={ebUrl} />
         <ol start={3} style={{ margin: '10px 0 0', paddingLeft: '20px' }}>
           <li style={stepStyle}><strong>Actions:</strong> Order placed, Attendee updated</li>
-          <li style={stepStyle}>Save → linked event par test ticket buy karo → <strong>Bookings</strong> check karo</li>
+          <li style={stepStyle}>Save → purchase a test ticket on a linked event → check <strong>Bookings</strong></li>
         </ol>
       </div>
 
       <div style={{ ...LABEL_STYLE, marginBottom: '10px', fontSize: '13px', color: '#211B16', fontWeight: 600 }}>
-        Auto register (Luma + Eventbrite ek saath)
+        Auto register (Luma + Eventbrite together)
       </div>
       {Object.entries(endpoints).map(([ch, url]) => (
         <div key={ch} style={{ marginBottom: '10px' }}>
@@ -263,9 +263,9 @@ function WebhooksPanel() {
       <div style={{ ...noteStyle, marginTop: '16px', marginBottom: 0 }}>
         <strong>Errors?</strong>
         <ul style={{ margin: '6px 0 0', paddingLeft: '18px' }}>
-          <li><code>Luma API key not configured</code> → Luma keys save karo</li>
-          <li><code>Eventbrite token not configured</code> → Private Token set karo</li>
-          <li>Webhook aati hai lekin booking nahi → event Ewentcast se pehle link/sync karo</li>
+          <li><code>Luma API key not configured</code> → save your Luma keys first</li>
+          <li><code>Eventbrite token not configured</code> → set your Private Token</li>
+          <li>Webhook received but no booking → link/sync the event in Ewentcast first</li>
         </ul>
       </div>
     </div>
