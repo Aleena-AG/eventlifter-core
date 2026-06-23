@@ -468,7 +468,7 @@ export function EwentcastWizard({
       <div className="ew-wrap">
         <header className="ew-bar">
           <div className="ew-brand">
-            <EwentcastLogo height={34} />
+            <EwentcastLogo height={34} wordmarkOnly />
             <div>
               <div className="tag">{isEdit ? 'Edit event on channel.' : 'Create once. Publish everywhere.'}</div>
             </div>

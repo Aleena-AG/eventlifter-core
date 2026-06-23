@@ -82,7 +82,7 @@ export default function LoginPage() {
       <div style={{ width: '100%', maxWidth: '400px' }}>
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
           <Link href="/" style={{ textDecoration: 'none', color: 'inherit', display: 'inline-block' }}>
-            <EwentcastLogo height={48} style={{ margin: '0 auto' }} />
+            <EwentcastLogo height={48} wordmarkOnly style={{ margin: '0 auto' }} />
             <p style={{ margin: '14px 0 0', fontSize: '14px', color: '#8C7F6D' }}>
               Sign in with your HighTribe account
             </p>

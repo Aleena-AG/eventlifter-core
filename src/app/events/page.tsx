@@ -527,7 +527,6 @@ export default function EventsPage() {
       <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:'24px', gap:'16px' }}>
         <div>
           <h1 style={{ margin:0, fontSize:'22px', fontWeight:700, color:'#211B16' }}>Events</h1>
-          <p style={{ margin:'4px 0 0', fontSize:'14px', color:'#8C7F6D' }}>Browse events from all your connected channels</p>
         </div>
         <button onClick={openCreate} style={{ background:'#238636', border:'1px solid #2ea043', borderRadius:'8px', color:'#fff', padding:'10px 18px', fontSize:'13px', fontWeight:600, cursor:'pointer', display:'flex', alignItems:'center', gap:'6px', whiteSpace:'nowrap', flexShrink:0 }}>
           + Create Event

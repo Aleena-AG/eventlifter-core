@@ -71,10 +71,7 @@ export function Sidebar() {
           textDecoration: 'none',
         }}
       >
-        <EwentcastLogo height={34} style={{ margin: '0 auto' }} />
-        <div style={{ fontSize: '11px', color: '#8C7F6D', marginTop: '6px', textAlign: 'center' }}>
-          Channel Manager
-        </div>
+        <EwentcastLogo height={34} wordmarkOnly style={{ margin: '0 auto' }} />
       </Link>
 
       {/* Nav */}

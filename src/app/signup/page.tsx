@@ -63,7 +63,7 @@ export default function SignupPage() {
       <div style={{ width: '100%', maxWidth: '420px' }}>
         <div style={{ textAlign: 'center', marginBottom: '28px' }}>
           <Link href="/" style={{ textDecoration: 'none', color: 'inherit', display: 'inline-block' }}>
-            <EwentcastLogo height={48} style={{ margin: '0 auto' }} />
+            <EwentcastLogo height={48} wordmarkOnly style={{ margin: '0 auto' }} />
             <h1 style={{ margin: '14px 0 0', fontSize: '20px', fontWeight: 700, color: '#211B16' }}>Create your account</h1>
             <p style={{ margin: '8px 0 0', fontSize: '14px', color: '#8C7F6D' }}>
               $20/month · Luma & Eventbrite included · 7-day money-back guarantee

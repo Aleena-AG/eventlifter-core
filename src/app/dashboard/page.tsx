@@ -139,9 +139,6 @@ export default function DashboardPage() {
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '28px', gap: '16px' }}>
         <div>
           <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700, color: '#211B16' }}>Dashboard</h1>
-          <p style={{ margin: '4px 0 0', fontSize: '14px', color: '#8C7F6D' }}>
-            Events, tickets, and bookings across all connected channels
-          </p>
         </div>
         <button
           onClick={load}
