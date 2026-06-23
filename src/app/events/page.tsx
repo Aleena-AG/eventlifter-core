@@ -9,14 +9,16 @@ import { Toast, useToast } from '@/components/Toast'
 import { InlineLoader, PageLoader } from '@/components/Loader'
 import { SyncModal, SyncSource } from '@/components/SyncModal'
 import { CreateEventWizardModal } from '@/components/ewentcast/CreateEventWizardModal'
+import { ChannelLogo } from '@/components/ChannelLogo'
+import { CHANNEL_META } from '@/lib/channels'
 import type { ChannelKey } from '@/lib/types'
 
 type Tab = 'hightribe' | 'luma' | 'eventbrite'
 
 const CH_LABELS: Record<ChannelKey, string> = {
-  hightribe: '🏔 HighTribe',
-  luma: '✨ Luma',
-  eventbrite: '🎫 Eventbrite',
+  hightribe: 'HighTribe',
+  luma: 'Luma',
+  eventbrite: 'Eventbrite',
 }
 
 type DeleteLink = { channel: ChannelKey; eventId: string | number }
@@ -153,13 +155,14 @@ function DeleteDialog({
 
 // ─── EventCard ────────────────────────────────────────────────────────────────
 function EventCard({
-  image, title, dateStr, badge, badgeColor, location, url, status,
+  image, title, dateStr, channel, badgeColor, location, url, status,
   onEdit, onDelete,
 }: {
-  image?: string; title: string; dateStr: string; badge: string; badgeColor: string
+  image?: string; title: string; dateStr: string; channel: ChannelKey; badgeColor: string
   location?: string; url?: string; status?: string
   onEdit?: () => void; onDelete?: () => void
 }) {
+  const channelName = CHANNEL_META[channel].name
   return (
     <div style={{ background:'#FFFFFF', border:'1px solid #E8DFD0', borderRadius:'10px', overflow:'hidden', display:'flex', gap:0 }}>
       {/* Cover */}
@@ -184,7 +187,10 @@ function EventCard({
               {location && <><span>·</span><span>📍 {location}</span></>}
             </div>
             <div style={{ display:'flex', gap:'6px', flexWrap:'wrap', alignItems:'center' }}>
-              <span style={{ fontSize:'11px', padding:'2px 8px', borderRadius:'4px', background:badgeColor+'1a', border:`1px solid ${badgeColor}4d`, color:badgeColor }}>{badge}</span>
+              <span style={{ fontSize:'11px', padding:'2px 6px 2px 4px', borderRadius:'4px', background:badgeColor+'1a', border:`1px solid ${badgeColor}4d`, color:badgeColor, display:'inline-flex', alignItems:'center', gap:'5px' }}>
+                <ChannelLogo channel={channel} size={16} />
+                {channelName}
+              </span>
               {status && (
                 <span style={{ fontSize:'11px', padding:'2px 8px', borderRadius:'4px', background: status==='published'||status==='live' ? 'rgba(63,185,80,0.1)' : 'rgba(139,148,158,0.15)', border:`1px solid ${status==='published'||status==='live' ? 'rgba(63,185,80,0.3)' : '#E8DFD0'}`, color: status==='published'||status==='live' ? '#4E7A4B' : '#8C7F6D' }}>
                   {status}
@@ -442,10 +448,10 @@ export default function EventsPage() {
     if (tab === 'eventbrite' && ebEvents.length === 0 && !ebLoading) loadEbEvents()
   }, [tab]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const TABS: { key: Tab; label: string; color: string }[] = [
-    { key:'hightribe', label:'🏔 HighTribe', color:'#7C5C8A' },
-    { key:'luma',      label:'✨ Luma',      color:'#7C5C8A' },
-    { key:'eventbrite',label:'🎫 Eventbrite',color:'#C2502E' },
+  const TABS: { key: Tab; name: string; color: string }[] = [
+    { key: 'hightribe', name: CHANNEL_META.hightribe.name, color: '#7C5C8A' },
+    { key: 'luma', name: CHANNEL_META.luma.name, color: '#7C5C8A' },
+    { key: 'eventbrite', name: CHANNEL_META.eventbrite.name, color: '#C2502E' },
   ]
 
   function openCreate() { setCreateOpen(true) }
@@ -530,9 +536,21 @@ export default function EventsPage() {
 
       {/* Tabs */}
       <div style={{ display:'flex', gap:'4px', marginBottom:'24px', background:'#FFFFFF', border:'1px solid #E8DFD0', borderRadius:'8px', padding:'4px' }}>
-        {TABS.map(({ key, label, color }) => (
-          <button key={key} onClick={() => setTab(key)} style={{ flex:1, padding:'8px 16px', borderRadius:'6px', border:'none', cursor:'pointer', fontSize:'13px', fontWeight:500, background: tab===key ? '#F1EADC' : 'transparent', color: tab===key ? color : '#8C7F6D', boxShadow: tab===key ? `0 0 0 1px ${color}4d` : 'none' }}>
-            {label}
+        {TABS.map(({ key, name, color }) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            style={{
+              flex: 1, padding: '8px 12px', borderRadius: '6px', border: 'none', cursor: 'pointer',
+              fontSize: '13px', fontWeight: 500,
+              background: tab === key ? '#F1EADC' : 'transparent',
+              color: tab === key ? color : '#8C7F6D',
+              boxShadow: tab === key ? `0 0 0 1px ${color}4d` : 'none',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+            }}
+          >
+            <ChannelLogo channel={key} size={22} />
+            {name}
           </button>
         ))}
       </div>
@@ -574,7 +592,7 @@ export default function EventsPage() {
                     <div key={String(evt.id)} style={{ position:'relative' }}>
                       <EventCard
                         image={image} title={evt.title} dateStr={dateStr}
-                        badge="🏔 HighTribe" badgeColor="#7C5C8A"
+                        channel="hightribe" badgeColor="#7C5C8A"
                         location={loc} url={url} status={displayStatus}
                         onEdit={() => openEdit('hightribe', evt.id)}
                         onDelete={() => setDeleteTarget({ channel:'hightribe', id:evt.id, title:evt.title })}
@@ -624,7 +642,7 @@ export default function EventsPage() {
                   <div key={evt.api_id} style={{ position:'relative' }}>
                     <EventCard
                       image={evt.cover_url} title={evt.name} dateStr={fmtUtc(evt.start_at)}
-                      badge="✨ Luma" badgeColor="#7C5C8A"
+                      channel="luma" badgeColor="#7C5C8A"
                       location={evt.geo_address_json?.full_address || evt.geo_address_json?.city}
                       url={url}
                       onEdit={() => openEdit('luma', evt.api_id)}
@@ -668,7 +686,7 @@ export default function EventsPage() {
                       image={evt.logo?.original?.url}
                       title={title}
                       dateStr={fmtUtc(evt.start?.utc)}
-                      badge="🎫 Eventbrite" badgeColor="#C2502E"
+                      channel="eventbrite" badgeColor="#C2502E"
                       url={url} status={evt.status}
                       onEdit={() => openEdit('eventbrite', evt.id)}
                       onDelete={() => setDeleteTarget({ channel:'eventbrite', id:evt.id, title })}
