@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { isAuthenticated } from '@/lib/auth'
 import { registerEwentcast } from '@/lib/ewentcast-session'
 import { InlineLoader } from '@/components/Loader'
+import { EwentcastLogo } from '@/components/EwentcastLogo'
 
 export default function SignupPage() {
   const router = useRouter()
@@ -61,8 +62,9 @@ export default function SignupPage() {
     <div style={{ position: 'fixed', inset: 0, background: '#FBF7F0', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px', zIndex: 9999 }}>
       <div style={{ width: '100%', maxWidth: '420px' }}>
         <div style={{ textAlign: 'center', marginBottom: '28px' }}>
-          <Link href="/" style={{ textDecoration: 'none', color: 'inherit' }}>
-            <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700, color: '#211B16' }}>Create Ewentcast account</h1>
+          <Link href="/" style={{ textDecoration: 'none', color: 'inherit', display: 'inline-block' }}>
+            <EwentcastLogo height={48} style={{ margin: '0 auto' }} />
+            <h1 style={{ margin: '14px 0 0', fontSize: '20px', fontWeight: 700, color: '#211B16' }}>Create your account</h1>
             <p style={{ margin: '8px 0 0', fontSize: '14px', color: '#8C7F6D' }}>
               $20/month · Luma & Eventbrite included · 7-day money-back guarantee
             </p>

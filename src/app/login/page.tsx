@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { setToken, setUser, isAuthenticated } from '@/lib/auth'
 import { fetchEwentcastMe } from '@/lib/ewentcast-session'
 import { InlineLoader } from '@/components/Loader'
+import { EwentcastLogo } from '@/components/EwentcastLogo'
 
 interface LoginResponse {
   status: boolean
@@ -80,9 +81,9 @@ export default function LoginPage() {
     <div style={{ position: 'fixed', inset: 0, background: '#FBF7F0', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px', zIndex: 9999 }}>
       <div style={{ width: '100%', maxWidth: '400px' }}>
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <Link href="/" style={{ textDecoration: 'none', color: 'inherit' }}>
-            <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700, color: '#211B16' }}>Ewentcast</h1>
-            <p style={{ margin: '6px 0 0', fontSize: '14px', color: '#8C7F6D' }}>
+          <Link href="/" style={{ textDecoration: 'none', color: 'inherit', display: 'inline-block' }}>
+            <EwentcastLogo height={48} style={{ margin: '0 auto' }} />
+            <p style={{ margin: '14px 0 0', fontSize: '14px', color: '#8C7F6D' }}>
               Sign in with your HighTribe account
             </p>
           </Link>

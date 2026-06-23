@@ -12,6 +12,7 @@ import {
   type EwentcastAccount,
 } from '@/lib/ewentcast-session'
 import { ChannelLogo } from '@/components/ChannelLogo'
+import { EwentcastLogo } from '@/components/EwentcastLogo'
 import { InlineLoader, PageLoader } from '@/components/Loader'
 
 const FEATURES = [
@@ -125,18 +126,8 @@ function SubscribeContent() {
       >
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: '28px' }}>
-          <Link href="/" style={{ textDecoration: 'none', color: 'inherit' }}>
-            <div
-              style={{
-                width: '52px', height: '52px', borderRadius: '12px',
-                background: '#211B16', display: 'flex', alignItems: 'center',
-                justifyContent: 'center', margin: '0 auto 16px',
-              }}
-            >
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M5 12h14M13 6l6 6-6 6" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </div>
+          <Link href="/" style={{ textDecoration: 'none', color: 'inherit', display: 'inline-block' }}>
+            <EwentcastLogo height={52} style={{ margin: '0 auto 16px' }} />
             <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700, color: '#211B16' }}>
               {active ? 'You\'re all set!' : 'Activate Ewentcast Pro'}
             </h1>

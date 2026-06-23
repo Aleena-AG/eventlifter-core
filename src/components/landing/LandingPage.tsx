@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { isAuthenticated } from '@/lib/auth'
+import { EwentcastLogo } from '@/components/EwentcastLogo'
 
 const MARQUEE_IMAGES = [
   'https://images.unsplash.com/photo-1533174072545-7a4b6ad7a6c3?auto=format&fit=crop&w=520&q=70',
@@ -12,14 +13,6 @@ const MARQUEE_IMAGES = [
   'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?auto=format&fit=crop&w=520&q=70',
   'https://images.unsplash.com/photo-1540039155733-5bb30b53aa14?auto=format&fit=crop&w=520&q=70',
 ]
-
-function BrandMark() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M5 12h14M13 6l6 6-6 6" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
 
 function CheckIcon() {
   return (
@@ -106,8 +99,7 @@ export function LandingPage() {
       <nav>
         <div className="wrap nav-in">
           <a className="brand" href="#top">
-            <span className="mark"><BrandMark /></span>
-            <span className="name">Ewentcast</span>
+            <EwentcastLogo height={36} />
           </a>
           <div className="nav-links">
             <a href="#how">How it works</a>
@@ -378,8 +370,7 @@ export function LandingPage() {
       <footer>
         <div className="wrap foot-in">
           <div className="brand">
-            <span className="mark"><BrandMark /></span>
-            <span className="name" style={{ fontSize: 16 }}>Ewentcast</span>
+            <EwentcastLogo height={30} />
           </div>
           <span>© 2026 Ewentcast · Create once. Publish everywhere.</span>
         </div>

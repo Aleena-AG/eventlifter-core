@@ -12,6 +12,7 @@ import {
   ALL_CHANNELS, CH_META, SAMPLE_EVENT, SECTIONS, WIZARD_STEPS,
 } from './config'
 import { InlineLoader, PageLoader } from '@/components/Loader'
+import { EwentcastLogo } from '@/components/EwentcastLogo'
 
 function Swatch({ color, size = 10 }: { color: string; size?: number }) {
   return <span className="ew-swatch" style={{ width: size, height: size, background: color }} />
@@ -467,18 +468,8 @@ export function EwentcastWizard({
       <div className="ew-wrap">
         <header className="ew-bar">
           <div className="ew-brand">
-            <svg width="34" height="34" viewBox="0 0 100 100" aria-label="Ewentcast">
-              <defs>
-                <linearGradient id="ew-logo-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#D98A2B" />
-                  <stop offset="100%" stopColor="#7C5C8A" />
-                </linearGradient>
-              </defs>
-              <rect width="100" height="100" rx="20" fill="url(#ew-logo-grad)" />
-              <text x="50" y="62" textAnchor="middle" fill="#fff" fontSize="36" fontWeight="700" fontFamily="system-ui,sans-serif">E</text>
-            </svg>
+            <EwentcastLogo height={34} />
             <div>
-              <div className="name">Ewentcast</div>
               <div className="tag">{isEdit ? 'Edit event on channel.' : 'Create once. Publish everywhere.'}</div>
             </div>
           </div>

@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
 import { getUser, clearAuth, authHeader, type HtUser } from '@/lib/auth'
 import { InlineLoader } from '@/components/Loader'
+import { EwentcastLogo } from '@/components/EwentcastLogo'
 
 const NAV_LINKS = [
   { href: '/dashboard', label: 'Dashboard', icon: '⊞' },
@@ -61,41 +62,20 @@ export function Sidebar() {
       }}
     >
       {/* Logo */}
-      <div
+      <Link
+        href="/dashboard"
         style={{
-          padding: '20px 16px',
+          padding: '16px 14px',
           borderBottom: '1px solid #E8DFD0',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '10px',
+          display: 'block',
+          textDecoration: 'none',
         }}
       >
-        <div
-          style={{
-            width: '32px',
-            height: '32px',
-            borderRadius: '8px',
-            background: '#211B16',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '16px',
-            flexShrink: 0,
-          }}
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path d="M5 12h14M13 6l6 6-6 6" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+        <EwentcastLogo height={34} style={{ margin: '0 auto' }} />
+        <div style={{ fontSize: '11px', color: '#8C7F6D', marginTop: '6px', textAlign: 'center' }}>
+          Channel Manager
         </div>
-        <div>
-          <div style={{ fontSize: '14px', fontWeight: 700, color: '#211B16', lineHeight: 1 }}>
-            Ewentcast
-          </div>
-          <div style={{ fontSize: '11px', color: '#8C7F6D', marginTop: '2px' }}>
-            Channel Manager
-          </div>
-        </div>
-      </div>
+      </Link>
 
       {/* Nav */}
       <nav style={{ flex: 1, padding: '12px 8px' }}>
