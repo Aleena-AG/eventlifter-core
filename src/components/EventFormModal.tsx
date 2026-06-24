@@ -9,7 +9,7 @@ import { InlineLoader, PageLoader } from '@/components/Loader'
 export type Channel = 'hightribe' | 'luma' | 'eventbrite'
 export type FormMode = 'create' | 'edit'
 
-// ─── HighTribe interfaces ─────────────────────────────────────────────────────
+// ─── Hightribe interfaces ─────────────────────────────────────────────────────
 interface HtTicket {
   name: string; currency: string; price: string; quantity: string
   bookingType: 'instant' | 'request' | ''; showTicket: boolean
@@ -42,6 +42,7 @@ const HT_EMPTY: HtForm = {
 const HT_SAMPLE: HtForm = {
   title: 'Tech Meetup Karachi 2025',
   description: 'Join us for tech talks, networking, and startup innovation showcases from top founders across Pakistan.',
+  coverUrl: '',
   startDate: '2026-08-15', startTime: '18:00', endDate: '2026-08-15', endTime: '21:00',
   timezone: 'Asia/Karachi', locationType: 'venue',
   locationLabel: 'Karachi IT Park', address: 'Plot ST-30, Block 6, PECHS', city: 'Karachi', country: 'PK',
@@ -103,12 +104,12 @@ const EB_SAMPLE: EbForm = {
 
 // ─── Shared constants ─────────────────────────────────────────────────────────
 const CH_META: Record<Channel, { label: string; icon: string; color: string }> = {
-  hightribe:  { label: 'HighTribe',  icon: '🏔', color: '#7C5C8A' },
+  hightribe:  { label: 'Hightribe',  icon: '🏔', color: '#7C5C8A' },
   luma:       { label: 'Luma',       icon: '✨', color: '#7C5C8A' },
   eventbrite: { label: 'Eventbrite', icon: '🎫', color: '#C2502E' },
 }
 const TIMEZONES = ['Asia/Karachi','Asia/Kolkata','UTC','America/New_York','America/Los_Angeles','Europe/London','Europe/Paris','Asia/Dubai','Asia/Tokyo','Australia/Sydney']
-// All currencies (for HighTribe/Luma which accept any)
+// All currencies (for Hightribe/Luma which accept any)
 const ALL_CURRENCIES = [
   { code:'PKR', label:'PKR – Pakistani Rupee' },{ code:'USD', label:'USD – US Dollar' },
   { code:'GBP', label:'GBP – British Pound' },{ code:'EUR', label:'EUR – Euro' },
@@ -420,7 +421,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
     )
   }
 
-  // ─── HighTribe form ────────────────────────────────────────────────────────
+  // ─── Hightribe form ────────────────────────────────────────────────────────
   function HtBody() {
     const s = <K extends keyof HtForm>(k: K) => (v: HtForm[K]) => setHt(f => ({ ...f, [k]: v }))
 

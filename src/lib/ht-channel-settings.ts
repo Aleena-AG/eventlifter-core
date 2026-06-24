@@ -35,7 +35,7 @@ async function parseHtResponse(res: Response): Promise<HtChannelSettingsData> {
     throw new Error(raw.slice(0, 200) || `HTTP ${res.status}`)
   }
   if (!res.ok || data.status === 'error') {
-    throw new Error(data.message || data.error || `HighTribe API HTTP ${res.status}`)
+    throw new Error(data.message || data.error || `Hightribe API HTTP ${res.status}`)
   }
   return data.data || {}
 }

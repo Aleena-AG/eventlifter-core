@@ -57,7 +57,7 @@ async function lumaRequest(
   return data
 }
 
-/** Mirrors HighTribe Laravel LumaService::listHostedEvents */
+/** Mirrors Hightribe Laravel LumaService::listHostedEvents */
 export async function listHostedEvents(
   settings: AppSettings,
   query: Record<string, string> = {},

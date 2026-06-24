@@ -275,7 +275,7 @@ export async function loadDashboardStats(settings: {
       title: e.title,
       startUtc: start || new Date().toISOString(),
       channel: 'hightribe',
-      priceLabel: 'HighTribe',
+      priceLabel: 'Hightribe',
     })
   }
   for (const e of lumaEvents) {

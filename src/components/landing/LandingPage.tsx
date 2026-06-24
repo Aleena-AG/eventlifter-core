@@ -24,7 +24,7 @@ function CheckIcon() {
 
 function CastDiagram() {
   return (
-    <svg viewBox="0 0 460 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="One event broadcasting to Eventbrite, Luma, and HighTribe">
+    <svg viewBox="0 0 460 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="One event broadcasting to Eventbrite, Luma, and Hightribe">
       <g fill="none" strokeLinecap="round">
         <path d="M150 180 C 230 120, 270 90, 350 84" stroke="#E8DFD0" strokeWidth="6" />
         <path d="M150 180 C 240 180, 270 180, 350 180" stroke="#E8DFD0" strokeWidth="6" />
@@ -48,7 +48,7 @@ function CastDiagram() {
         <text x="382" y="184" fill="#211B16">Luma</text>
         <rect x="350" y="254" width="98" height="44" rx="12" fill="#fff" stroke="#E8DFD0" />
         <circle cx="368" cy="276" r="6" fill="#D98A2B" />
-        <text x="382" y="280" fill="#211B16">HighTribe</text>
+        <text x="382" y="280" fill="#211B16">Hightribe</text>
       </g>
     </svg>
   )
@@ -57,7 +57,7 @@ function CastDiagram() {
 const FAQ_ITEMS = [
   {
     q: 'Which platforms does it publish to?',
-    a: 'Eventbrite, Luma, and HighTribe today, with two-way sync — your event goes out and bookings come back. More channels are on the way.',
+    a: 'Eventbrite, Luma, and Hightribe today, with two-way sync — your event goes out and bookings come back. More channels are on the way.',
     open: true,
   },
   {
@@ -66,7 +66,7 @@ const FAQ_ITEMS = [
   },
   {
     q: 'Do I need accounts on those platforms?',
-    a: 'Yes. You connect your existing Eventbrite, Luma, and HighTribe accounts once in your profile, and every event reuses them. (Luma\'s API requires a Luma Plus plan on their side.)',
+    a: 'Yes. You connect your existing Eventbrite, Luma, and Hightribe accounts once in your profile, and every event reuses them. (Luma\'s API requires a Luma Plus plan on their side.)',
   },
   {
     q: 'How does the free trial work?',
@@ -120,7 +120,7 @@ export function LandingPage() {
           <div className="eyebrow">Create once · publish everywhere</div>
           <h1>Get booked everywhere. Oversold nowhere.</h1>
           <p className="lead">
-            Ewentcast publishes your event to Eventbrite, Luma, and HighTribe at once — and keeps capacity in sync across all of them. Fill more seats, never double-book the room.
+            Ewentcast publishes your event to Eventbrite, Luma, and Hightribe at once — and keeps capacity in sync across all of them. Fill more seats, never double-book the room.
           </p>
           <div className="cta-row">
             <Link className="btn btn-primary" href="/login">Start your 14-day free trial</Link>
@@ -139,7 +139,7 @@ export function LandingPage() {
           <span className="label">Publishes to</span>
           <span className="chip"><span className="sw" style={{ background: 'var(--rust)' }} />Eventbrite</span>
           <span className="chip"><span className="sw" style={{ background: 'var(--plum)' }} />Luma</span>
-          <span className="chip"><span className="sw" style={{ background: 'var(--honey)' }} />HighTribe</span>
+          <span className="chip"><span className="sw" style={{ background: 'var(--honey)' }} />Hightribe</span>
           <span style={{ color: 'var(--muted)', fontSize: 14, marginLeft: 'auto' }}>Two-way sync · more channels coming</span>
         </div>
       </div>
@@ -172,7 +172,7 @@ export function LandingPage() {
                 <span className="num">2</span>
                 <div>
                   <h3>Cast everywhere</h3>
-                  <p>Hit publish. Your event goes live on Eventbrite, Luma, and HighTribe at the same moment.</p>
+                  <p>Hit publish. Your event goes live on Eventbrite, Luma, and Hightribe at the same moment.</p>
                 </div>
               </div>
               <div className="step">
@@ -221,7 +221,7 @@ export function LandingPage() {
                   <span className="synced"><span className="pulse-dot" />47 left</span>
                 </div>
                 <div className="cap-row">
-                  <span className="left"><span className="sw" style={{ background: 'var(--honey)' }} />HighTribe</span>
+                  <span className="left"><span className="sw" style={{ background: 'var(--honey)' }} />Hightribe</span>
                   <span className="synced"><span className="pulse-dot" />47 left</span>
                 </div>
               </div>
@@ -242,7 +242,7 @@ export function LandingPage() {
           </div>
           <div className="benefits">
             {[
-              { title: 'Publish everywhere at once', desc: 'One event live on Eventbrite, Luma, and HighTribe in seconds — not three separate forms.' },
+              { title: 'Publish everywhere at once', desc: 'One event live on Eventbrite, Luma, and Hightribe in seconds — not three separate forms.' },
               { title: 'More bookings, no oversell', desc: 'Reach every platform\'s audience at once while one shared capacity makes double-booking impossible.' },
               { title: 'One attendee list', desc: 'Every signup from every platform, merged and deduplicated. No stitching spreadsheets the night before.' },
               { title: 'One revenue number', desc: 'Total sales across all channels in a single figure, with a clean per-platform breakdown.' },
@@ -280,7 +280,7 @@ export function LandingPage() {
               <span style={{ width: '27%', background: 'var(--plum)' }} />
             </div>
             <div style={{ display: 'flex', gap: 24, marginTop: 14, fontSize: 13.5, color: '#B6A88F', flexWrap: 'wrap' }}>
-              <span><span className="sw" style={{ background: 'var(--honey)', marginRight: 6 }} />HighTribe 35</span>
+              <span><span className="sw" style={{ background: 'var(--honey)', marginRight: 6 }} />Hightribe 35</span>
               <span><span className="sw" style={{ background: 'var(--rust)', marginRight: 6 }} />Eventbrite 42</span>
               <span><span className="sw" style={{ background: 'var(--plum)', marginRight: 6 }} />Luma 28</span>
             </div>
@@ -304,7 +304,7 @@ export function LandingPage() {
               <div className="sub">billed monthly · cancel anytime</div>
               <ul>
                 <li><CheckIcon /> Unlimited events</li>
-                <li><CheckIcon /> Publish to Eventbrite, Luma &amp; HighTribe</li>
+                <li><CheckIcon /> Publish to Eventbrite, Luma &amp; Hightribe</li>
                 <li><CheckIcon /> Shared capacity — never oversell</li>
                 <li><CheckIcon /> Unified, deduplicated attendee list</li>
                 <li><CheckIcon /> One revenue dashboard, by channel</li>

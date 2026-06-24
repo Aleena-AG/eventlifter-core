@@ -83,7 +83,7 @@ export const api = {
   getEbEvent: (id: string) => get(`/api/eventbrite/events/${encodeURIComponent(id)}`),
   getEbCategories: () => get('/api/eventbrite/categories'),
 
-  // HighTribe
+  // Hightribe
   getHtStatus: () => get('/api/hightribe/status'),
 
   // Convenience aliases used by settings page tests

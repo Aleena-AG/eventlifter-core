@@ -2,7 +2,7 @@
 
 import { authHeader } from '@/lib/auth'
 
-/** Attach HighTribe login token so server proxies can load per-user channel keys. */
+/** Attach Hightribe login token so server proxies can load per-user channel keys. */
 export function channelAuthHeaders(extra?: Record<string, string>): Record<string, string> {
   const auth = authHeader()
   return { ...extra, ...(auth ? { Authorization: auth } : {}) }

@@ -73,7 +73,7 @@ export interface AppSettings {
     apiBaseUrl?: string
     discoverBaseUrl?: string
   }
-  hightribe?: {
+  Hightribe?: {
     serviceUrl?: string
     apiKey?: string
   }

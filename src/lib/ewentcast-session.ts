@@ -3,7 +3,7 @@
 import { authHeader, getToken, setToken, setUser, type HtUser } from '@/lib/auth'
 
 export interface EwentcastAccount {
-  auth_source: 'ewentcast_signup' | 'hightribe_native'
+  auth_source: 'ewentcast_signup' | 'Hightribe_native'
   subscription_plan: string
   subscription_status: string
   subscription_active: boolean
@@ -46,7 +46,7 @@ export function clearEwentcastSession(): void {
   setHtLinkToken(null)
 }
 
-/** Token for HighTribe API calls (events, etc.) */
+/** Token for Hightribe API calls (events, etc.) */
 export function htApiAuthHeader(): string {
   const account = getEwentcastAccount()
   if (account?.auth_source === 'ewentcast_signup' && account.ht_connected) {
@@ -143,7 +143,7 @@ export async function startSubscriptionCheckout(): Promise<string> {
 }
 
 export async function connectHightribe(email: string, password: string): Promise<void> {
-  const res = await fetch('/api/hightribe/ewentcast/connect-hightribe', {
+  const res = await fetch('/api/hightribe/ewentcast/connect-Hightribe', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -166,7 +166,7 @@ export async function connectHightribe(email: string, password: string): Promise
 }
 
 export async function disconnectHightribe(): Promise<void> {
-  const res = await fetch('/api/hightribe/ewentcast/disconnect-hightribe', {
+  const res = await fetch('/api/hightribe/ewentcast/disconnect-Hightribe', {
     method: 'POST',
     headers: { Authorization: authHeader(), Accept: 'application/json' },
   })

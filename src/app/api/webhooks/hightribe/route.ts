@@ -18,7 +18,7 @@ function verifyWebhookSecret(req: NextRequest): NextResponse | null {
   return null
 }
 
-/** HighTribe event booking webhook — called from HighTribe Laravel backend on approval */
+/** Hightribe event booking webhook — called from Hightribe Laravel backend on approval */
 export async function POST(req: NextRequest) {
   try {
     const authError = verifyWebhookSecret(req)
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
     if (!master) {
       return NextResponse.json({
         ok: true,
-        skipped: 'no linked master event for this HighTribe event_id',
+        skipped: 'no linked master event for this Hightribe event_id',
         eventId,
         hint: 'Publish/sync the event in EventLifter first so channels are linked in the registry.',
       })
@@ -69,13 +69,13 @@ export async function GET() {
     channel: 'hightribe',
     method: 'POST',
     expected: {
-      event_id: 'HighTribe event ID',
+      event_id: 'Hightribe event ID',
       email: 'guest email',
       name: 'guest name (optional)',
       registered_at: 'ISO timestamp (optional)',
     },
     headers: {
-      'X-Webhook-Secret': 'required when hightribe.webhookSecret is set in settings.json',
+      'X-Webhook-Secret': 'required when Hightribe.webhookSecret is set in settings.json',
     },
   })
 }

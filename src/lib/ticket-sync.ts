@@ -47,7 +47,7 @@ export async function syncCapacityAcrossChannels(
           event_api_id: ref.eventId,
           ticket_type_api_id: ref.ticketId,
           capacity: remaining + master.sold,
-        })
+        }, loadSettings())
         results.push({ channel: ch, ok: true })
       } else if (ch === 'hightribe') {
         // HT ticket updates require auth token — logged via registry; capacity tracked centrally

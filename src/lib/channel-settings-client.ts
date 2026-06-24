@@ -15,7 +15,7 @@ type HtApiResponse = {
 
 export async function fetchChannelSettingsViaProxy(masked = true): Promise<HtChannelSettingsData> {
   const auth = authHeader()
-  if (!auth) throw new Error('Login to HighTribe first')
+  if (!auth) throw new Error('Login to Hightribe first')
 
   const qs = masked ? '?masked=1' : ''
   const res = await fetch(`/api/hightribe/channel-integrations/settings${qs}`, {
@@ -24,7 +24,7 @@ export async function fetchChannelSettingsViaProxy(masked = true): Promise<HtCha
   })
   const raw = await res.json() as HtApiResponse
   if (!res.ok || raw.status === 'error') {
-    throw new Error(raw.message || raw.error || `HighTribe API HTTP ${res.status}`)
+    throw new Error(raw.message || raw.error || `Hightribe API HTTP ${res.status}`)
   }
   return raw.data || {}
 }
@@ -33,7 +33,7 @@ export async function saveChannelSettingsViaProxy(
   payload: HtChannelSettingsData,
 ): Promise<HtChannelSettingsData> {
   const auth = authHeader()
-  if (!auth) throw new Error('Login to HighTribe first')
+  if (!auth) throw new Error('Login to Hightribe first')
 
   const res = await fetch('/api/hightribe/channel-integrations/settings', {
     method: 'PUT',
@@ -47,7 +47,7 @@ export async function saveChannelSettingsViaProxy(
   })
   const raw = await res.json() as HtApiResponse
   if (!res.ok || raw.status === 'error') {
-    throw new Error(raw.message || raw.error || `HighTribe API HTTP ${res.status}`)
+    throw new Error(raw.message || raw.error || `Hightribe API HTTP ${res.status}`)
   }
   return raw.data || {}
 }

@@ -95,7 +95,7 @@ function toISO(date: string, time: string): string {
 }
 
 const CHANNELS: { key: TargetChannel; label: string; icon: string; color: string }[] = [
-  { key: 'hightribe', label: 'HighTribe', icon: '🏔', color: '#7C5C8A' },
+  { key: 'hightribe', label: 'Hightribe', icon: '🏔', color: '#7C5C8A' },
   { key: 'luma', label: 'Luma', icon: '✨', color: '#7C5C8A' },
   { key: 'eventbrite', label: 'Eventbrite', icon: '🎫', color: '#C2502E' },
 ]
@@ -137,7 +137,7 @@ export function CreateEventModal({ open, onClose, onCreated }: Props) {
     const endUtc = toISO(form.endDate, form.endTime)
 
     try {
-      // ── HighTribe ──────────────────────────────────────────────────────────
+      // ── Hightribe ──────────────────────────────────────────────────────────
       if (target === 'hightribe') {
         const body = {
           title: form.title,

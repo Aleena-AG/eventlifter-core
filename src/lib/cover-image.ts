@@ -64,7 +64,7 @@ export async function resolveCoverUrl(
   }
 }
 
-/** File for HighTribe multipart `cover_image` field. */
+/** File for Hightribe multipart `cover_image` field. */
 export async function resolveCoverFileForHt(
   coverUrl: string,
   coverFile?: File | null,

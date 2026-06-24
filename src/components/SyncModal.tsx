@@ -122,7 +122,7 @@ async function fetchHtEvent(id: string | number): Promise<NormEvent> {
   const loc = e.location as Record<string, unknown> | undefined
   const startUtc = d?.starts_at ? stripMs(d.starts_at) : buildDateStr(d?.start_date, d?.start_time)
   const endUtc   = d?.ends_at   ? stripMs(d.ends_at)   : buildDateStr(d?.end_date,   d?.end_time)
-  // HT API stores venue label in location.location (see EventbriteService::importEventToHighTribe)
+  // HT API stores venue label in location.location (see EventbriteService::importEventToHightribe)
   const venueLabel = optStr(loc?.location)
   return {
     title: String(e.title || ''),
@@ -211,7 +211,7 @@ async function fetchEbEvent(id: string | number): Promise<NormEvent> {
   }
 }
 
-// Mirrors HighTribe-Laravel-Backend EventRequest + EventbriteService::importEventToHighTribe
+// Mirrors Hightribe-Laravel-Backend EventRequest + EventbriteService::importEventToHightribe
 function buildHtLocation(norm: NormEvent): Record<string, unknown> {
   if (norm.isOnline) {
     return {
@@ -338,7 +338,7 @@ export function SyncModal({ open, event, htConfigured, lumaConfigured, ebConfigu
             }
             const newId = (data.data as Record<string, unknown>)?.id || '—'
             if (newId !== '—') channelRefs[ch] = { eventId: String(newId) }
-            newResults[ch] = { status: 'success', message: `Created on HighTribe (ID: ${newId})` }
+            newResults[ch] = { status: 'success', message: `Created on Hightribe (ID: ${newId})` }
           }
 
           if (ch === 'luma') {
@@ -510,14 +510,14 @@ export function SyncModal({ open, event, htConfigured, lumaConfigured, ebConfigu
 
   const CHANNELS: { key: ChannelKey; label: string; icon: string; color: string; configured: boolean; note: string }[] = [
     {
-      key: 'hightribe', label: 'HighTribe', icon: '🏔', color: '#7C5C8A',
+      key: 'hightribe', label: 'Hightribe', icon: '🏔', color: '#7C5C8A',
       configured: htConfigured,
-      note: htConfigured ? 'Will create event via HighTribe API' : 'Log in to HighTribe first',
+      note: htConfigured ? 'Will create event via Hightribe API' : 'Log in to Hightribe first',
     },
     {
       key: 'luma', label: 'Luma', icon: '✨', color: '#7C5C8A',
       configured: lumaConfigured,
-      note: lumaConfigured ? 'Will create event via Luma API' : 'Log in to HighTribe first (Luma is configured server-side)',
+      note: lumaConfigured ? 'Will create event via Luma API' : 'Log in to Hightribe first (Luma is configured server-side)',
     },
     {
       key: 'eventbrite', label: 'Eventbrite', icon: '🎫', color: '#C2502E',
@@ -526,7 +526,7 @@ export function SyncModal({ open, event, htConfigured, lumaConfigured, ebConfigu
     },
   ]
 
-  const sourceLabel = source === 'hightribe' ? 'HighTribe' : source === 'luma' ? 'Luma' : 'Eventbrite'
+  const sourceLabel = source === 'hightribe' ? 'hightribe' : source === 'luma' ? 'Luma' : 'Eventbrite'
 
   return (
     <div

@@ -19,7 +19,7 @@ const FEATURES = [
   { icon: '✨', text: 'Publish events to Luma & Eventbrite' },
   { icon: '🔔', text: 'Real-time webhook bookings sync' },
   { icon: '📋', text: 'Unified bookings dashboard' },
-  { icon: '🏔', text: 'Optional HighTribe connect for HT events' },
+  { icon: '🏔', text: 'Optional Hightribe connect for HT events' },
   { icon: '🛡', text: '7-day money-back guarantee' },
 ]
 
@@ -218,7 +218,7 @@ function SubscribeContent() {
                 ✓
               </div>
               <p style={{ margin: 0, fontSize: '14px', color: '#8C7F6D', lineHeight: 1.55 }}>
-                Luma & Eventbrite are ready. Connect HighTribe anytime from Settings for HT events.
+                Luma & Eventbrite are ready. Connect Hightribe anytime from Settings for HT events.
               </p>
             </div>
           )}
@@ -277,7 +277,7 @@ function SubscribeContent() {
                 {checkoutLoading ? <InlineLoader label="Opening Stripe checkout" /> : `Subscribe — $${price}/mo`}
               </button>
               <p style={{ textAlign: 'center', margin: '12px 0 0', fontSize: '11px', color: '#8C7F6D', lineHeight: 1.5 }}>
-                Secure payment via Stripe · Same as HighTribe billing
+                Secure payment via Stripe · Same as Hightribe billing
                 <br />
                 Not satisfied? Full refund within 7 days — contact support.
               </p>
@@ -317,7 +317,7 @@ function SubscribeContent() {
         )}
 
         <p style={{ textAlign: 'center', marginTop: user ? '8px' : '20px', fontSize: '12px', color: '#8C7F6D', lineHeight: 1.6 }}>
-          HighTribe connect is optional
+          Hightribe connect is optional
           {!active && (
             <>
               {' · '}

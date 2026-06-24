@@ -16,7 +16,7 @@ import type { ChannelKey } from '@/lib/types'
 type Tab = 'hightribe' | 'luma' | 'eventbrite'
 
 const CH_LABELS: Record<ChannelKey, string> = {
-  hightribe: 'HighTribe',
+  hightribe: 'hightribe',
   luma: 'Luma',
   eventbrite: 'Eventbrite',
 }
@@ -45,7 +45,7 @@ async function deleteOnChannel(channel: ChannelKey, id: string | number): Promis
   if (!res.ok) { const d = await res.json() as { error_description?: string }; throw new Error(d.error_description || `HTTP ${res.status}`) }
 }
 
-// ─── HighTribe ───────────────────────────────────────────────────────────────
+// ─── Hightribe ───────────────────────────────────────────────────────────────
 type HtEvent = HtEventListItem
 
 // ─── Luma ────────────────────────────────────────────────────────────────────
@@ -256,7 +256,7 @@ export default function EventsPage() {
   const [deleteAlso, setDeleteAlso] = useState<Partial<Record<ChannelKey, boolean>>>({})
   const [deleting, setDeleting] = useState(false)
 
-  // HighTribe state
+  // Hightribe state
   const [htEvents, setHtEvents] = useState<HtEvent[]>([])
   const [htLoading, setHtLoading] = useState(false)
   const [htPage, setHtPage] = useState(1)
@@ -280,7 +280,7 @@ export default function EventsPage() {
       setHtPage(currentPage)
       setHtLastPage(lastPage)
       setHtTotal(total)
-    } catch { toast.error('Failed to load HighTribe events') }
+    } catch { toast.error('Failed to load Hightribe events') }
     finally { setHtLoading(false) }
   }, [toast])
 
@@ -477,7 +477,7 @@ export default function EventsPage() {
   }
 
   function onSaved(channel: ChannelKey) {
-    const label = channel === 'hightribe' ? 'HighTribe' : channel === 'luma' ? 'Luma' : 'Eventbrite'
+    const label = channel === 'hightribe' ? 'hightribe' : channel === 'luma' ? 'Luma' : 'Eventbrite'
     toast.success(`Event updated on ${label}!`)
     setEditModal(f => ({ ...f, open: false }))
     if (channel === 'hightribe') { setHtEvents([]); loadHtEvents(1) }
@@ -554,14 +554,14 @@ export default function EventsPage() {
         ))}
       </div>
 
-      {/* ── HighTribe tab ───────────────────────────────────────────────────── */}
+      {/* ── Hightribe tab ───────────────────────────────────────────────────── */}
       {tab === 'hightribe' && (
         <div>
           {isEwentcastSignupUser() && !getEwentcastAccount()?.ht_connected ? (
             <div style={{ padding: '24px', background: '#FFFFFF', border: '1px solid #E8DFD0', borderRadius: '10px', textAlign: 'center' }}>
-              <p style={{ margin: '0 0 12px', fontSize: '14px', color: '#211B16' }}>Connect HighTribe to load your HT events</p>
+              <p style={{ margin: '0 0 12px', fontSize: '14px', color: '#211B16' }}>Connect Hightribe to load your HT events</p>
               <p style={{ margin: '0 0 16px', fontSize: '13px', color: '#8C7F6D' }}>Luma and Eventbrite work without this step.</p>
-              <a href="/settings" style={{ color: '#D98A2B', fontWeight: 600, textDecoration: 'none' }}>Go to Settings → Connect HighTribe</a>
+              <a href="/settings" style={{ color: '#D98A2B', fontWeight: 600, textDecoration: 'none' }}>Go to Settings → Connect Hightribe</a>
             </div>
           ) : (
           <>
@@ -574,9 +574,9 @@ export default function EventsPage() {
             </button>
           </div>
           {htLoading ? (
-            <PageLoader label="Loading HighTribe events…" />
+            <PageLoader label="Loading Hightribe events…" />
           ) : htEvents.length === 0 ? (
-            <EmptyState channel="HighTribe" />
+            <EmptyState channel="Hightribe" />
           ) : (
             <>
               <div style={{ display:'flex', flexDirection:'column', gap:'12px' }}>
@@ -585,7 +585,7 @@ export default function EventsPage() {
                   const dateStr = d?.starts_at ? fmtUtc(d.starts_at) : fmt(d?.start_date, d?.start_time)
                   const loc = evt.location ? [evt.location.venue_name, evt.location.city, evt.location.country].filter(Boolean).join(', ') : undefined
                   const image = evt.cover_image || evt.cover_image_aspect_ratio?.[0]?.image || undefined
-                  const url = evt.share_url || (evt.slug ? `https://hightribe.com/events/${evt.slug}` : undefined)
+                  const url = evt.share_url || (evt.slug ? `https://Hightribe.com/events/${evt.slug}` : undefined)
                   const displayStatus = evt.publish_status || evt.status
                   return (
                     <div key={String(evt.id)} style={{ position:'relative' }}>

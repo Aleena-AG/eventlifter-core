@@ -9,7 +9,7 @@ import { getUser } from '@/lib/auth'
 import type { ChannelKey } from '@/lib/types'
 
 const CH_META: Record<ChannelKey, { label: string; color: string }> = {
-  hightribe: { label: 'HighTribe', color: '#7C5C8A' },
+  hightribe: { label: 'Hightribe', color: '#7C5C8A' },
   luma: { label: 'Luma', color: '#7C5C8A' },
   eventbrite: { label: 'Eventbrite', color: '#C2502E' },
 }
@@ -143,7 +143,7 @@ export default function BookingsPage() {
 
       {!htLoggedIn && (
         <div style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', fontSize: '13px', color: '#C2502E' }}>
-          Sign in to HighTribe to load live bookings from your events API. Webhook registrations still appear below.
+          Sign in to Hightribe to load live bookings from your events API. Webhook registrations still appear below.
         </div>
       )}
 
@@ -154,7 +154,7 @@ export default function BookingsPage() {
           <div style={{ fontSize: '36px', marginBottom: '12px' }}>📋</div>
           <div style={{ fontSize: '15px', color: '#211B16', fontWeight: 500, marginBottom: '8px' }}>No bookings yet</div>
           <p style={{ color: '#8C7F6D', fontSize: '13px', margin: 0, lineHeight: 1.5 }}>
-            When someone registers on HighTribe, Luma, or Eventbrite, they will appear here via webhooks.
+            When someone registers on Hightribe, Luma, or Eventbrite, they will appear here via webhooks.
           </p>
         </div>
       ) : (

@@ -39,7 +39,7 @@ export function ConnectHightribeSection({ onChange }: { onChange?: () => void })
     setSuccess('')
     try {
       await connectHightribe(email, password)
-      setSuccess('HighTribe connected — you can now load HT events.')
+      setSuccess('Hightribe connected — you can now load HT events.')
       setPassword('')
       onChange?.()
     } catch (e) {
@@ -54,7 +54,7 @@ export function ConnectHightribeSection({ onChange }: { onChange?: () => void })
     setError('')
     try {
       await disconnectHightribe()
-      setSuccess('HighTribe disconnected.')
+      setSuccess('Hightribe disconnected.')
       onChange?.()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Disconnect failed')
@@ -66,16 +66,16 @@ export function ConnectHightribeSection({ onChange }: { onChange?: () => void })
   return (
     <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #E8DFD0' }}>
       <div style={{ fontSize: '13px', fontWeight: 600, color: '#211B16', marginBottom: '6px' }}>
-        Connect HighTribe (optional)
+        Connect Hightribe (optional)
       </div>
       <p style={{ fontSize: '12px', color: '#8C7F6D', margin: '0 0 12px', lineHeight: 1.5 }}>
-        Link your existing HighTribe account to pull HT events into Ewentcast. Luma & Eventbrite work without this.
+        Link your existing Hightribe account to pull HT events into Ewentcast. Luma & Eventbrite work without this.
       </p>
 
       {connected ? (
         <div>
           <span style={{ fontSize: '12px', padding: '3px 10px', borderRadius: '20px', background: 'rgba(63,185,80,0.1)', border: '1px solid rgba(63,185,80,0.3)', color: '#4E7A4B' }}>
-            ✓ HighTribe connected
+            ✓ Hightribe connected
           </span>
           <button onClick={handleDisconnect} disabled={loading} style={{ ...BTN_SECONDARY, marginLeft: '10px', opacity: loading ? 0.6 : 1 }}>
             Disconnect
@@ -83,10 +83,10 @@ export function ConnectHightribeSection({ onChange }: { onChange?: () => void })
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          <input type="email" style={INPUT_STYLE} placeholder="HighTribe email" value={email} onChange={(e) => setEmail(e.target.value)} />
-          <input type="password" style={INPUT_STYLE} placeholder="HighTribe password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          <input type="email" style={INPUT_STYLE} placeholder="Hightribe email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <input type="password" style={INPUT_STYLE} placeholder="Hightribe password" value={password} onChange={(e) => setPassword(e.target.value)} />
           <button onClick={handleConnect} disabled={loading || !email || !password} style={{ ...BTN_PRIMARY, alignSelf: 'flex-start', opacity: loading ? 0.6 : 1 }}>
-            {loading ? <InlineLoader label="Connecting" /> : 'Connect HighTribe'}
+            {loading ? <InlineLoader label="Connecting" /> : 'Connect Hightribe'}
           </button>
         </div>
       )}

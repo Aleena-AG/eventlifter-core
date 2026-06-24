@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-/** Local cache only (webhook secret). Luma/Eventbrite keys live on HighTribe API. */
+/** Local cache only (webhook secret). Luma/Eventbrite keys live on Hightribe API. */
 export async function PUT(req: NextRequest) {
   try {
     const localOnly = req.nextUrl.searchParams.get('localOnly') === '1'
@@ -32,7 +32,7 @@ export async function PUT(req: NextRequest) {
       if (patch.luma || patch.eventbrite) {
         if (!auth) {
           return NextResponse.json(
-            { error: 'Use HighTribe channel-integrations API for Luma/Eventbrite keys' },
+            { error: 'Use Hightribe channel-integrations API for Luma/Eventbrite keys' },
             { status: 400 },
           )
         }

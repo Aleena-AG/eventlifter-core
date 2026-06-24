@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
         const { data } = await proxyLumaPath(['webhooks'], 'POST', {}, {
           url,
           events: ['guest.registered', 'guest.updated'],
-        })
+        }, settings)
         results.luma = { ok: true, data }
       } catch (e) {
         results.luma = { ok: false, error: e instanceof Error ? e.message : String(e) }
@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
       results.eventbrite = { ok: false, error: 'Eventbrite token not configured' }
     }
 
-    // ── HighTribe ─────────────────────────────────────────────────────────────
+    // ── Hightribe ─────────────────────────────────────────────────────────────
     const htUrl = `${base}/api/webhooks/hightribe`
     const htSecret = settings.hightribe.webhookSecret || ''
     results.hightribe = {
@@ -93,8 +93,8 @@ export async function POST(req: NextRequest) {
         CHANNEL_MANAGER_WEBHOOK_SECRET: htSecret || '<generate-a-secret-and-set-in-both-apps>',
       },
       note: htSecret
-        ? 'Add CHANNEL_MANAGER_WEBHOOK_URL and CHANNEL_MANAGER_WEBHOOK_SECRET to HighTribe Laravel .env, then php artisan config:clear.'
-        : 'Set hightribe webhook secret in Settings first, then add both env vars to HighTribe Laravel .env.',
+        ? 'Add CHANNEL_MANAGER_WEBHOOK_URL and CHANNEL_MANAGER_WEBHOOK_SECRET to Hightribe Laravel .env, then php artisan config:clear.'
+        : 'Set Hightribe webhook secret in Settings first, then add both env vars to Hightribe Laravel .env.',
     }
 
     return NextResponse.json({ ok: true, webhooks: results, base })
@@ -121,10 +121,10 @@ export async function GET(req: NextRequest) {
         eventbrite: `${base}/api/webhooks/eventbrite`,
         hightribe: `${base}/api/webhooks/hightribe`,
       },
-      setup: 'POST /api/webhooks/setup to register on Luma + Eventbrite. HighTribe: set env vars on Laravel backend.',
-      hightribeLaravelEnv: [
+      setup: 'POST /api/webhooks/setup to register on Luma + Eventbrite. hightribe: set env vars on Laravel backend.',
+      HightribeLaravelEnv: [
         `CHANNEL_MANAGER_WEBHOOK_URL=${base}/api/webhooks/hightribe`,
-        `CHANNEL_MANAGER_WEBHOOK_SECRET=${htSecret || '<same-as-settings-hightribe-webhookSecret>'}`,
+        `CHANNEL_MANAGER_WEBHOOK_SECRET=${htSecret || '<same-as-settings-Hightribe-webhookSecret>'}`,
       ],
     })
   } catch (e) {

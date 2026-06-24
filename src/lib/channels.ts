@@ -21,7 +21,7 @@ interface ChannelMeta {
 
 export const CHANNEL_META: Record<ChannelKey, ChannelMeta> = {
   hightribe: {
-    name: 'HighTribe',
+    name: 'Hightribe',
     icon: '🏔️',
     color: '#a78bfa',
     authType: 'native',
@@ -73,7 +73,7 @@ export const CHANNEL_META: Record<ChannelKey, ChannelMeta> = {
 export const CHANNEL_KEYS: ChannelKey[] = ['hightribe', 'eventbrite', 'luma']
 
 export const CHANNEL_LOGOS: Record<ChannelKey, string> = {
-  hightribe: '/channels/hightribe.ico',
+  hightribe: '/channels/Hightribe.ico',
   eventbrite: '/channels/eventbrite.svg',
   luma: '/channels/luma.png',
 }

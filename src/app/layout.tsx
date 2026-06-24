@@ -17,7 +17,7 @@ const bricolage = Bricolage_Grotesque({
 
 export const metadata: Metadata = {
   title: 'Ewentcast — Get booked everywhere. Oversold nowhere.',
-  description: 'Publish events to Eventbrite, Luma, and HighTribe at once. Keep capacity in sync across all channels.',
+  description: 'Publish events to Eventbrite, Luma, and Hightribe at once. Keep capacity in sync across all channels.',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

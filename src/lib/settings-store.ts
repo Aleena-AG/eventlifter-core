@@ -72,9 +72,9 @@ function loadFromEnv(): Partial<AppSettings> {
       discoverBaseUrl: pick('LUMA_DISCOVER_BASE_URL'),
     },
     hightribe: {
-      serviceUrl: pick('HIGHTRIBE_SERVICE_URL') || pick('HT_API_BASE'),
-      apiKey: pick('HIGHTRIBE_API_KEY'),
-      webhookSecret: pick('HIGHTRIBE_WEBHOOK_SECRET') || pick('CHANNEL_MANAGER_WEBHOOK_SECRET'),
+      serviceUrl: pick('Hightribe_SERVICE_URL') || pick('HT_API_BASE'),
+      apiKey: pick('Hightribe_API_KEY'),
+      webhookSecret: pick('Hightribe_WEBHOOK_SECRET') || pick('CHANNEL_MANAGER_WEBHOOK_SECRET'),
     },
   }
 }

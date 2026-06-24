@@ -10,7 +10,7 @@ import { PageLoader, Spinner } from '@/components/Loader'
 import type { ChannelKey } from '@/lib/types'
 
 const CH_META: Record<ChannelKey, { label: string; color: string }> = {
-  hightribe: { label: 'HighTribe', color: '#D98A2B' },
+  hightribe: { label: 'Hightribe', color: '#D98A2B' },
   luma: { label: 'Luma', color: '#7C5C8A' },
   eventbrite: { label: 'Eventbrite', color: '#C2502E' },
 }
@@ -104,7 +104,7 @@ function formatDate(utc: string) {
 type SafeSettings = {
   luma?: { configured?: boolean }
   eventbrite?: { configured?: boolean; hasPrivateToken?: boolean }
-  hightribe?: { configured?: boolean }
+  Hightribe?: { configured?: boolean }
 }
 
 export default function DashboardPage() {

@@ -98,7 +98,7 @@ export default function SignupPage() {
           </form>
 
           <p style={{ textAlign: 'center', marginTop: '18px', fontSize: '13px', color: '#8C7F6D' }}>
-            Already have HighTribe?{' '}
+            Already have Hightribe?{' '}
             <Link href="/login" style={{ color: '#D98A2B', textDecoration: 'none' }}>Sign in</Link>
           </p>
         </div>

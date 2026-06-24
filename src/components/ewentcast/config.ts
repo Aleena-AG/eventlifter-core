@@ -1,7 +1,7 @@
 import type { ChannelKey } from '@/lib/types'
 
 export const CH_META: Record<ChannelKey, { name: string; color: string; auth: string; cap: string; base: string; signin: string }> = {
-  hightribe: { name: 'HighTribe', color: '#a78bfa', auth: 'Native', cap: 'Two-way sync', base: 'hightribe.co/e/', signin: 'Linked to your HighTribe account' },
+  hightribe: { name: 'Hightribe', color: '#a78bfa', auth: 'Native', cap: 'Two-way sync', base: 'Hightribe.co/e/', signin: 'Linked to your Hightribe account' },
   eventbrite: { name: 'Eventbrite', color: '#fbbf24', auth: 'OAuth 2.0', cap: 'Two-way sync · webhooks', base: 'eventbrite.com/e/', signin: 'Sign in to Eventbrite' },
   luma: { name: 'Luma', color: '#22d3ee', auth: 'API key', cap: 'Two-way sync · Luma Plus', base: 'lu.ma/', signin: 'Sign in to Luma for your key' },
 }
@@ -109,7 +109,7 @@ export const SAMPLE_EVENT: Record<string, string | boolean> = {
   inviteOnly: false,
   showRemaining: true,
   password: '',
-  hostName: 'HighTribe · Venice Collective',
+  hostName: 'Hightribe · Venice Collective',
   refundPolicy: 'Full refund up to 7 days before the event.',
   faq: 'Parking? Street parking on Rose Ave.',
 }

@@ -7,7 +7,7 @@ import {
   type AppSettings,
 } from '@/lib/settings-store'
 
-/** Resolve channel keys for this request — syncs from HighTribe when a Bearer token is present. */
+/** Resolve channel keys for this request — syncs from Hightribe when a Bearer token is present. */
 export async function resolveAppSettings(authorization?: string | null): Promise<AppSettings> {
   let settings = loadSettings()
   const auth = authorization?.trim()
@@ -18,7 +18,7 @@ export async function resolveAppSettings(authorization?: string | null): Promise
     settings = mergeSettingsPatch(settings, htDataToAppSettings(ht))
     saveSettings(settings)
   } catch (e) {
-    console.warn('[resolveAppSettings] HighTribe sync failed:', e instanceof Error ? e.message : e)
+    console.warn('[resolveAppSettings] Hightribe sync failed:', e instanceof Error ? e.message : e)
   }
 
   return settings
