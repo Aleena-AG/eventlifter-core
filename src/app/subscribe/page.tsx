@@ -20,7 +20,7 @@ const FEATURES = [
   { icon: '🔔', text: 'Real-time webhook bookings sync' },
   { icon: '📋', text: 'Unified bookings dashboard' },
   { icon: '🏔', text: 'Optional Hightribe connect for HT events' },
-  { icon: '🛡', text: '7-day money-back guarantee' },
+  { icon: '🛡', text: '14-day money-back guarantee' },
 ]
 
 function SubscribeContent() {
@@ -175,7 +175,7 @@ function SubscribeContent() {
                     borderRadius: '20px', padding: '4px 12px',
                   }}
                 >
-                  7-day money-back guarantee
+                  14-day money-back guarantee
                 </div>
               </div>
 
@@ -279,7 +279,7 @@ function SubscribeContent() {
               <p style={{ textAlign: 'center', margin: '12px 0 0', fontSize: '11px', color: '#8C7F6D', lineHeight: 1.5 }}>
                 Secure payment via Stripe · Same as Hightribe billing
                 <br />
-                Not satisfied? Full refund within 7 days — contact support.
+                Not satisfied? Full refund within 14 days — contact support.
               </p>
               <button
                 type="button"
