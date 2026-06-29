@@ -127,7 +127,7 @@ function SubscribeContent() {
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: '28px' }}>
           <Link href="/" style={{ textDecoration: 'none', color: 'inherit', display: 'inline-block' }}>
-            <EwentcastLogo height={52} wordmarkOnly style={{ margin: '0 auto 16px' }} />
+            <EwentcastLogo height={52} wordmarkOnly onLight style={{ margin: '0 auto 16px' }} />
             <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700, color: '#211B16' }}>
               {active ? 'You\'re all set!' : 'Activate Ewentcast Pro'}
             </h1>

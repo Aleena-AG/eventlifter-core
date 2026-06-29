@@ -99,7 +99,7 @@ export function LandingPage() {
       <nav>
         <div className="wrap nav-in">
           <a className="brand" href="#top">
-            <EwentcastLogo height={36} />
+            <EwentcastLogo height={30} wordmarkOnly onLight className="ewentcast-logo-band--compact" />
           </a>
           <div className="nav-links">
             <a href="#how">How it works</a>
@@ -370,7 +370,7 @@ export function LandingPage() {
       <footer>
         <div className="wrap foot-in">
           <div className="brand">
-            <EwentcastLogo height={30} />
+            <EwentcastLogo height={26} wordmarkOnly onLight className="ewentcast-logo-band--compact" />
           </div>
           <span>© 2026 Ewentcast · Create once. Publish everywhere.</span>
         </div>

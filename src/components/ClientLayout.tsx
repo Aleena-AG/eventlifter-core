@@ -6,6 +6,7 @@ import { getToken } from '@/lib/auth'
 import { fetchEwentcastMe, needsSubscription } from '@/lib/ewentcast-session'
 import { Sidebar } from './Sidebar'
 import { PageLoader } from './Loader'
+import '@/app/app-shell.css'
 
 export function ClientLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -76,19 +77,8 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
   return (
     <>
       <Sidebar />
-      <div
-        style={{
-          flex: 1,
-          marginLeft: '228px',
-          display: 'flex',
-          flexDirection: 'column',
-          minHeight: '100vh',
-          background: 'var(--canvas)',
-        }}
-      >
-        <main style={{ flex: 1, padding: '28px 32px', overflowY: 'auto' }}>
-          {children}
-        </main>
+      <div className="app-main-wrap">
+        <main className="app-main">{children}</main>
       </div>
     </>
   )

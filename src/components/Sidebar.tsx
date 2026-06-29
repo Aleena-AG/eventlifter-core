@@ -6,15 +6,23 @@ import { useRouter, usePathname } from 'next/navigation'
 import { getUser, clearAuth, authHeader, type HtUser } from '@/lib/auth'
 import { InlineLoader } from '@/components/Loader'
 import { EwentcastLogo } from '@/components/EwentcastLogo'
+import { SidebarNavIcon } from '@/components/SidebarNavIcon'
 
 const NAV_LINKS = [
-  { href: '/dashboard', label: 'Dashboard', icon: '⊞' },
-  { href: '/events?create=1', label: 'Create Event', icon: '✦' },
-  { href: '/channels', label: 'Channels', icon: '⛓' },
-  { href: '/events', label: 'Events', icon: '📅' },
-  { href: '/bookings', label: 'Bookings', icon: '📋' },
-  { href: '/settings', label: 'Settings', icon: '⚙' },
+  { href: '/dashboard', label: 'Dashboard', icon: 'dashboard' as const },
+  { href: '/events?create=1', label: 'Create Event', icon: 'create' as const },
+  { href: '/channels', label: 'Channels', icon: 'channels' as const },
+  { href: '/events', label: 'Events', icon: 'events' as const },
+  { href: '/bookings', label: 'Bookings', icon: 'bookings' as const },
+  { href: '/settings', label: 'Settings', icon: 'settings' as const },
 ]
+
+function isNavActive(pathname: string, href: string): boolean {
+  const base = href.split('?')[0]
+  if (base === '/dashboard') return pathname === '/dashboard'
+  if (href.includes('create=1')) return pathname === '/create'
+  return pathname === base || pathname.startsWith(`${base}/`)
+}
 
 export function Sidebar() {
   const router = useRouter()
@@ -45,150 +53,51 @@ export function Sidebar() {
     : '?'
 
   return (
-    <aside
-      style={{
-        width: '228px',
-        flexShrink: 0,
-        background: '#FFFFFF',
-        borderRight: '1px solid #E8DFD0',
-        display: 'flex',
-        flexDirection: 'column',
-        height: '100vh',
-        position: 'fixed',
-        left: 0,
-        top: 0,
-        zIndex: 100,
-        overflowY: 'auto',
-      }}
-    >
-      {/* Logo */}
-      <Link
-        href="/dashboard"
-        style={{
-          padding: '16px 14px',
-          borderBottom: '1px solid #E8DFD0',
-          display: 'block',
-          textDecoration: 'none',
-        }}
-      >
-        <EwentcastLogo height={34} wordmarkOnly style={{ margin: '0 auto' }} />
+    <aside className="app-sidebar">
+      <Link href="/dashboard" className="app-sidebar-logo">
+        <EwentcastLogo responsive />
       </Link>
 
-      {/* Nav */}
-      <nav style={{ flex: 1, padding: '12px 8px' }}>
+      <nav className="app-sidebar-nav">
         {NAV_LINKS.map(({ href, label, icon }) => {
-          const active = pathname === href || (href === '/dashboard' && pathname === '/dashboard')
+          const active = isNavActive(pathname, href)
           return (
             <Link
               key={href}
               href={href}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                padding: '9px 12px',
-                borderRadius: '6px',
-                marginBottom: '2px',
-                textDecoration: 'none',
-                color: active ? '#211B16' : '#8C7F6D',
-                background: active ? '#F1EADC' : 'transparent',
-                fontSize: '14px',
-                fontWeight: active ? 500 : 400,
-                transition: 'all 0.15s',
-              }}
+              className={`app-sidebar-link${active ? ' app-sidebar-link--active' : ''}`}
             >
-              <span style={{ fontSize: '15px', opacity: active ? 1 : 0.7 }}>{icon}</span>
+              <span className="app-sidebar-icon">
+                <SidebarNavIcon name={icon} />
+              </span>
               {label}
             </Link>
           )
         })}
       </nav>
 
-      {/* User info + logout */}
-      <div style={{ padding: '12px 16px', borderTop: '1px solid #E8DFD0' }}>
+      <div className="app-sidebar-foot">
         {user ? (
           <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-              <div
-                style={{
-                  width: '32px',
-                  height: '32px',
-                  borderRadius: '50%',
-                  background: 'linear-gradient(135deg, #D98A2B, #7C5C8A)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '13px',
-                  fontWeight: 700,
-                  color: '#fff',
-                  flexShrink: 0,
-                }}
-              >
-                {initials}
-              </div>
+            <div className="app-sidebar-user">
+              <div className="app-sidebar-avatar">{initials}</div>
               <div style={{ minWidth: 0 }}>
-                <div
-                  style={{
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    color: '#211B16',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {user.name}
-                </div>
-                <div
-                  style={{
-                    fontSize: '11px',
-                    color: '#8C7F6D',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {user.email}
-                </div>
+                <div className="app-sidebar-name">{user.name}</div>
+                <div className="app-sidebar-email">{user.email}</div>
               </div>
             </div>
             <button
               onClick={handleLogout}
               disabled={loggingOut}
-              style={{
-                width: '100%',
-                background: 'none',
-                border: '1px solid #E8DFD0',
-                borderRadius: '6px',
-                color: '#8C7F6D',
-                padding: '6px',
-                fontSize: '12px',
-                cursor: loggingOut ? 'default' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '6px',
-                opacity: loggingOut ? 0.5 : 1,
-              }}
+              className="app-sidebar-logout"
+              type="button"
+              style={{ opacity: loggingOut ? 0.5 : 1 }}
             >
-              {loggingOut ? <InlineLoader label="Signing out" /> : '⎋ Sign out'}
+              {loggingOut ? <InlineLoader label="Signing out" /> : 'Sign out'}
             </button>
           </>
         ) : (
-          <Link
-            href="/login"
-            style={{
-              display: 'block',
-              textAlign: 'center',
-              background: '#D98A2B',
-              borderRadius: '6px',
-              color: '#fff',
-              padding: '7px',
-              fontSize: '13px',
-              fontWeight: 500,
-              textDecoration: 'none',
-            }}
-          >
+          <Link href="/login" className="app-sidebar-signin">
             Sign in
           </Link>
         )}

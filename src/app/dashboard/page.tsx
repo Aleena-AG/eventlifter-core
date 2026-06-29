@@ -8,6 +8,7 @@ import { loadDashboardStats, type DashboardStats } from '@/lib/dashboard-stats'
 import { ChannelLogo } from '@/components/ChannelLogo'
 import { PageLoader, Spinner } from '@/components/Loader'
 import type { ChannelKey } from '@/lib/types'
+import './dashboard.css'
 
 const CH_META: Record<ChannelKey, { label: string; color: string }> = {
   hightribe: { label: 'Hightribe', color: '#D98A2B' },
@@ -15,89 +16,50 @@ const CH_META: Record<ChannelKey, { label: string; color: string }> = {
   eventbrite: { label: 'Eventbrite', color: '#C2502E' },
 }
 
-function ChannelStatCard({
-  channel, stats, loading,
-}: {
-  channel: ChannelKey
-  stats?: DashboardStats['channels'][ChannelKey]
-  loading: boolean
-}) {
-  const meta = CH_META[channel]
-  const configured = stats?.configured ?? false
-
-  return (
-    <div
-      style={{
-        background: '#FFFFFF',
-        border: `1px solid ${configured ? meta.color + '44' : '#E8DFD0'}`,
-        borderRadius: '10px',
-        padding: '20px 22px',
-        flex: 1,
-        minWidth: '200px',
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-        <span style={{ fontSize: '14px', fontWeight: 600, color: meta.color, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <ChannelLogo channel={channel} size={22} />
-          {meta.label}
-        </span>
-        <span
-          style={{
-            fontSize: '11px',
-            padding: '2px 8px',
-            borderRadius: '999px',
-            background: configured ? 'rgba(78,122,75,0.12)' : 'rgba(140,127,109,0.12)',
-            border: `1px solid ${configured ? 'rgba(78,122,75,0.35)' : '#E8DFD0'}`,
-            color: configured ? '#4E7A4B' : '#8C7F6D',
-          }}
-        >
-          {loading ? '…' : configured ? 'Connected' : 'Not set'}
-        </span>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
-        <div>
-          <div style={{ fontSize: '24px', fontWeight: 700, color: '#211B16', lineHeight: 1.1 }}>
-            {loading ? '—' : configured ? stats?.events ?? 0 : '—'}
-          </div>
-          <div style={{ fontSize: '11px', color: '#8C7F6D', marginTop: '4px' }}>Events</div>
-        </div>
-        <div>
-          <div style={{ fontSize: '24px', fontWeight: 700, color: '#211B16', lineHeight: 1.1 }}>
-            {loading ? '—' : configured ? stats?.tickets ?? 0 : '—'}
-          </div>
-          <div style={{ fontSize: '11px', color: '#8C7F6D', marginTop: '4px' }}>Tickets sold</div>
-        </div>
-        <div>
-          <div style={{ fontSize: '24px', fontWeight: 700, color: meta.color, lineHeight: 1.1 }}>
-            {loading ? '—' : configured ? stats?.bookings ?? 0 : '—'}
-          </div>
-          <div style={{ fontSize: '11px', color: '#8C7F6D', marginTop: '4px' }}>Bookings</div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function SummaryCard({ label, value, sub, loading }: { label: string; value: string | number; sub?: string; loading: boolean }) {
-  return (
-    <div style={{ background: '#F1EADC', border: '1px solid #E8DFD0', borderRadius: '8px', padding: '14px 18px', flex: 1, minWidth: '140px' }}>
-      <div style={{ fontSize: '22px', fontWeight: 700, color: '#211B16' }}>
-        {loading ? '—' : value}
-      </div>
-      <div style={{ fontSize: '12px', color: '#8C7F6D', marginTop: '2px' }}>{label}</div>
-      {sub && <div style={{ fontSize: '11px', color: '#8C7F6D', marginTop: '4px', opacity: 0.85 }}>{sub}</div>}
-    </div>
-  )
-}
+const KPI_CARDS = [
+  { key: 'events', label: 'Total Events', icon: '📅', accent: '#10b981', bg: 'rgba(16, 185, 129, 0.12)' },
+  { key: 'tickets', label: 'Tickets Sold', icon: '🎟', accent: '#ff4b2b', bg: 'rgba(255, 75, 43, 0.12)' },
+  { key: 'bookings', label: 'Total Bookings', icon: '✓', accent: '#10b981', bg: 'rgba(16, 185, 129, 0.12)' },
+  { key: 'attendees', label: 'Unique Attendees', icon: '👥', accent: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.12)' },
+] as const
 
 function formatDate(utc: string) {
   try {
     return new Date(utc).toLocaleString(undefined, {
-      month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
     })
   } catch {
     return utc
+  }
+}
+
+function formatRelativeDate(utc: string) {
+  try {
+    const diff = Date.now() - new Date(utc).getTime()
+    const mins = Math.floor(diff / 60_000)
+    if (mins < 1) return 'Just now'
+    if (mins < 60) return `${mins}m ago`
+    const hrs = Math.floor(mins / 60)
+    if (hrs < 24) return `${hrs}h ago`
+    const days = Math.floor(hrs / 24)
+    if (days < 7) return `${days}d ago`
+    return new Date(utc).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  } catch {
+    return ''
+  }
+}
+
+function avatarColors(name: string) {
+  const hues = [12, 28, 160, 265, 200, 330]
+  const hash = name.split('').reduce((sum, c) => sum + c.charCodeAt(0), 0)
+  const hue = hues[hash % hues.length]
+  return {
+    background: `hsl(${hue} 72% 93%)`,
+    color: `hsl(${hue} 52% 36%)`,
   }
 }
 
@@ -115,7 +77,7 @@ export default function DashboardPage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const s = await getSettings() as SafeSettings
+      const s = (await getSettings()) as SafeSettings
       setSettings(s)
       const dash = await loadDashboardStats(s)
       setStats(dash)
@@ -126,135 +88,245 @@ export default function DashboardPage() {
     }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+  }, [load])
 
   const htConfigured = !!getUser()
-  const lumaConfigured = !!(settings.luma?.configured)
+  const lumaConfigured = !!settings.luma?.configured
   const ebConfigured = !!settings.eventbrite?.hasPrivateToken
   const anyConfigured = lumaConfigured || ebConfigured || htConfigured
   const recent = stats?.recent ?? []
+  const channelKeys: ChannelKey[] = ['eventbrite', 'luma', 'hightribe']
+  const channelRows = channelKeys
+    .map((ch) => {
+      const count = stats?.channels[ch]?.bookings ?? 0
+      const configured = stats?.channels[ch]?.configured ?? false
+      return { ch, count, configured, meta: CH_META[ch] }
+    })
+    .sort((a, b) => b.count - a.count)
+  const totalChannelBookings = channelRows.reduce((s, r) => s + r.count, 0)
+
+  const kpiValues: Record<(typeof KPI_CARDS)[number]['key'], string | number> = {
+    events: stats?.totalEvents ?? 0,
+    tickets: stats?.totalTickets ?? 0,
+    bookings: stats?.totalBookings ?? 0,
+    attendees: stats?.unifiedAttendees ?? 0,
+  }
+  const recentOrders = (stats?.recentBookings ?? []).slice(0, 5)
 
   return (
-    <div style={{ maxWidth: '960px' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '28px', gap: '16px' }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700, color: '#211B16' }}>Dashboard</h1>
+    <div className="dash">
+      <div className="dash-header">
+        <h1>Overview</h1>
+        <div className="dash-header-actions">
+          <Link href="/events?create=1" className="dash-btn dash-btn--primary">
+            ✦ Create event
+          </Link>
+          <button onClick={load} disabled={loading} className="dash-btn dash-btn--ghost" type="button">
+            {loading ? (
+              <>
+                <Spinner size={16} />
+                <span>Refreshing…</span>
+              </>
+            ) : (
+              '↻ Refresh'
+            )}
+          </button>
         </div>
-        <button
-          onClick={load}
-          disabled={loading}
-          style={{ background: '#F1EADC', border: '1px solid #E8DFD0', borderRadius: '6px', color: '#8C7F6D', padding: '8px 14px', fontSize: '13px', cursor: loading ? 'default' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8 }}
-        >
-          {loading ? (
-            <>
-              <Spinner size={16} />
-              <span>Refreshing…</span>
-            </>
-          ) : '↻ Refresh'}
-        </button>
       </div>
 
       {loading ? (
-        <div style={{ background: '#FFFFFF', border: '1px solid #E8DFD0', borderRadius: '10px', marginBottom: '28px' }}>
+        <div className="dash-loading">
           <PageLoader label="Loading dashboard data…" />
         </div>
       ) : (
         <>
-      <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', marginBottom: '16px' }}>
-        {(['hightribe', 'luma', 'eventbrite'] as ChannelKey[]).map(ch => (
-          <ChannelStatCard key={ch} channel={ch} stats={stats?.channels[ch]} loading={false} />
-        ))}
-      </div>
-
-      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '28px' }}>
-        <SummaryCard label="Total events listed" value={stats?.totalEvents ?? 0} loading={false} />
-        <SummaryCard label="Total tickets sold" value={stats?.totalTickets ?? 0} sub="ticket units · all channels" loading={false} />
-        <SummaryCard label="Total bookings" value={stats?.totalBookings ?? 0} sub="registrations · all channels" loading={false} />
-        <SummaryCard label="Unique attendees" value={stats?.unifiedAttendees ?? 0} sub="deduped by email" loading={false} />
-      </div>
-
-      {!anyConfigured && (
-        <div style={{ background: '#FFFFFF', border: '2px dashed #E8DFD0', borderRadius: '10px', padding: '32px 24px', textAlign: 'center', marginBottom: '28px' }}>
-          <div style={{ fontSize: '32px', marginBottom: '12px' }}>⚙️</div>
-          <div style={{ fontSize: '16px', color: '#211B16', marginBottom: '8px', fontWeight: 500 }}>No channels configured yet</div>
-          <p style={{ color: '#8C7F6D', fontSize: '14px', marginBottom: '20px' }}>Configure your channels in Settings to get started</p>
-          <Link href="/settings" style={{ display: 'inline-block', background: '#D98A2B', borderRadius: '6px', color: '#fff', padding: '9px 18px', fontSize: '14px', fontWeight: 500, textDecoration: 'none' }}>
-            Go to Settings
-          </Link>
-        </div>
-      )}
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '28px' }}>
-        <div style={{ background: '#FFFFFF', border: '1px solid #E8DFD0', borderRadius: '10px', padding: '20px 24px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-            <h2 style={{ margin: 0, fontSize: '15px', fontWeight: 600, color: '#211B16' }}>Recent events</h2>
-            <Link href="/events" style={{ fontSize: '13px', color: '#D98A2B', textDecoration: 'none' }}>All events →</Link>
+          <div className="dash-kpi-grid">
+            {KPI_CARDS.map((kpi) => (
+              <div
+                key={kpi.key}
+                className="dash-kpi"
+                style={{
+                  ['--kpi-accent' as string]: kpi.accent,
+                  ['--kpi-bg' as string]: kpi.bg,
+                }}
+              >
+                <div className="dash-kpi-label">{kpi.label}</div>
+                <div className="dash-kpi-value">{kpiValues[kpi.key]}</div>
+                <span className="dash-kpi-icon" aria-hidden="true">
+                  {kpi.icon}
+                </span>
+              </div>
+            ))}
           </div>
 
-          {recent.length === 0 ? (
-            <div style={{ color: '#8C7F6D', fontSize: '14px', padding: '20px 0', textAlign: 'center' }}>
-              No events yet.{' '}
-              <Link href="/events?create=1" style={{ color: '#D98A2B', textDecoration: 'none' }}>Create one →</Link>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {recent.map((evt) => {
-                const meta = CH_META[evt.channel]
-                return (
-                  <div
-                    key={`${evt.channel}-${evt.id}`}
-                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: '#F1EADC', borderRadius: '8px', border: '1px solid #E8DFD0', gap: '12px' }}
-                  >
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: '14px', fontWeight: 500, color: '#211B16', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{evt.title}</div>
-                      <div style={{ fontSize: '12px', color: '#8C7F6D', marginTop: '3px' }}>{formatDate(evt.startUtc)}</div>
-                    </div>
-                    <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: meta.color + '14', border: `1px solid ${meta.color}44`, color: meta.color, flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                      <ChannelLogo channel={evt.channel} size={16} />
-                      {meta.label}
-                    </span>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
+          <div className="dash-panels">
+            <section className="dash-panel dash-panel--perf">
+              <div className="dash-perf-head">
+                <div>
+                  <h2>Channel Performance</h2>
+                  <p className="dash-perf-sub">Share of bookings by channel</p>
+                </div>
+                <span className="dash-perf-total">{totalChannelBookings} bookings</span>
+              </div>
 
-        <div style={{ background: '#FFFFFF', border: '1px solid #E8DFD0', borderRadius: '10px', padding: '20px 24px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-            <h2 style={{ margin: 0, fontSize: '15px', fontWeight: 600, color: '#211B16' }}>Recent bookings</h2>
-            <Link href="/bookings" style={{ fontSize: '13px', color: '#D98A2B', textDecoration: 'none' }}>All bookings →</Link>
+              {totalChannelBookings === 0 ? (
+                <div className="dash-perf-empty">
+                  No channel bookings yet. Publish an event to see performance here.
+                </div>
+              ) : (
+                <div className="dash-perf-list">
+                  {channelRows.map(({ ch, count, configured, meta }) => {
+                    const pct = Math.round((count / totalChannelBookings) * 100)
+                    return (
+                      <div
+                        key={ch}
+                        className="dash-perf-item"
+                        style={{ ['--ch-color' as string]: meta.color }}
+                      >
+                        <div className="dash-perf-item-top">
+                          <span className="dash-perf-label">
+                            <ChannelLogo channel={ch} size={22} />
+                            <span className="dash-perf-name">{meta.label}</span>
+                            {!configured && (
+                              <span className="dash-perf-off">Not connected</span>
+                            )}
+                          </span>
+                          <span className="dash-perf-pct">{pct}%</span>
+                        </div>
+                        <div className="dash-perf-bar" aria-hidden="true">
+                          <div
+                            className="dash-perf-fill"
+                            style={{
+                              width: `${pct}%`,
+                              minWidth: pct > 0 ? 6 : 0,
+                            }}
+                          />
+                        </div>
+                        <div className="dash-perf-count">
+                          {count} {count === 1 ? 'booking' : 'bookings'}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              <Link href="/channels" className="dash-view-all">
+                Manage channels →
+              </Link>
+            </section>
+
+            <section className="dash-panel dash-panel--orders">
+              <div className="dash-orders-head">
+                <div>
+                  <h2>Recent Orders</h2>
+                  <p className="dash-orders-sub">Latest registrations across channels</p>
+                </div>
+                <span className="dash-orders-total">{stats?.totalBookings ?? 0} total</span>
+              </div>
+
+              {recentOrders.length === 0 ? (
+                <div className="dash-orders-empty">
+                  No bookings yet. Registrations on any channel will appear here.
+                </div>
+              ) : (
+                <>
+                  <div className="dash-orders-list">
+                    {recentOrders.map((b, i) => {
+                      const meta = CH_META[b.channel]
+                      return (
+                        <Link
+                          key={`${b.email}-${b.registeredAt}-${i}`}
+                          href="/bookings"
+                          className="dash-order-item"
+                          style={{ ['--ch-color' as string]: meta.color }}
+                        >
+                          <div className="dash-order-item-top">
+                            <span className="dash-order-label">
+                              <span
+                                className="dash-order-avatar"
+                                style={avatarColors(b.name)}
+                                aria-hidden="true"
+                              >
+                                {b.name.charAt(0).toUpperCase()}
+                              </span>
+                              <span className="dash-order-text">
+                                <span className="dash-order-name">{b.name}</span>
+                                <span className="dash-order-event">{b.eventTitle}</span>
+                              </span>
+                            </span>
+                            <span className="dash-paid-badge">Paid</span>
+                          </div>
+                          <div className="dash-order-foot">
+                            <span className="dash-order-channel">
+                              <ChannelLogo channel={b.channel} size={16} />
+                              {meta.label}
+                            </span>
+                            <span className="dash-order-date">{formatRelativeDate(b.registeredAt)}</span>
+                          </div>
+                        </Link>
+                      )
+                    })}
+                  </div>
+                  <Link href="/bookings" className="dash-view-all">
+                    View all orders →
+                  </Link>
+                </>
+              )}
+            </section>
           </div>
 
-          {(stats?.recentBookings ?? []).length === 0 ? (
-            <div style={{ color: '#8C7F6D', fontSize: '14px', padding: '20px 0', textAlign: 'center', lineHeight: 1.5 }}>
-              No bookings yet. Registrations on any channel will appear here.
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {(stats?.recentBookings ?? []).map((b, i) => {
-                const meta = CH_META[b.channel]
-                return (
-                  <div
-                    key={`${b.email}-${b.registeredAt}-${i}`}
-                    style={{ padding: '12px 16px', background: '#F1EADC', borderRadius: '8px', border: '1px solid #E8DFD0' }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '4px' }}>
-                      <div style={{ fontSize: '14px', fontWeight: 500, color: '#211B16', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.name}</div>
-                      <ChannelLogo channel={b.channel} size={18} />
-                    </div>
-                    <div style={{ fontSize: '12px', color: '#8C7F6D', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.eventTitle}</div>
-                    {b.email && b.email !== '—' && (
-                      <div style={{ fontSize: '12px', color: '#8C7F6D', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: 0.85 }}>{b.email}</div>
-                    )}
-                    <div style={{ fontSize: '11px', color: '#8C7F6D', marginTop: '3px', opacity: 0.85 }}>{formatDate(b.registeredAt)}</div>
-                  </div>
-                )
-              })}
+          {!anyConfigured && (
+            <div className="dash-setup">
+              <div className="dash-setup-icon" aria-hidden="true">
+                ⚙️
+              </div>
+              <h3>No channels configured yet</h3>
+              <p>Connect your platforms in Settings to start publishing everywhere.</p>
+              <Link href="/settings" className="dash-btn dash-btn--primary">
+                Go to Settings
+              </Link>
             </div>
           )}
-        </div>
-      </div>
+
+          <section className="dash-panel dash-panel--events">
+            <div className="dash-panel-head">
+              <h2>Recent events</h2>
+              <Link href="/events" className="dash-panel-link">
+                All events →
+              </Link>
+            </div>
+
+            {recent.length === 0 ? (
+              <div className="dash-empty">
+                No events yet. <Link href="/events?create=1">Create one →</Link>
+              </div>
+            ) : (
+              <div className="dash-list">
+                {recent.map((evt) => {
+                  const meta = CH_META[evt.channel]
+                  return (
+                    <div
+                      key={`${evt.channel}-${evt.id}`}
+                      className="dash-event-row"
+                      style={{ ['--ch-color' as string]: meta.color }}
+                    >
+                      <div className="dash-event-info">
+                        <div className="dash-event-title">{evt.title}</div>
+                        <div className="dash-event-date">{formatDate(evt.startUtc)}</div>
+                      </div>
+                      <span className="dash-ch-pill">
+                        <ChannelLogo channel={evt.channel} size={16} />
+                        {meta.label}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </section>
         </>
       )}
     </div>
