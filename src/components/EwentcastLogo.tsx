@@ -40,6 +40,7 @@ export function EwentcastLogo({
       className={className}
       style={{
         height,
+        width: '100%',
         overflow: 'hidden',
         lineHeight: 0,
         ...style,
@@ -49,12 +50,9 @@ export function EwentcastLogo({
         src={EWENTCAST_LOGO}
         alt="Ewentcast"
         style={{
-          height: Math.round(height * 1.55),
-          width: 'auto',
-          maxWidth: 'none',
+          width: '100%',
+          height: 'auto',
           display: 'block',
-          objectFit: 'cover',
-          objectPosition: 'top center',
         }}
       />
     </div>
