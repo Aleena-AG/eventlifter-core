@@ -13,6 +13,7 @@ import {
 } from './config'
 import { InlineLoader, PageLoader } from '@/components/Loader'
 import { EwentcastLogo } from '@/components/EwentcastLogo'
+import { HIGHTRIBE_COLOR } from '@/lib/brand'
 
 function Swatch({ color, size = 10 }: { color: string; size?: number }) {
   return <span className="ew-swatch" style={{ width: size, height: size, background: color }} />
@@ -257,6 +258,7 @@ export function EwentcastWizard({
 
     return (
       <div className="ew-view">
+        <div className="ew-view-body">
         <div className="ew-head">
           <span className="ew-eyebrow">{isEdit ? `Edit · ${editChannel ? CH_META[editChannel].name : ''}` : 'Step 1 · Master event'}</span>
           <h2>{isEdit ? 'Update event' : 'Create it once'}</h2>
@@ -286,12 +288,26 @@ export function EwentcastWizard({
           {!isEdit && <Link href="/channels" className="ew-link">⚙ Manage channels</Link>}
         </div>
 
-        <div className="ew-tabs">
+        <div className="ew-tabs" role="tablist" aria-label="Event sections">
           {SECTIONS.map((s, i) => (
-            <button key={s.key} type="button" className={i === section ? 'active' : ''} onClick={() => setSection(i)}>
+            <button
+              key={s.key}
+              type="button"
+              role="tab"
+              aria-selected={i === section}
+              className={i === section ? 'active' : ''}
+              onClick={() => setSection(i)}
+            >
               {s.label}
             </button>
           ))}
+        </div>
+
+        <div className="ew-section-progress" aria-hidden="true">
+          <div
+            className="ew-section-progress-fill"
+            style={{ width: `${((section + 1) / SECTIONS.length) * 100}%` }}
+          />
         </div>
 
         <div className="ew-card">
@@ -305,19 +321,25 @@ export function EwentcastWizard({
           </div>
           <div className="ew-grid2">{sec.fields.map(renderField)}</div>
         </div>
+        </div>
 
         <div className="ew-foot">
-          {saveError && <span className="note" style={{ color: '#C2502E' }}>{saveError}</span>}
+          {saveError && <span className="note ew-foot-error">{saveError}</span>}
           {!saveError && (
             <span className="note">
-              Section {section + 1} of {SECTIONS.length}
-              {isEdit ? ' · edit fields then save.' : ' · prefilled — edit or publish as is.'}
+              <span className="ew-foot-step">{section + 1}/{SECTIONS.length}</span>
+              {isEdit ? 'Edit fields, then save.' : 'Prefilled — edit or publish as is.'}
             </span>
           )}
-          <div style={{ display: 'flex', gap: 10 }}>
+          <div className="ew-foot-actions">
+            {section > 0 && (
+              <button type="button" className="ew-btn ghost" onClick={() => setSection(section - 1)}>
+                ← {SECTIONS[section - 1].label}
+              </button>
+            )}
             {section < SECTIONS.length - 1 && (
               <button type="button" className="ew-btn ghost" onClick={() => setSection(section + 1)}>
-                Next: {SECTIONS[section + 1].label} →
+                {SECTIONS[section + 1].label} →
               </button>
             )}
             {isEdit ? (
@@ -341,6 +363,7 @@ export function EwentcastWizard({
 
     return (
       <div className="ew-view">
+        <div className="ew-view-body">
         <div className="ew-head">
           <span className="ew-eyebrow">Step 2</span>
           <h2>Publish everywhere</h2>
@@ -349,7 +372,7 @@ export function EwentcastWizard({
 
         <div className="ew-castgrid">
           <div className="ew-master">
-            <span className="ew-eyebrow" style={{ color: '#7C5C8A' }}>Master event</span>
+            <span className="ew-eyebrow" style={{ color: HIGHTRIBE_COLOR }}>Master event</span>
             {ev.coverUrl && (
               <img
                 src={String(ev.coverUrl)}
@@ -393,19 +416,23 @@ export function EwentcastWizard({
             })}
           </div>
         </div>
+        </div>
 
         <div className="ew-foot">
           <span className="note">
             {allDone ? 'All channels synced. Attendees now flow back into one dashboard.' :
               started ? 'Publishing — links appear as each channel confirms.' : 'Nothing published yet.'}
           </span>
-          {allDone ? (
-            <button type="button" className="ew-btn primary" onClick={() => setStep(2)}>Open dashboard →</button>
-          ) : (
-            <button type="button" className="ew-btn primary" disabled={publishing || started} onClick={startPublish}>
-              {publishing || started ? <InlineLoader label="Publishing" /> : `Publish to ${liveTargets.length} channels`}
-            </button>
-          )}
+          <div className="ew-foot-actions">
+            <button type="button" className="ew-btn ghost" onClick={() => setStep(0)}>← Back to form</button>
+            {allDone ? (
+              <button type="button" className="ew-btn primary" onClick={() => setStep(2)}>Open dashboard →</button>
+            ) : (
+              <button type="button" className="ew-btn primary" disabled={publishing || started} onClick={startPublish}>
+                {publishing || started ? <InlineLoader label="Publishing" /> : `Publish to ${liveTargets.length} channels`}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     )
@@ -419,6 +446,7 @@ export function EwentcastWizard({
 
     return (
       <div className="ew-view">
+        <div className="ew-view-body">
         <div className="ew-head">
           <span className="ew-eyebrow">Step 3 · Live</span>
           <h2>{String(ev.title)}</h2>
@@ -450,6 +478,7 @@ export function EwentcastWizard({
             </div>
           ))}
         </div>
+        </div>
 
         <div className="ew-foot">
           {modal ? (
@@ -457,7 +486,9 @@ export function EwentcastWizard({
           ) : (
             <Link href="/events" className="ew-link">← View all events</Link>
           )}
-          <button type="button" className="ew-btn ghost" onClick={() => { setStep(0); setPub({}) }}>Create another</button>
+          <div className="ew-foot-actions">
+            <button type="button" className="ew-btn ghost" onClick={() => { setStep(0); setPub({}) }}>Create another</button>
+          </div>
         </div>
       </div>
     )
@@ -468,26 +499,31 @@ export function EwentcastWizard({
       <div className="ew-wrap">
         <header className="ew-bar">
           <div className="ew-brand">
-            <EwentcastLogo height={34} wordmarkOnly onLight className="ewentcast-logo-band--compact" />
+            <img
+              src="https://res.cloudinary.com/dstnwi5iq/image/upload/v1782741555/image-removebg-preview_5_tpubho.png"
+              alt="Ewentcast"
+              className="ew-brand-logo"
+            />
             <div>
               <div className="tag">{isEdit ? 'Edit event on channel.' : 'Create once. Publish everywhere.'}</div>
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-            <div className="ew-stepper">
+          <div className="ew-bar-tools">
+            <div className="ew-stepper" role="navigation" aria-label="Wizard steps">
               {(isEdit ? WIZARD_STEPS.slice(0, 1) : WIZARD_STEPS).map((label, i) => (
                 <span key={label} style={{ display: 'contents' }}>
                   <button type="button" className={i === step ? 'active' : ''} onClick={() => !isEdit && setStep(i)} disabled={isEdit && i > 0}>
-                    <span className="n">{i + 1}</span>{isEdit ? 'Edit' : label}
+                    <span className="n">{i + 1}</span>
+                    <span className="ew-stepper-label">{isEdit ? 'Edit' : label}</span>
                   </button>
                   {!isEdit && i < WIZARD_STEPS.length - 1 && <span style={{ color: '#E8DFD0' }}>·</span>}
                 </span>
               ))}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--paper)', border: '1px solid var(--line)', borderRadius: 999, padding: '5px 6px 5px 12px' }}>
-              <span style={{ width: 7, height: 7, borderRadius: 999, background: '#4E7A4B', display: 'inline-block' }} />
-              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>{connCount}/3</span>
-              <span style={{ width: 28, height: 28, borderRadius: 999, background: 'linear-gradient(135deg, #D98A2B, #7C5C8A)', color: '#fff', display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 700 }}>{initials}</span>
+            <div className="ew-bar-conn">
+              <span className="ew-bar-conn-dot" />
+              <span className="ew-bar-conn-count">{connCount}/3</span>
+              <span className="ew-bar-conn-avatar">{initials}</span>
             </div>
           </div>
         </header>

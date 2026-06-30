@@ -1,4 +1,5 @@
 import type { ChannelKey } from './types'
+import { HIGHTRIBE_COLOR, LUMA_COLOR, EVENTBRITE_COLOR, EVENTBRITE_LOGO, LUMA_LOGO } from './brand'
 
 interface ChannelCaps {
   publish: boolean
@@ -23,7 +24,7 @@ export const CHANNEL_META: Record<ChannelKey, ChannelMeta> = {
   hightribe: {
     name: 'Hightribe',
     icon: '🏔️',
-    color: '#a78bfa',
+    color: HIGHTRIBE_COLOR,
     authType: 'native',
     caps: {
       publish: true,
@@ -39,7 +40,7 @@ export const CHANNEL_META: Record<ChannelKey, ChannelMeta> = {
   eventbrite: {
     name: 'Eventbrite',
     icon: '🎫',
-    color: '#fbbf24',
+    color: EVENTBRITE_COLOR,
     authType: 'oauth2',
     caps: {
       publish: true,
@@ -55,7 +56,7 @@ export const CHANNEL_META: Record<ChannelKey, ChannelMeta> = {
   luma: {
     name: 'Luma',
     icon: '✨',
-    color: '#22d3ee',
+    color: LUMA_COLOR,
     authType: 'api_key',
     caps: {
       publish: true,
@@ -73,9 +74,9 @@ export const CHANNEL_META: Record<ChannelKey, ChannelMeta> = {
 export const CHANNEL_KEYS: ChannelKey[] = ['hightribe', 'eventbrite', 'luma']
 
 export const CHANNEL_LOGOS: Record<ChannelKey, string> = {
-  hightribe: '/channels/Hightribe.ico',
-  eventbrite: '/channels/eventbrite.svg',
-  luma: '/channels/luma.png',
+  hightribe: '/channels/hightribe.ico',
+  eventbrite: EVENTBRITE_LOGO,
+  luma: LUMA_LOGO,
 }
 
 export const CAP_LABELS: Record<keyof ChannelCaps, string> = {

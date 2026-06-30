@@ -9,11 +9,12 @@ import { ChannelLogo } from '@/components/ChannelLogo'
 import { PageLoader, Spinner } from '@/components/Loader'
 import type { ChannelKey } from '@/lib/types'
 import './dashboard.css'
+import { CHANNEL_META } from '@/lib/channels'
 
 const CH_META: Record<ChannelKey, { label: string; color: string }> = {
-  hightribe: { label: 'Hightribe', color: '#D98A2B' },
-  luma: { label: 'Luma', color: '#7C5C8A' },
-  eventbrite: { label: 'Eventbrite', color: '#C2502E' },
+  hightribe: { label: CHANNEL_META.hightribe.name, color: CHANNEL_META.hightribe.color },
+  luma: { label: CHANNEL_META.luma.name, color: CHANNEL_META.luma.color },
+  eventbrite: { label: CHANNEL_META.eventbrite.name, color: CHANNEL_META.eventbrite.color },
 }
 
 const KPI_CARDS = [

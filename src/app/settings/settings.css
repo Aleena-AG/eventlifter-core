@@ -1,0 +1,24 @@
+.settings-page {
+  width: 100%;
+  max-width: 680px;
+}
+
+.settings-page--narrow {
+  max-width: 560px;
+}
+
+.settings-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+@media (max-width: 640px) {
+  .settings-grid-2 {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-page h1 {
+    font-size: 1.25rem !important;
+  }
+}

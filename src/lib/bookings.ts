@@ -6,15 +6,32 @@ import { fetchHtBookingsPage } from '@/lib/hightribe-events'
 import { lumaHostedEventRef } from '@/lib/luma-event-utils'
 import type { ChannelKey } from '@/lib/types'
 
+export interface BookingTicket {
+  name: string
+  quantity: number
+  unitPrice?: string
+  color?: string
+}
+
 export interface BookingListItem {
   id: string
+  bookingId?: number
   name: string
   email: string
+  phone?: string
   channel: ChannelKey
   eventTitle: string
   registeredAt: string
+  eventStart?: string
+  eventEnd?: string
   status?: string
+  paymentStatus?: string
+  bookingType?: string
   ticketCount?: number
+  tickets?: BookingTicket[]
+  totalPrice?: number
+  currency?: string
+  notes?: string
   source: 'webhook' | 'api'
 }
 
@@ -44,19 +61,62 @@ function bookingsFromRegistry(events: Array<{
   return list
 }
 
+function parseHtTickets(raw: unknown): BookingTicket[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const tickets: BookingTicket[] = []
+  for (const t of raw) {
+    if (!t || typeof t !== 'object') continue
+    const row = t as Record<string, unknown>
+    const name = optStr(row.ticket_name)
+    if (!name) continue
+    tickets.push({
+      name,
+      quantity: typeof row.quantity === 'number' ? row.quantity : 1,
+      unitPrice: optStr(row.unit_price),
+      color: optStr(row.color),
+    })
+  }
+  return tickets.length ? tickets : undefined
+}
+
+function eventDateFromHt(raw: Record<string, unknown>): { start?: string; end?: string } {
+  const bed = raw.booked_event_date as Record<string, unknown> | undefined
+  if (!bed) return {}
+  const startDate = optStr(bed.start_date) || optStr(raw.start)
+  const endDate = optStr(bed.end_date) || optStr(raw.end)
+  const startTime = optStr(bed.start_time)
+  const endTime = optStr(bed.end_time)
+  return {
+    start: startDate ? (startTime ? `${startDate}T${startTime}` : startDate) : undefined,
+    end: endDate ? (endTime ? `${endDate}T${endTime}` : endDate) : undefined,
+  }
+}
+
 function normalizeHtBooking(raw: Record<string, unknown>): BookingListItem {
   const user = raw.user as Record<string, unknown> | undefined
-  const email = String(user?.email || raw.email || raw.phone || '—')
+  const phone = optStr(raw.phone)
+  const email = optStr(user?.email) || optStr(raw.email) || phone || '—'
   const registeredAt = String(raw.booking_date || raw.created_at || new Date().toISOString())
+  const { start, end } = eventDateFromHt(raw)
   return {
     id: `ht-${raw.id ?? registeredAt}`,
+    bookingId: typeof raw.booking_id === 'number' ? raw.booking_id : undefined,
     name: String(raw.guest_name || user?.name || 'Guest'),
     email,
+    phone,
     channel: 'hightribe',
     eventTitle: String(raw.title || 'Event'),
     registeredAt,
+    eventStart: start,
+    eventEnd: end,
     status: raw.status ? String(raw.status) : undefined,
+    paymentStatus: raw.payment_status ? String(raw.payment_status) : undefined,
+    bookingType: raw.booking_type ? String(raw.booking_type) : undefined,
     ticketCount: typeof raw.ticket_count === 'number' ? raw.ticket_count : undefined,
+    tickets: parseHtTickets(raw.tickets),
+    totalPrice: typeof raw.total_price === 'number' ? raw.total_price : undefined,
+    currency: optStr(raw.currency),
+    notes: optStr(raw.notes),
     source: 'api',
   }
 }

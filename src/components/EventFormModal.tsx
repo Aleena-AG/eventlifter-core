@@ -5,6 +5,8 @@ import { authHeader } from '@/lib/auth'
 import { buildEbTicketClass } from '@/lib/eventbrite-ticket'
 import { postHtEvent, resolveCoverFileForHt } from '@/lib/cover-image'
 import { InlineLoader, PageLoader } from '@/components/Loader'
+import { CHANNEL_META } from '@/lib/channels'
+import { HIGHTRIBE_COLOR } from '@/lib/brand'
 
 export type Channel = 'hightribe' | 'luma' | 'eventbrite'
 export type FormMode = 'create' | 'edit'
@@ -104,9 +106,9 @@ const EB_SAMPLE: EbForm = {
 
 // ─── Shared constants ─────────────────────────────────────────────────────────
 const CH_META: Record<Channel, { label: string; icon: string; color: string }> = {
-  hightribe:  { label: 'Hightribe',  icon: '🏔', color: '#7C5C8A' },
-  luma:       { label: 'Luma',       icon: '✨', color: '#7C5C8A' },
-  eventbrite: { label: 'Eventbrite', icon: '🎫', color: '#C2502E' },
+  hightribe:  { label: CHANNEL_META.hightribe.name,  icon: '🏔', color: CHANNEL_META.hightribe.color },
+  luma:       { label: CHANNEL_META.luma.name,       icon: '✨', color: CHANNEL_META.luma.color },
+  eventbrite: { label: CHANNEL_META.eventbrite.name, icon: '🎫', color: CHANNEL_META.eventbrite.color },
 }
 const TIMEZONES = ['Asia/Karachi','Asia/Kolkata','UTC','America/New_York','America/Los_Angeles','Europe/London','Europe/Paris','Asia/Dubai','Asia/Tokyo','Australia/Sydney']
 // All currencies (for Hightribe/Luma which accept any)
@@ -400,7 +402,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
   // ─── Shared UI helpers ─────────────────────────────────────────────────────
   function SampleBtn({ onClick }: { onClick: () => void }) {
     return (
-      <button type="button" onClick={onClick} style={{ background:'rgba(167,139,250,0.1)', border:'1px solid rgba(167,139,250,0.35)', borderRadius:'6px', color:'#7C5C8A', padding:'5px 12px', fontSize:'12px', cursor:'pointer' }}>
+      <button type="button" onClick={onClick} style={{ background: ch.color + '1a', border: `1px solid ${ch.color}59`, borderRadius:'6px', color: ch.color, padding:'5px 12px', fontSize:'12px', cursor:'pointer' }}>
         ✦ Fill Sample Data
       </button>
     )
@@ -489,7 +491,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
         <Field label="Type">
           <div style={{ display:'flex', gap:'6px' }}>
             {(['venue','online','hybrid'] as const).map(t => (
-              <button key={t} type="button" onClick={() => s('locationType')(t)} style={{ flex:1, padding:'7px', borderRadius:'6px', border:`1px solid ${ht.locationType===t ? '#7C5C8A66' : '#E8DFD0'}`, background: ht.locationType===t ? 'rgba(167,139,250,0.1)' : '#F1EADC', color: ht.locationType===t ? '#7C5C8A' : '#8C7F6D', fontSize:'12px', cursor:'pointer' }}>
+              <button key={t} type="button" onClick={() => s('locationType')(t)} style={{ flex:1, padding:'7px', borderRadius:'6px', border:`1px solid ${ht.locationType===t ? HIGHTRIBE_COLOR + '66' : '#E8DFD0'}`, background: ht.locationType===t ? 'rgba(209,71,157,0.1)' : '#F1EADC', color: ht.locationType===t ? HIGHTRIBE_COLOR : '#8C7F6D', fontSize:'12px', cursor:'pointer' }}>
                 {t === 'venue' ? '📍 In-person' : t === 'online' ? '💻 Online' : '🔀 Hybrid'}
               </button>
             ))}
@@ -518,7 +520,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
         {ht.tickets.map((t, i) => (
           <div key={i} style={{ background:'#FBF7F0', border:'1px solid #E8DFD0', borderRadius:'8px', padding:'12px', marginBottom:'8px' }}>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'8px' }}>
-              <span style={{ fontSize:'12px', fontWeight:600, color:'#7C5C8A' }}>Ticket #{i+1}</span>
+              <span style={{ fontSize:'12px', fontWeight:600, color: HIGHTRIBE_COLOR }}>Ticket #{i+1}</span>
               <RemoveBtn onClick={() => removeTicket(i)} />
             </div>
             <div style={GRID2}>

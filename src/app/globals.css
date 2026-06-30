@@ -11,8 +11,8 @@
   --color-red: #c2502e;
   --color-yellow: #d98a2b;
   --color-blue: #d98a2b;
-  --color-purple: #7c5c8a;
-  --color-cyan: #7c5c8a;
+  --color-purple: #2f2749;
+  --color-cyan: #2f2749;
   --color-amber: #d98a2b;
 
   --font-sans: var(--font-inter, 'Inter', system-ui, sans-serif);
@@ -30,7 +30,7 @@
   --honey-d: #b66f1c;
   --moss: #5b6043;
   --rust: #c2502e;
-  --plum: #7c5c8a;
+  --plum: #2f2749;
   --ok: #4e7a4b;
 
   --bg: #fbf7f0;
@@ -133,6 +133,7 @@ textarea::placeholder {
   display: grid;
   grid-template-columns: 1fr;
   min-height: 100vh;
+  width: 100%;
   overflow: hidden;
 }
 
@@ -157,12 +158,12 @@ textarea::placeholder {
     background:
       linear-gradient(
         180deg,
-        rgba(14, 11, 18, 0.92) 0%,
-        rgba(30, 20, 28, 0.82) 28%,
-        rgba(255, 247, 238, 0.96) 52%,
-        rgba(244, 236, 248, 0.98) 100%
+        rgba(255, 252, 247, 0.97) 0%,
+        rgba(248, 241, 231, 0.98) 45%,
+        rgba(244, 236, 248, 0.99) 100%
       ),
       url('https://images.unsplash.com/photo-1540039155733-5bb30b53aa14?auto=format&fit=crop&w=1800&q=80') center/cover;
+    opacity: 0.55;
   }
 }
 
@@ -424,9 +425,19 @@ textarea::placeholder {
 .auth-logo-link {
   display: block;
   width: 100%;
-  max-width: 248px;
+  max-width: 280px;
+  margin: 0 auto;
   text-decoration: none;
   color: inherit;
+}
+
+.auth-logo-link img,
+.auth-logo-link .ewentcast-logo-band {
+  display: block;
+  width: 100%;
+  max-width: 280px;
+  height: auto;
+  margin: 0 auto;
 }
 
 .ewentcast-logo-band {
@@ -756,4 +767,75 @@ textarea::placeholder {
   margin: 0;
   accent-color: var(--honey);
   cursor: pointer;
+}
+
+@media (max-width: 959px) {
+  .auth-page {
+    overflow: hidden;
+  }
+
+  .auth-panel {
+    min-height: 100dvh;
+    overflow-y: auto;
+    padding: max(20px, env(safe-area-inset-top)) 16px max(28px, env(safe-area-inset-bottom));
+    align-items: center;
+    justify-content: center;
+  }
+
+  .auth-card {
+    padding: 22px 18px 20px;
+  }
+}
+
+@media (max-width: 480px) {
+  .auth-panel-inner {
+    max-width: 100%;
+  }
+
+  .auth-header {
+    margin-bottom: 18px;
+  }
+
+  .auth-logo-link {
+    max-width: 220px;
+  }
+
+  .auth-title {
+    font-size: 1.4rem;
+  }
+
+  .auth-subtitle {
+    font-size: 13px;
+    max-width: 100%;
+  }
+
+  .auth-card {
+    padding: 20px 16px 18px;
+    border-radius: 16px;
+  }
+
+  .auth-input {
+    font-size: 16px;
+    padding: 12px 14px;
+  }
+
+  .auth-btn-primary {
+    font-size: 14px;
+    padding: 13px 16px;
+  }
+
+  .auth-platform-pill {
+    font-size: 10px;
+    padding: 4px 8px;
+  }
+
+  .auth-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .auth-footer-note {
+    font-size: 12px;
+  }
 }

@@ -24,7 +24,13 @@ function isNavActive(pathname: string, href: string): boolean {
   return pathname === base || pathname.startsWith(`${base}/`)
 }
 
-export function Sidebar() {
+type SidebarProps = {
+  mobileOpen?: boolean
+  onNavigate?: () => void
+  onClose?: () => void
+}
+
+export function Sidebar({ mobileOpen = false, onNavigate, onClose }: SidebarProps) {
   const router = useRouter()
   const pathname = usePathname()
   const [user, setUser] = useState<HtUser | null>(null)
@@ -53,10 +59,22 @@ export function Sidebar() {
     : '?'
 
   return (
-    <aside className="app-sidebar">
-      <Link href="/dashboard" className="app-sidebar-logo">
-        <EwentcastLogo responsive />
-      </Link>
+    <aside className={`app-sidebar${mobileOpen ? ' app-sidebar--open' : ''}`}>
+      <div className="app-sidebar-head">
+        <Link href="/dashboard" className="app-sidebar-logo" onClick={onNavigate}>
+          <EwentcastLogo responsive />
+        </Link>
+        <button
+          type="button"
+          className="app-sidebar-close"
+          onClick={onClose}
+          aria-label="Close menu"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+        </button>
+      </div>
 
       <nav className="app-sidebar-nav">
         {NAV_LINKS.map(({ href, label, icon }) => {
@@ -66,6 +84,7 @@ export function Sidebar() {
               key={href}
               href={href}
               className={`app-sidebar-link${active ? ' app-sidebar-link--active' : ''}`}
+              onClick={onNavigate}
             >
               <span className="app-sidebar-icon">
                 <SidebarNavIcon name={icon} />

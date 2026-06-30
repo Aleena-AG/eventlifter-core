@@ -157,7 +157,7 @@ function SubscribeContent() {
                   textAlign: 'center',
                   padding: '20px 16px',
                   marginBottom: '20px',
-                  background: 'linear-gradient(135deg, rgba(217,138,43,0.08), rgba(124,92,138,0.06))',
+                  background: 'linear-gradient(135deg, rgba(217,138,43,0.08), rgba(209,71,157,0.06))',
                   borderRadius: '12px',
                   border: '1px solid rgba(217,138,43,0.2)',
                 }}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import { getSettings } from '@/lib/api'
 import { getUser } from '@/lib/auth'
@@ -9,6 +9,7 @@ import type { ChannelKey } from '@/lib/types'
 import { CHANNEL_KEYS } from '@/lib/channels'
 import { ChannelCard } from '@/components/ChannelCard'
 import { PageLoader } from '@/components/Loader'
+import './channels.css'
 
 type SafeSettings = {
   luma?: { configured?: boolean }
@@ -35,7 +36,7 @@ export default function ChannelsPage() {
     load()
   }, [load])
 
-  const isConnected = (ch: ChannelKey): boolean => {
+  const isConnected = useCallback((ch: ChannelKey): boolean => {
     if (ch === 'hightribe') {
       if (isEwentcastSignupUser()) return !!getEwentcastAccount()?.ht_connected
       return !!getUser()
@@ -43,26 +44,47 @@ export default function ChannelsPage() {
     if (ch === 'luma') return !!settings.luma?.configured
     if (ch === 'eventbrite') return !!settings.eventbrite?.hasPrivateToken
     return false
-  }
+  }, [settings])
+
+  const connectedCount = useMemo(
+    () => CHANNEL_KEYS.filter(ch => isConnected(ch)).length,
+    [isConnected],
+  )
+
+  const pct = Math.round((connectedCount / CHANNEL_KEYS.length) * 100)
 
   return (
-    <div style={{ maxWidth: '720px' }}>
-      <div style={{ marginBottom: '28px' }}>
-        <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700, color: '#211B16' }}>
-          Channels
-        </h1>
-        <p style={{ margin: '4px 0 0', fontSize: '14px', color: '#8C7F6D' }}>
-          Connection status for each channel.{' '}
-          <Link href="/settings" style={{ color: '#D98A2B', textDecoration: 'none' }}>
-            Settings →
-          </Link>
-        </p>
+    <div className="channels-page">
+      <div className="channels-header">
+        <div>
+          <h1>Channels</h1>
+          <p>
+            Connect platforms to publish everywhere and keep capacity in sync.{' '}
+            <Link href="/settings">Open Settings →</Link>
+          </p>
+        </div>
       </div>
+
+      {!loading && (
+        <div className="channels-summary">
+          <div className="channels-summary-stat">
+            <strong>{connectedCount}/{CHANNEL_KEYS.length}</strong>
+            <span>channels connected</span>
+          </div>
+          <div className="channels-summary-bar" aria-hidden="true">
+            <div className="channels-summary-bar-fill" style={{ width: `${pct}%` }} />
+          </div>
+          <div className="channels-summary-stat">
+            <strong>{pct}%</strong>
+            <span>ready to publish</span>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <PageLoader label="Loading channels…" />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div className="channels-grid">
           {CHANNEL_KEYS.map((ch) => (
             <ChannelCard key={ch} channel={ch} connected={isConnected(ch)} />
           ))}

@@ -6,6 +6,7 @@ import { buildEbTicketClass, ebTicketQuantity } from '@/lib/eventbrite-ticket'
 import { resolveEbTimezone } from '@/lib/eventbrite-timezone'
 import { lumaEntryMatchesId, lumaEventToNorm, unwrapLumaEvent } from '@/lib/luma-event-utils'
 import { InlineLoader } from '@/components/Loader'
+import { HIGHTRIBE_COLOR, LUMA_COLOR, EVENTBRITE_COLOR } from '@/lib/brand'
 
 export type SyncSource = 'hightribe' | 'luma' | 'eventbrite'
 
@@ -510,17 +511,17 @@ export function SyncModal({ open, event, htConfigured, lumaConfigured, ebConfigu
 
   const CHANNELS: { key: ChannelKey; label: string; icon: string; color: string; configured: boolean; note: string }[] = [
     {
-      key: 'hightribe', label: 'Hightribe', icon: '🏔', color: '#7C5C8A',
+      key: 'hightribe', label: 'Hightribe', icon: '🏔', color: HIGHTRIBE_COLOR,
       configured: htConfigured,
       note: htConfigured ? 'Will create event via Hightribe API' : 'Log in to Hightribe first',
     },
     {
-      key: 'luma', label: 'Luma', icon: '✨', color: '#7C5C8A',
+      key: 'luma', label: 'Luma', icon: '✨', color: LUMA_COLOR,
       configured: lumaConfigured,
       note: lumaConfigured ? 'Will create event via Luma API' : 'Log in to Hightribe first (Luma is configured server-side)',
     },
     {
-      key: 'eventbrite', label: 'Eventbrite', icon: '🎫', color: '#C2502E',
+      key: 'eventbrite', label: 'Eventbrite', icon: '🎫', color: EVENTBRITE_COLOR,
       configured: ebConfigured,
       note: ebConfigured ? 'Will create event via Eventbrite API' : 'Configure Eventbrite in Settings first',
     },
