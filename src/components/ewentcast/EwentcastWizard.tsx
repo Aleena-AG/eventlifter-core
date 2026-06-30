@@ -325,12 +325,7 @@ export function EwentcastWizard({
 
         <div className="ew-foot">
           {saveError && <span className="note ew-foot-error">{saveError}</span>}
-          {!saveError && (
-            <span className="note">
-              <span className="ew-foot-step">{section + 1}/{SECTIONS.length}</span>
-              {isEdit ? 'Edit fields, then save.' : 'Prefilled — edit or publish as is.'}
-            </span>
-          )}
+      
           <div className="ew-foot-actions">
             {section > 0 && (
               <button type="button" className="ew-btn ghost" onClick={() => setSection(section - 1)}>
