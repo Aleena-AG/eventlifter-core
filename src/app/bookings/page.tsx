@@ -697,10 +697,9 @@ export default function BookingsPage() {
           <div className="bookings-table-wrap bookings-desktop-only">
             <div className="bookings-table-toolbar">
               <span className="bookings-table-toolbar__count">
-                <strong>{filtered.length}</strong>
-                <span>of {bookings.length} bookings</span>
+                Showing <strong>{filtered.length}</strong> of <strong>{bookings.length}</strong>
               </span>
-              <span className="bookings-table-toolbar__hint">Tap a column to sort</span>
+              <span className="bookings-table-toolbar__hint">Click column headers to sort</span>
             </div>
             <div className="bookings-table-scroll">
               <table className="bookings-table">
