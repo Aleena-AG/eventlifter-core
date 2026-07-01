@@ -5,7 +5,7 @@ import { EWENTCAST_LOGO } from '@/lib/brand'
 /** Source asset is 2170×725; wordmark ends around 72% from the top */
 const LOGO_WIDTH = 2170
 const LOGO_HEIGHT = 725
-const WORDMARK_HEIGHT = 520
+const WORDMARK_HEIGHT = 500
 
 type EwentcastLogoProps = {
   height?: number
@@ -60,11 +60,12 @@ export function EwentcastLogo({
     <div
       className={onLight ? undefined : className}
       style={{
-        width: '100%',
-        maxWidth: height * (LOGO_WIDTH / WORDMARK_HEIGHT),
-        aspectRatio: `${LOGO_WIDTH} / ${WORDMARK_HEIGHT}`,
+        height,
+        width: height * (LOGO_WIDTH / WORDMARK_HEIGHT),
+        maxWidth: '100%',
         overflow: 'hidden',
         lineHeight: 0,
+        flexShrink: 0,
         ...(onLight ? undefined : style),
       }}
     >
@@ -73,8 +74,10 @@ export function EwentcastLogo({
         alt="Ewentcast"
         style={{
           width: '100%',
-          height: 'auto',
+          height: '100%',
           display: 'block',
+          objectFit: 'cover',
+          objectPosition: 'top center',
         }}
       />
     </div>

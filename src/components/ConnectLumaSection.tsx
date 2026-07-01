@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { InlineLoader } from '@/components/Loader'
+import { LUMA_COLOR } from '@/lib/brand'
 
 const INPUT_STYLE: React.CSSProperties = {
   flex: 1, background: '#FBF7F0', border: '1px solid #E8DFD0',
@@ -10,7 +11,7 @@ const INPUT_STYLE: React.CSSProperties = {
 }
 
 const BTN_PURPLE: React.CSSProperties = {
-  background: '#7C5C8A', border: 'none', borderRadius: '6px',
+  background: LUMA_COLOR, border: 'none', borderRadius: '6px',
   color: '#fff', padding: '7px 16px', fontSize: '13px', fontWeight: 500,
   cursor: 'pointer', whiteSpace: 'nowrap',
 }
@@ -133,7 +134,7 @@ export function ConnectLumaSection({
             <ol style={{ margin: 0, paddingLeft: '18px' }}>
               <li style={{ fontSize: '13px', color: '#211B16', lineHeight: 1.65, marginBottom: '4px' }}>
                 Open{' '}
-                <a href="https://lu.ma/settings" target="_blank" rel="noreferrer" style={{ color: '#7C5C8A' }}>
+                <a href="https://lu.ma/settings" target="_blank" rel="noreferrer" style={{ color: LUMA_COLOR }}>
                   lu.ma/settings
                 </a>{' '}
                 <span style={{ fontSize: '11px', color: '#8C7F6D' }}>(Luma Plus required)</span>

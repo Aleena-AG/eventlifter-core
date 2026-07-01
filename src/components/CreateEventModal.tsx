@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { authHeader } from '@/lib/auth'
 import { buildEbTicketClass } from '@/lib/eventbrite-ticket'
+import { HIGHTRIBE_COLOR, LUMA_COLOR, EVENTBRITE_COLOR } from '@/lib/brand'
 
 type TargetChannel = 'hightribe' | 'luma' | 'eventbrite'
 
@@ -95,9 +96,9 @@ function toISO(date: string, time: string): string {
 }
 
 const CHANNELS: { key: TargetChannel; label: string; icon: string; color: string }[] = [
-  { key: 'hightribe', label: 'Hightribe', icon: '🏔', color: '#7C5C8A' },
-  { key: 'luma', label: 'Luma', icon: '✨', color: '#7C5C8A' },
-  { key: 'eventbrite', label: 'Eventbrite', icon: '🎫', color: '#C2502E' },
+  { key: 'hightribe', label: 'Hightribe', icon: '🏔', color: HIGHTRIBE_COLOR },
+  { key: 'luma', label: 'Luma', icon: '✨', color: LUMA_COLOR },
+  { key: 'eventbrite', label: 'Eventbrite', icon: '🎫', color: EVENTBRITE_COLOR },
 ]
 
 export function CreateEventModal({ open, onClose, onCreated }: Props) {

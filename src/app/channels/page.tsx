@@ -1,17 +1,18 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { getSettings } from '@/lib/api'
-import { getUser } from '@/lib/auth'
-import { getEwentcastAccount, isEwentcastSignupUser } from '@/lib/ewentcast-session'
 import { disconnectChannelIntegration } from '@/lib/channel-disconnect'
+import { isChannelConnected } from '@/lib/channel-connection'
+import { isEwentcastSignupUser } from '@/lib/ewentcast-session'
 import type { ChannelKey } from '@/lib/types'
 import { CHANNEL_KEYS, CHANNEL_META } from '@/lib/channels'
 import { ChannelCard } from '@/components/ChannelCard'
 import { PageLoader } from '@/components/Loader'
 import { Toast, useToast } from '@/components/Toast'
+import './channels.css'
 
 type SafeSettings = {
   luma?: { configured?: boolean }
@@ -41,15 +42,17 @@ export default function ChannelsPage() {
     load()
   }, [load])
 
-  const isConnected = (ch: ChannelKey): boolean => {
-    if (ch === 'hightribe') {
-      if (isEwentcastSignupUser()) return !!getEwentcastAccount()?.ht_connected
-      return !!getUser()
-    }
-    if (ch === 'luma') return !!settings.luma?.configured
-    if (ch === 'eventbrite') return !!settings.eventbrite?.hasPrivateToken
-    return false
-  }
+  const isConnected = useCallback(
+    (ch: ChannelKey): boolean => isChannelConnected(ch, settings),
+    [settings],
+  )
+
+  const connectedCount = useMemo(
+    () => CHANNEL_KEYS.filter(ch => isConnected(ch)).length,
+    [isConnected],
+  )
+
+  const pct = Math.round((connectedCount / CHANNEL_KEYS.length) * 100)
 
   const handleDisconnect = async (ch: ChannelKey) => {
     const name = CHANNEL_META[ch].name
@@ -76,24 +79,38 @@ export default function ChannelsPage() {
   }
 
   return (
-    <div style={{ maxWidth: '720px' }}>
+    <div className="channels-page">
       <Toast toasts={toasts} onRemove={removeToast} />
-      <div style={{ marginBottom: '28px' }}>
-        <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700, color: '#211B16' }}>
-          Channels
-        </h1>
-        <p style={{ margin: '4px 0 0', fontSize: '14px', color: '#8C7F6D' }}>
-          Connection status for each channel.{' '}
-          <Link href="/settings" style={{ color: '#D98A2B', textDecoration: 'none' }}>
-            Settings →
-          </Link>
-        </p>
+      <div className="channels-header">
+        <div>
+          <h1>Channels</h1>
+          <p>
+            Connect platforms to publish everywhere and keep capacity in sync.{' '}
+            <Link href="/settings">Open Settings →</Link>
+          </p>
+        </div>
       </div>
+
+      {!loading && (
+        <div className="channels-summary">
+          <div className="channels-summary-stat">
+            <strong>{connectedCount}/{CHANNEL_KEYS.length}</strong>
+            <span>channels connected</span>
+          </div>
+          <div className="channels-summary-bar" aria-hidden="true">
+            <div className="channels-summary-bar-fill" style={{ width: `${pct}%` }} />
+          </div>
+          <div className="channels-summary-stat">
+            <strong>{pct}%</strong>
+            <span>ready to publish</span>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <PageLoader label="Loading channels…" />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div className="channels-grid">
           {CHANNEL_KEYS.map((ch) => (
             <ChannelCard
               key={ch}

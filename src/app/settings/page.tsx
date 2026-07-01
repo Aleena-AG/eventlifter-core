@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { api } from '@/lib/api'
 import { Toast, useToast } from '@/components/Toast'
 import { InlineLoader, PageLoader } from '@/components/Loader'
@@ -13,12 +15,17 @@ import {
   saveChannelSettingsViaProxy,
 } from '@/lib/channel-settings-client'
 import { ChannelLogo } from '@/components/ChannelLogo'
+import { HIGHTRIBE_COLOR, LUMA_COLOR, EVENTBRITE_COLOR } from '@/lib/brand'
 import { ConnectHightribeSection } from '@/components/ConnectHightribeSection'
 import { getEwentcastAccount, isEwentcastSignupUser } from '@/lib/ewentcast-session'
 import { disconnectChannelIntegration } from '@/lib/channel-disconnect'
 import { eventbriteRedirectUri } from '@/lib/app-url'
 import { useRouter } from 'next/navigation'
 import type { ChannelKey } from '@/lib/types'
+import { CHANNEL_META } from '@/lib/channels'
+import './settings.css'
+
+const FOCUS_CHANNELS: ChannelKey[] = ['hightribe', 'luma', 'eventbrite']
 
 // ─── shared styles ────────────────────────────────────────────────────────────
 
@@ -299,7 +306,7 @@ const EVENTBRITE_STEPS: GuideStep[] = [
 
 const WEBHOOK_CHANNELS = ['luma', 'eventbrite'] as const
 
-function WebhooksPanel() {
+function WebhooksPanel({ only }: { only?: 'luma' | 'eventbrite' }) {
   const [loading, setLoading] = useState(false)
   const [endpoints, setEndpoints] = useState<Record<string, string>>({})
   const [result, setResult] = useState('')
@@ -333,7 +340,7 @@ function WebhooksPanel() {
         throw new Error(res.ok ? 'Invalid response' : `HTTP ${res.status}`)
       }
       if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`)
-      const lines = WEBHOOK_CHANNELS.map((ch) => {
+      const lines = channels.map((ch) => {
         const r = data.webhooks?.[ch]
         return `${ch}: ${r?.ok ? '✓ registered' : `✗ ${r?.error || 'failed'}`}`
       })
@@ -355,6 +362,8 @@ function WebhooksPanel() {
     borderRadius: '6px', padding: '8px 10px', marginBottom: '10px',
   }
 
+  const channels = only ? [only] as const : WEBHOOK_CHANNELS
+
   return (
     <div>
       {isLocalhost && (
@@ -367,7 +376,7 @@ function WebhooksPanel() {
         </div>
       )}
 
-      {/* Luma URL */}
+      {channels.includes('luma') && (
       <div style={{ marginBottom: '4px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
           <ChannelLogo channel="luma" size={18} />
@@ -378,8 +387,9 @@ function WebhooksPanel() {
           <CopyButton value={lumaUrl} />
         </div>
       </div>
+      )}
 
-      {/* Eventbrite URL */}
+      {channels.includes('eventbrite') && (
       <div style={{ marginBottom: '16px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
           <ChannelLogo channel="eventbrite" size={18} />
@@ -390,6 +400,7 @@ function WebhooksPanel() {
           <CopyButton value={ebUrl} />
         </div>
       </div>
+      )}
 
       <button
         onClick={setup}
@@ -422,6 +433,12 @@ type SettingsShape = {
 
 export default function SettingsPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const channelParam = searchParams.get('channel')
+  const focusChannel = FOCUS_CHANNELS.includes(channelParam as ChannelKey)
+    ? (channelParam as ChannelKey)
+    : null
+
   const [settings, setSettings] = useState<SettingsShape>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
@@ -569,14 +586,45 @@ export default function SettingsPage() {
   const ebConnected = !!(eb.privateToken || eb.clientId)
   const luConnected = !!lu.apiKey
 
+  const showEventbrite = !focusChannel || focusChannel === 'eventbrite'
+  const showLuma = !focusChannel || focusChannel === 'luma'
+  const showHightribe = !focusChannel || focusChannel === 'hightribe'
+  const showWebhooks = !focusChannel || focusChannel === 'luma' || focusChannel === 'eventbrite'
+  const webhookOnly = focusChannel === 'luma' || focusChannel === 'eventbrite' ? focusChannel : undefined
+
   return (
-    <div style={{ maxWidth: '680px' }}>
+    <div className={`settings-page${focusChannel ? ' settings-page--narrow' : ''}`}>
       <Toast toasts={toasts} onRemove={removeToast} />
 
+      {focusChannel && (
+        <Link
+          href="/channels"
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: '6px',
+            fontSize: '13px', fontWeight: 600, color: '#8C7F6D',
+            textDecoration: 'none', marginBottom: '16px',
+          }}
+        >
+          ← Back to Channels
+        </Link>
+      )}
+
       <div style={{ marginBottom: '24px' }}>
-        <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#211B16' }}>Settings</h1>
+        <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#211B16' }}>
+          {focusChannel ? `${CHANNEL_META[focusChannel].name} settings` : 'Settings'}
+        </h1>
         <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#8C7F6D' }}>
-          Manage your channel integrations
+          {focusChannel
+            ? `Configure your ${CHANNEL_META[focusChannel].name} connection.`
+            : 'Manage your channel integrations'}
+          {!focusChannel && (
+            <>
+              {' '}
+              <Link href="/channels" style={{ color: '#D98A2B', textDecoration: 'none' }}>
+                View channels →
+              </Link>
+            </>
+          )}
         </p>
       </div>
 
@@ -592,11 +640,11 @@ export default function SettingsPage() {
 
       {loading ? <PageLoader label="Loading settings…" /> : (
         <>
-          {/* ── Eventbrite ── */}
+          {showEventbrite && (
           <SectionCard title="Eventbrite" channel="eventbrite">
-            <StepGuide steps={EVENTBRITE_STEPS} color="#C2502E" title="Setup guide (4 steps)" />
+            <StepGuide steps={EVENTBRITE_STEPS} color={EVENTBRITE_COLOR} title="Setup guide (4 steps)" />
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div className="settings-grid-2">
                 <div>
                   <label style={LABEL}>Client ID</label>
                   <input style={INPUT} type="text" placeholder="Client ID"
@@ -619,7 +667,7 @@ export default function SettingsPage() {
                   <CopyButton value={eb.redirectUri || DEFAULT_REDIRECT} />
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div className="settings-grid-2">
                 <div>
                   <label style={LABEL}>Private Token</label>
                   <input style={INPUT} type="password" placeholder="Private Token"
@@ -654,12 +702,13 @@ export default function SettingsPage() {
               </div>
             </div>
           </SectionCard>
+          )}
 
-          {/* ── Luma ── */}
+          {showLuma && (
           <SectionCard title="Luma" channel="luma">
-            <StepGuide steps={LUMA_STEPS} color="#7C5C8A" title="Setup guide (4 steps)" />
+            <StepGuide steps={LUMA_STEPS} color={LUMA_COLOR} title="Setup guide (4 steps)" />
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div className="settings-grid-2">
                 <div>
                   <label style={LABEL}>API Key</label>
                   <input style={INPUT} type="password" placeholder="Luma Plus API Key"
@@ -671,6 +720,20 @@ export default function SettingsPage() {
                   <input style={INPUT} type="text" placeholder="cal-xxxxx"
                     value={lu.calendarId || ''}
                     onChange={(e) => updateSection('luma', 'calendarId', e.target.value)} />
+                </div>
+              </div>
+              <div className="settings-grid-2">
+                <div>
+                  <label style={LABEL}>API Base URL</label>
+                  <input style={INPUT} type="text" placeholder="https://public-api.luma.com"
+                    value={lu.apiBaseUrl || 'https://public-api.luma.com'}
+                    onChange={(e) => updateSection('luma', 'apiBaseUrl', e.target.value)} />
+                </div>
+                <div>
+                  <label style={LABEL}>Discover Base URL</label>
+                  <input style={INPUT} type="text" placeholder="https://api.lu.ma"
+                    value={lu.discoverBaseUrl || 'https://api.lu.ma'}
+                    onChange={(e) => updateSection('luma', 'discoverBaseUrl', e.target.value)} />
                 </div>
               </div>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -694,14 +757,15 @@ export default function SettingsPage() {
               </div>
             </div>
           </SectionCard>
+          )}
 
-          {/* ── Hightribe ── */}
+          {showHightribe && (
           <SectionCard title="Hightribe" channel="hightribe">
             {htUser ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <div style={{
                   width: '40px', height: '40px', borderRadius: '50%', flexShrink: 0,
-                  background: 'linear-gradient(135deg, #7C5C8A, #D98A2B)',
+                  background: `linear-gradient(135deg, ${HIGHTRIBE_COLOR}, #D98A2B)`,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontSize: '16px', fontWeight: 700, color: '#fff',
                 }}>
@@ -711,7 +775,7 @@ export default function SettingsPage() {
                   <div style={{ fontSize: '14px', fontWeight: 600, color: '#211B16' }}>{htUser.name}</div>
                   <div style={{ fontSize: '12px', color: '#8C7F6D', marginBottom: '6px' }}>
                     {htUser.email}
-                    {htUser.username && <span style={{ marginLeft: '6px', color: '#7C5C8A' }}>@{htUser.username}</span>}
+                    {htUser.username && <span style={{ marginLeft: '6px', color: HIGHTRIBE_COLOR }}>@{htUser.username}</span>}
                   </div>
                   <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                     <span style={{
@@ -723,7 +787,7 @@ export default function SettingsPage() {
                     {htUser.has_business_profile && (
                       <span style={{
                         fontSize: '11px', padding: '2px 8px', borderRadius: '20px',
-                        background: 'rgba(124,92,138,0.1)', border: '1px solid rgba(124,92,138,0.3)', color: '#7C5C8A',
+                        background: 'rgba(209,71,157,0.1)', border: '1px solid rgba(209,71,157,0.3)', color: HIGHTRIBE_COLOR,
                       }}>Business Profile</span>
                     )}
                   </div>
@@ -732,7 +796,7 @@ export default function SettingsPage() {
             ) : (
               <div style={{ fontSize: '13px', color: '#8C7F6D' }}>
                 Hightribe connects automatically when you sign in.{' '}
-                <a href="/login" style={{ color: '#7C5C8A', textDecoration: 'none', fontWeight: 500 }}>Sign in →</a>
+                <a href="/login" style={{ color: HIGHTRIBE_COLOR, textDecoration: 'none', fontWeight: 500 }}>Sign in →</a>
               </div>
             )}
             {isEwentcastSignupUser() && getEwentcastAccount()?.ht_connected && (
@@ -742,14 +806,16 @@ export default function SettingsPage() {
             )}
             <ConnectHightribeSection />
           </SectionCard>
+          )}
 
-          {/* ── Webhooks ── */}
+          {showWebhooks && (
           <SectionCard title="Webhooks" icon="🔔">
             <p style={{ margin: '0 0 16px', fontSize: '13px', color: '#8C7F6D', lineHeight: 1.5 }}>
               Register webhooks so new registrations appear instantly in Bookings. Save your credentials above first.
             </p>
-            <WebhooksPanel />
+            <WebhooksPanel only={webhookOnly} />
           </SectionCard>
+          )}
         </>
       )}
     </div>

@@ -1,3 +1,5 @@
+import { HIGHTRIBE_COLOR, LUMA_COLOR, EVENTBRITE_COLOR } from '@/lib/brand'
+
 const EVENT_IMAGES = [
   'https://images.unsplash.com/photo-1540039155733-5bb30b53aa14?auto=format&fit=crop&w=400&q=70',
   'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?auto=format&fit=crop&w=400&q=70',
@@ -7,9 +9,9 @@ const EVENT_IMAGES = [
 ]
 
 const PLATFORMS = [
-  { name: 'Eventbrite', color: 'var(--rust)' },
-  { name: 'Luma', color: 'var(--plum)' },
-  { name: 'Hightribe', color: 'var(--honey)' },
+  { name: 'Hightribe', color: HIGHTRIBE_COLOR, native: true },
+  { name: 'Luma', color: LUMA_COLOR },
+  { name: 'Eventbrite', color: EVENTBRITE_COLOR },
 ]
 
 const HIGHLIGHTS = [
@@ -30,7 +32,7 @@ export function AuthShowcase() {
           Your events deserve a bigger audience.
         </h2>
         <p className="auth-showcase-lead">
-          Ewentcast broadcasts your event to Eventbrite, Luma, and Hightribe — and keeps every seat in sync.
+          Ewentcast broadcasts your event to Hightribe, Luma, and Eventbrite — and keeps every seat in sync.
         </p>
 
         <div className="auth-showcase-chips">

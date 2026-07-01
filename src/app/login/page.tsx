@@ -6,15 +6,15 @@ import { useRouter } from 'next/navigation'
 import { isAuthenticated } from '@/lib/auth'
 import { fetchAuthMe, loginLocal, loginWithHightribe } from '@/lib/ewentcast-session'
 import { InlineLoader } from '@/components/Loader'
-import { EwentcastLogo } from '@/components/EwentcastLogo'
 import { AuthShowcase } from '@/components/auth/AuthShowcase'
+import { EWENTCAST_WORDMARK, HIGHTRIBE_COLOR, LUMA_COLOR, EVENTBRITE_COLOR } from '@/lib/brand'
 
 const REMEMBER_EMAIL_KEY = 'ewentcast_login_email'
 
 const PLATFORMS = [
-  { name: 'Eventbrite', color: 'var(--rust)' },
-  { name: 'Luma', color: 'var(--plum)' },
-  { name: 'Hightribe', color: 'var(--honey)' },
+  { name: 'Eventbrite', color: EVENTBRITE_COLOR },
+  { name: 'Luma', color: LUMA_COLOR },
+  { name: 'Hightribe', color: HIGHTRIBE_COLOR },
 ]
 
 export default function LoginPage() {
@@ -74,7 +74,7 @@ export default function LoginPage() {
         <div className="auth-panel-inner">
           <header className="auth-header">
             <Link href="/" className="auth-logo-link">
-              <EwentcastLogo height={52} onLight style={{ margin: '0 auto' }} />
+              <img src={EWENTCAST_WORDMARK} alt="Ewentcast" />
             </Link>
             <span className="auth-badge">Welcome back</span>
             <h1 className="auth-title">Sign in to your studio</h1>

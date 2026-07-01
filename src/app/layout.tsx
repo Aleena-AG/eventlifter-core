@@ -17,11 +17,11 @@ const bricolage = Bricolage_Grotesque({
 
 export const metadata: Metadata = {
   title: 'Ewentcast — Get booked everywhere. Oversold nowhere.',
-  description: 'Publish events to Eventbrite, Luma, and Hightribe at once. Keep capacity in sync across all channels.',
+  description: 'Publish events to Hightribe, Luma, and Eventbrite at once. Hightribe-native with synced capacity across every channel.',
   icons: {
     icon: [
       { url: '/favicon-32.png', sizes: '32x32', type: 'image/png' },
-      { url: '/favicon.png', sizes: '768x768', type: 'image/png' },
+      { url: '/favicon.png', sizes: '512x512', type: 'image/png' },
     ],
     apple: [{ url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }],
   },
