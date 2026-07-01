@@ -1,6 +1,7 @@
 import cors from 'cors'
 import express from 'express'
 import { config, dbConfigured } from './config.js'
+import { isEmailConfigured } from './services/email.js'
 import { runMigrations } from './db/migrate.js'
 import { healthRouter } from './routes/health.js'
 import { registryRouter } from './routes/registry.js'
@@ -39,6 +40,11 @@ async function start() {
 
   app.listen(config.port, () => {
     console.log(`Ewentcast backend listening on http://127.0.0.1:${config.port}`)
+    console.log(
+      isEmailConfigured()
+        ? 'Password reset: sending via SMTP (Mailtrap/production)'
+        : 'Password reset: SMTP not set — dev reset link on forgot-password page only',
+    )
   })
 }
 
