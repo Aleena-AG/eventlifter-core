@@ -19,6 +19,20 @@ export interface StoredChannelEvent {
   synced_at: string
 }
 
+export interface StoredChannelBooking {
+  id: number
+  channel: ChannelName
+  external_id: string
+  event_external_id: string | null
+  event_title: string
+  guest_name: string
+  guest_email: string
+  status: string | null
+  ticket_count: number | null
+  registered_at: string
+  synced_at: string
+}
+
 export async function listStoredEvents(channel: ChannelName): Promise<StoredChannelEvent[]> {
   const res = await fetch(`/api/events/${channel}`, {
     headers: { Authorization: authHeader(), Accept: 'application/json' },
@@ -26,6 +40,15 @@ export async function listStoredEvents(channel: ChannelName): Promise<StoredChan
   if (!res.ok) return []
   const data = await res.json() as { events?: StoredChannelEvent[] }
   return data.events || []
+}
+
+export async function listAllStoredBookings(): Promise<StoredChannelBooking[]> {
+  const res = await fetch('/api/events/bookings', {
+    headers: { Authorization: authHeader(), Accept: 'application/json' },
+  })
+  if (!res.ok) return []
+  const data = await res.json() as { bookings?: StoredChannelBooking[] }
+  return data.bookings || []
 }
 
 export async function syncStoredBookings(

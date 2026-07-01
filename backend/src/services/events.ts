@@ -177,8 +177,8 @@ function normalizeEvent(channel: ChannelName, raw: Record<string, unknown>) {
   return {
     external_id: String(raw.id || raw.event_id || ''),
     title: String(raw.title || raw.name || ''),
-    start_at: parseDate(raw.start_date || raw.start_at || raw.start),
-    end_at: parseDate(raw.end_date || raw.end_at || raw.end),
+    start_at: parseDate(htStartAt(raw)),
+    end_at: parseDate(htEndAt(raw)),
     timezone: String(raw.timezone || '') || null,
     url: String(raw.url || '') || null,
     cover_url: String(raw.cover_url || raw.image || '') || null,
@@ -194,6 +194,24 @@ function parseDate(v: unknown): Date | null {
   if (!v) return null
   const d = new Date(String(v))
   return Number.isNaN(d.getTime()) ? null : d
+}
+
+function htStartAt(raw: Record<string, unknown>): unknown {
+  const dates = raw.dates as { starts_at?: string; start_date?: string; start_time?: string } | undefined
+  if (dates?.starts_at) return dates.starts_at
+  if (dates?.start_date) {
+    return dates.start_time ? `${dates.start_date}T${dates.start_time}` : dates.start_date
+  }
+  return raw.start_date || raw.start_at || raw.start
+}
+
+function htEndAt(raw: Record<string, unknown>): unknown {
+  const dates = raw.dates as { ends_at?: string; end_date?: string; end_time?: string } | undefined
+  if (dates?.ends_at) return dates.ends_at
+  if (dates?.end_date) {
+    return dates.end_time ? `${dates.end_date}T${dates.end_time}` : dates.end_date
+  }
+  return raw.end_date || raw.end_at || raw.end
 }
 
 export async function deleteChannelEvent(

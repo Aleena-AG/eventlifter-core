@@ -12,6 +12,7 @@ import {
 import {
   connectHightribeAccount,
   disconnectHightribeAccount,
+  loginHightribeAccount,
 } from '../services/hightribe-connect.js'
 
 export const authRouter = Router()
@@ -112,12 +113,26 @@ authRouter.post('/reset-password', async (req, res) => {
   }
 })
 
-/** Optional — HighTribe OAuth/password login stays on Next.js proxy for now */
-authRouter.post('/login-hightribe', (_req, res) => {
-  return res.status(501).json({
-    status: false,
-    message: 'Use “Sign in with HighTribe” from the login page (proxied via Next.js).',
-  })
+authRouter.post('/login-hightribe', async (req, res) => {
+  try {
+    const { email, password } = req.body as { email?: string; password?: string }
+    if (!email || !password) {
+      return res.status(422).json({ status: false, message: 'Email and password are required' })
+    }
+    const result = await loginHightribeAccount(email, password)
+    return res.json({
+      status: true,
+      token: result.token,
+      user: result.user,
+      ewentcast: result.account,
+      ht_link_token: result.ht_link_token,
+    })
+  } catch (err) {
+    return res.status(401).json({
+      status: false,
+      message: err instanceof Error ? err.message : 'HighTribe login failed',
+    })
+  }
 })
 
 authRouter.post('/connect-hightribe', requireAuth, async (req: AuthedRequest, res) => {

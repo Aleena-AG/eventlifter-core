@@ -1,10 +1,7 @@
 'use client'
 
 import { isEventbriteConnected, isHightribeChannelConnected, isLumaConnected } from '@/lib/channel-connection'
-import { channelFetch } from '@/lib/channel-fetch'
-import { loadAllBookings } from '@/lib/bookings'
-import { fetchHtEventsPage, fetchHtHostStats } from '@/lib/hightribe-events'
-import { lumaHostedEventRef } from '@/lib/luma-event-utils'
+import { listAllStoredBookings, listStoredEvents } from '@/lib/channel-events-store'
 import type { ChannelKey } from '@/lib/types'
 
 export interface ChannelStats {
@@ -40,137 +37,10 @@ export interface DashboardStats {
   recentBookings: DashboardBooking[]
 }
 
-function registryByChannel(events: Array<{ attendees?: Array<{ source: ChannelKey; email: string }> }>) {
-  const byChannel: Record<ChannelKey, number> = { hightribe: 0, luma: 0, eventbrite: 0 }
-  const seen = new Set<string>()
-  for (const m of events) {
-    for (const a of m.attendees || []) {
-      byChannel[a.source] = (byChannel[a.source] || 0) + 1
-      seen.add(a.email.toLowerCase())
-    }
-  }
-  return { byChannel, unified: seen.size, total: Object.values(byChannel).reduce((s, n) => s + n, 0) }
-}
-
-function bookingsFromRegistry(events: Array<{
-  title?: string
-  attendees?: Array<{ source: ChannelKey; email: string; name?: string; registeredAt?: string }>
-}>) {
-  const byChannel: Record<ChannelKey, number> = { hightribe: 0, luma: 0, eventbrite: 0 }
-  const recent: DashboardBooking[] = []
-  for (const m of events) {
-    for (const a of m.attendees || []) {
-      byChannel[a.source] = (byChannel[a.source] || 0) + 1
-      recent.push({
-        name: a.name || a.email.split('@')[0] || 'Guest',
-        email: a.email,
-        channel: a.source,
-        eventTitle: m.title || 'Untitled',
-        registeredAt: a.registeredAt || new Date().toISOString(),
-      })
-    }
-  }
-  recent.sort((a, b) => new Date(b.registeredAt).getTime() - new Date(a.registeredAt).getTime())
-  return { byChannel, recent }
-}
-
-function pickCount(apiCount: number, registryCount: number): number {
-  return Math.max(apiCount, registryCount)
-}
-
-function ticketSoldFromRecord(t: Record<string, unknown>): number {
-  for (const k of ['sold', 'sold_quantity', 'quantity_sold', 'booked']) {
-    const n = Number(t[k])
-    if (Number.isFinite(n) && n >= 0) return n
-  }
-  const qty = Number(t.quantity)
-  const avail = Number(t.available ?? t.remaining ?? t.quantity_available)
-  if (Number.isFinite(qty) && Number.isFinite(avail) && qty >= avail) return qty - avail
-  return 0
-}
-
-async function fetchEbTicketsSold(events: Array<{ id: string }>): Promise<number> {
-  const counts = await Promise.all(events.map(async (e) => {
-    try {
-      const res = await channelFetch(`/api/eventbrite/events/${e.id}/ticket_classes`)
-      if (!res.ok) return 0
-      const data = await res.json() as { ticket_classes?: Array<{ quantity_sold?: number }> }
-      return (data.ticket_classes || []).reduce((s, tc) => s + (tc.quantity_sold || 0), 0)
-    } catch {
-      return 0
-    }
-  }))
-  return counts.reduce((s, n) => s + n, 0)
-}
-
-async function fetchLumaBookings(events: Array<{ api_id: string }>): Promise<number> {
-  const counts = await Promise.all(events.map(async (e) => {
-    try {
-      const res = await channelFetch(`/api/luma/guests?event_id=${encodeURIComponent(e.api_id)}`)
-      if (!res.ok) return 0
-      const raw = await res.json() as {
-        data?: { entries?: unknown[]; count?: number; total?: number }
-        entries?: unknown[]
-        count?: number
-        total?: number
-      }
-      const d = raw.data || raw
-      if (typeof d.total === 'number') return d.total
-      if (typeof d.count === 'number') return d.count
-      return (d.entries || raw.entries || []).length
-    } catch {
-      return 0
-    }
-  }))
-  return counts.reduce((s, n) => s + n, 0)
-}
-
-async function fetchLumaTicketsSold(events: Array<{ api_id: string }>): Promise<number> {
-  const counts = await Promise.all(events.map(async (e) => {
-    try {
-      const res = await channelFetch(`/api/luma/ticket-types?event_id=${encodeURIComponent(e.api_id)}`)
-      if (!res.ok) return 0
-      const raw = await res.json() as {
-        data?: { entries?: Array<Record<string, unknown>>; ticket_types?: Array<Record<string, unknown>> }
-        entries?: Array<Record<string, unknown>>
-        ticket_types?: Array<Record<string, unknown>>
-      }
-      const d = raw.data || raw
-      const entries = d.entries || d.ticket_types || raw.entries || raw.ticket_types || []
-      if (!entries.length) return 0
-      return entries.reduce((s, t) => s + ticketSoldFromRecord(t), 0)
-    } catch {
-      return 0
-    }
-  }))
-  return counts.reduce((s, n) => s + n, 0)
-}
-
-async function fetchEbBookings(events: Array<{ id: string }>): Promise<number> {
-  const counts = await Promise.all(events.map(async (e) => {
-    try {
-      let total = 0
-      let page = 1
-      let hasMore = true
-      while (hasMore && page <= 5) {
-        const res = await channelFetch(
-          `/api/eventbrite/events/${e.id}/attendees?status=attending&page=${page}&page_size=50`,
-        )
-        if (!res.ok) break
-        const data = await res.json() as {
-          attendees?: unknown[]
-          pagination?: { has_more_items?: boolean }
-        }
-        total += (data.attendees || []).length
-        hasMore = !!data.pagination?.has_more_items
-        page++
-      }
-      return total
-    } catch {
-      return 0
-    }
-  }))
-  return counts.reduce((s, n) => s + n, 0)
+function priceLabel(channel: ChannelKey, payload: Record<string, unknown>): string {
+  if (channel === 'hightribe') return 'Hightribe'
+  if (channel === 'luma') return 'Luma'
+  return payload.is_free ? 'Free' : 'Eventbrite'
 }
 
 export async function loadDashboardStats(settings: {
@@ -187,135 +57,76 @@ export async function loadDashboardStats(settings: {
     eventbrite: { events: 0, tickets: 0, bookings: 0, configured: ebConfigured },
   }
 
+  const [htRows, lumaRows, ebRows, dbBookings] = await Promise.all([
+    htConfigured ? listStoredEvents('hightribe') : Promise.resolve([]),
+    lumaConfigured ? listStoredEvents('luma') : Promise.resolve([]),
+    ebConfigured ? listStoredEvents('eventbrite') : Promise.resolve([]),
+    listAllStoredBookings().catch(() => []),
+  ])
+
+  channels.hightribe.events = htRows.length
+  channels.luma.events = lumaRows.length
+  channels.eventbrite.events = ebRows.length
+
+  const seenEmails = new Set<string>()
+  for (const b of dbBookings) {
+    channels[b.channel].bookings += 1
+    const tickets = b.ticket_count ?? 1
+    channels[b.channel].tickets += tickets
+    seenEmails.add(b.guest_email.toLowerCase())
+  }
+
   const recent: DashboardRecentEvent[] = []
 
-  const registryPromise = fetch('/api/registry')
-    .then(r => r.json())
-    .catch(() => ({ events: [] })) as Promise<{ events?: Array<{
-      title?: string
-      attendees?: Array<{ source: ChannelKey; email: string; name?: string; registeredAt?: string }>
-    }> }>
-
-  const htPromise = htConfigured
-    ? fetchHtEventsPage(1, 12)
-      .then(({ events, total }) => ({ events, total }))
-      .catch(() => ({ events: [], total: 0 }))
-    : Promise.resolve({ events: [], total: 0 })
-
-  const htStatsPromise = htConfigured
-    ? fetchHtHostStats().catch(() => ({ totalBookings: 0, ticketsSold: 0 }))
-    : Promise.resolve({ totalBookings: 0, ticketsSold: 0 })
-
-  const lumaPromise = lumaConfigured
-    ? channelFetch('/api/luma/events/hosted?upcoming_only=false&fetch_all=true')
-      .then(async (res) => {
-        if (!res.ok) return []
-        const raw = await res.json() as { data?: { entries?: unknown[] }; entries?: unknown[] }
-        const entries = raw.data?.entries || raw.entries || []
-        return entries.map((e: unknown) => {
-          const ref = lumaHostedEventRef(e)
-          return { api_id: ref.id, name: ref.name, start_at: ref.start_at }
-        }).filter((ev: { api_id: string }) => ev.api_id)
-      })
-      .catch(() => [])
-    : Promise.resolve([])
-
-  const ebPromise = ebConfigured
-    ? (async () => {
-        const orgRes = await channelFetch('/api/eventbrite/users/me/organizations')
-        if (!orgRes.ok) return []
-        const orgData = await orgRes.json() as { organizations?: Array<{ id: string }> }
-        const orgId = orgData.organizations?.[0]?.id
-        if (!orgId) return []
-        const evtRes = await channelFetch(`/api/eventbrite/organizations/${orgId}/events?page_size=50`)
-        if (!evtRes.ok) return []
-        const evtData = await evtRes.json() as { events?: Array<{ id: string; name?: { text?: string }; start?: { utc?: string }; is_free?: boolean }> }
-        return evtData.events || []
-      })()
-    : Promise.resolve([])
-
-  const [registryData, htResult, htStats, lumaEvents, ebEvents] = await Promise.all([
-    registryPromise, htPromise, htStatsPromise, lumaPromise, ebPromise,
-  ])
-  const htEvents = htResult.events
-
-  channels.hightribe.events = htResult.total
-  channels.luma.events = lumaEvents.length
-  channels.eventbrite.events = ebEvents.length
-
-  const registryStats = registryByChannel(registryData.events || [])
-  const bookingStats = bookingsFromRegistry(registryData.events || [])
-
-  const [lumaTickets, ebTickets, lumaBookings, ebBookings, allBookings] = await Promise.all([
-    lumaConfigured && lumaEvents.length ? fetchLumaTicketsSold(lumaEvents) : Promise.resolve(0),
-    ebConfigured && ebEvents.length ? fetchEbTicketsSold(ebEvents) : Promise.resolve(0),
-    lumaConfigured && lumaEvents.length ? fetchLumaBookings(lumaEvents) : Promise.resolve(0),
-    ebConfigured && ebEvents.length ? fetchEbBookings(ebEvents) : Promise.resolve(0),
-    loadAllBookings({
-      ebConfigured,
-      lumaConfigured,
-      ebEvents,
-      lumaEvents,
-    }),
-  ])
-
-  channels.hightribe.tickets = htStats.ticketsSold
-  channels.luma.tickets = lumaTickets
-  channels.eventbrite.tickets = ebTickets
-
-  channels.hightribe.bookings = pickCount(htStats.totalBookings, bookingStats.byChannel.hightribe)
-  channels.luma.bookings = pickCount(lumaBookings, bookingStats.byChannel.luma)
-  channels.eventbrite.bookings = pickCount(ebBookings, bookingStats.byChannel.eventbrite)
-
-  for (const e of htEvents) {
-    const start = e.dates?.starts_at || (e.dates?.start_date ? `${e.dates.start_date}T${e.dates.start_time || '00:00'}` : '')
+  for (const row of htRows) {
     recent.push({
-      id: String(e.id),
-      title: e.title,
-      startUtc: start || new Date().toISOString(),
+      id: row.external_id,
+      title: row.title,
+      startUtc: row.start_at || new Date().toISOString(),
       channel: 'hightribe',
       priceLabel: 'Hightribe',
     })
   }
-  for (const e of lumaEvents) {
+  for (const row of lumaRows) {
     recent.push({
-      id: e.api_id,
-      title: e.name,
-      startUtc: e.start_at || new Date().toISOString(),
+      id: row.external_id,
+      title: row.title,
+      startUtc: row.start_at || new Date().toISOString(),
       channel: 'luma',
       priceLabel: 'Luma',
     })
   }
-  for (const e of ebEvents) {
+  for (const row of ebRows) {
     recent.push({
-      id: e.id,
-      title: e.name?.text || 'Untitled',
-      startUtc: e.start?.utc || new Date().toISOString(),
+      id: row.external_id,
+      title: row.title,
+      startUtc: row.start_at || new Date().toISOString(),
       channel: 'eventbrite',
-      priceLabel: e.is_free ? 'Free' : 'Eventbrite',
+      priceLabel: priceLabel('eventbrite', row.payload),
     })
   }
 
   recent.sort((a, b) => new Date(b.startUtc).getTime() - new Date(a.startUtc).getTime())
 
-  const totalTickets =
-    channels.hightribe.tickets + channels.luma.tickets + channels.eventbrite.tickets
-  const totalBookings =
-    channels.hightribe.bookings + channels.luma.bookings + channels.eventbrite.bookings
+  const recentBookings: DashboardBooking[] = dbBookings.slice(0, 8).map((b) => ({
+    name: b.guest_name,
+    email: b.guest_email,
+    channel: b.channel,
+    eventTitle: b.event_title,
+    registeredAt: b.registered_at,
+  }))
+
+  const totalEvents = channels.hightribe.events + channels.luma.events + channels.eventbrite.events
+  const totalTickets = channels.hightribe.tickets + channels.luma.tickets + channels.eventbrite.tickets
+  const totalBookings = channels.hightribe.bookings + channels.luma.bookings + channels.eventbrite.bookings
 
   return {
     channels,
-    totalEvents: channels.hightribe.events + channels.luma.events + channels.eventbrite.events,
+    totalEvents,
     totalTickets,
     totalBookings,
-    unifiedAttendees: registryStats.unified || totalBookings,
+    unifiedAttendees: seenEmails.size,
     recent: recent.slice(0, 5),
-    recentBookings: allBookings.slice(0, 8).map(b => ({
-      name: b.name,
-      email: b.email,
-      channel: b.channel,
-      eventTitle: b.eventTitle,
-      registeredAt: b.registeredAt,
-    })),
+    recentBookings,
   }
 }

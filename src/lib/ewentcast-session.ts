@@ -48,7 +48,7 @@ export function clearEwentcastSession(): void {
 
 export function htApiAuthHeader(): string {
   const account = getEwentcastAccount()
-  if (account?.auth_source === 'ewentcast_signup' && account.ht_connected) {
+  if (account?.ht_connected || account?.auth_source === 'hightribe_native') {
     const link = getHtLinkToken()
     if (link) return `Bearer ${link}`
   }
@@ -200,7 +200,7 @@ export async function resetPassword(token: string, password: string): Promise<vo
 }
 
 export async function loginWithHightribe(email: string, password: string): Promise<void> {
-  const res = await fetch('/api/hightribe/login', {
+  const res = await fetch('/api/auth/login-hightribe', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ email, password }),
@@ -210,22 +210,16 @@ export async function loginWithHightribe(email: string, password: string): Promi
     message?: string
     token?: string
     user?: HtUser
+    ewentcast?: EwentcastAccount
+    ht_link_token?: string
   }
-  if (!res.ok || !data.status || !data.token || !data.user) {
+  if (!res.ok || !data.status || !data.token || !data.user || !data.ewentcast) {
     throw new Error(data.message || 'HighTribe login failed')
   }
   setToken(data.token)
   setUser(data.user)
-  setEwentcastAccount({
-    auth_source: 'hightribe_native',
-    subscription_plan: 'pro_monthly_20',
-    subscription_status: 'active',
-    subscription_active: true,
-    subscription_amount_usd: 20,
-    ht_connected: true,
-    linked_ht_user_id: Number(data.user.id) || null,
-    ht_connected_at: new Date().toISOString(),
-  })
+  setEwentcastAccount(data.ewentcast)
+  if (data.ht_link_token) setHtLinkToken(data.ht_link_token)
 }
 
 export async function startSubscriptionCheckout(): Promise<string> {

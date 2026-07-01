@@ -155,6 +155,13 @@
   font-weight: 700;
 }
 
+.events-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .events-refresh-btn {
   display: inline-flex;
   align-items: center;
@@ -179,6 +186,17 @@
 .events-refresh-btn:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+.events-refresh-btn--sync {
+  border-color: rgba(194, 80, 46, 0.35);
+  color: #c2502e;
+  background: rgba(194, 80, 46, 0.06);
+}
+
+.events-refresh-btn--sync:hover:not(:disabled) {
+  background: rgba(194, 80, 46, 0.12);
+  border-color: rgba(194, 80, 46, 0.5);
 }
 
 /* ── Event list ── */

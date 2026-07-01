@@ -4,12 +4,13 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { isAuthenticated } from '@/lib/auth'
-import { fetchAuthMe, loginLocal, loginWithHightribe } from '@/lib/ewentcast-session'
+import { fetchAuthMe, loginLocal } from '@/lib/ewentcast-session'
 import { InlineLoader } from '@/components/Loader'
 import { AuthShowcase } from '@/components/auth/AuthShowcase'
 import { EWENTCAST_WORDMARK, HIGHTRIBE_COLOR, LUMA_COLOR, EVENTBRITE_COLOR } from '@/lib/brand'
 
 const REMEMBER_EMAIL_KEY = 'ewentcast_login_email'
+const HT_LOGIN_ENABLED = false
 
 const PLATFORMS = [
   { name: 'Eventbrite', color: EVENTBRITE_COLOR },
@@ -24,7 +25,6 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [rememberEmail, setRememberEmail] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [htLoading, setHtLoading] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -158,27 +158,18 @@ export default function LoginPage() {
 
               <button
                 type="button"
-                disabled={htLoading || loading}
-                className="auth-btn-ghost"
-                onClick={async () => {
-                  if (!email || !password) {
-                    setError('Enter email and password to use HighTribe login')
-                    return
-                  }
-                  setHtLoading(true)
-                  setError('')
-                  try {
-                    await loginWithHightribe(email, password)
-                    router.replace('/dashboard')
-                  } catch (err) {
-                    setError(err instanceof Error ? err.message : 'HighTribe login failed')
-                  } finally {
-                    setHtLoading(false)
-                  }
-                }}
+                disabled
+                className="auth-btn-ghost auth-btn-ghost--disabled"
+                title="Sign in with HighTribe is temporarily unavailable"
+                aria-disabled="true"
               >
-                {htLoading ? <InlineLoader label="Connecting HighTribe" /> : 'Sign in with HighTribe'}
+                Sign in with HighTribe
               </button>
+              {!HT_LOGIN_ENABLED && (
+                <p className="auth-footer-note" style={{ marginTop: 8, marginBottom: 0, textAlign: 'center' }}>
+                  HighTribe login coming soon — use your Ewentcast email and password above.
+                </p>
+              )}
             </form>
 
             <div className="auth-divider">Works with</div>

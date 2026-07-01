@@ -7,7 +7,7 @@ import {
   upsertChannelEvents,
   type ChannelName,
 } from '../services/events.js'
-import { listChannelBookings, upsertChannelBookings } from '../services/bookings.js'
+import { listChannelBookings, listAllUserBookings, upsertChannelBookings } from '../services/bookings.js'
 import { purgeChannelData } from '../services/channel-data.js'
 
 export const eventsRouter = Router()
@@ -16,6 +16,15 @@ function parseChannel(raw: string): ChannelName | null {
   if (raw === 'luma' || raw === 'eventbrite' || raw === 'hightribe') return raw
   return null
 }
+
+eventsRouter.get('/bookings', requireAuth, async (req: AuthedRequest, res) => {
+  try {
+    const bookings = await listAllUserBookings(req.user!.id)
+    return res.json({ bookings })
+  } catch (err) {
+    return res.status(500).json({ error: err instanceof Error ? err.message : 'list failed' })
+  }
+})
 
 eventsRouter.get('/:channel', requireAuth, async (req: AuthedRequest, res) => {
   const channel = parseChannel(req.params.channel)

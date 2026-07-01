@@ -7,7 +7,7 @@ import {
   isEwentcastSignupUser,
 } from '@/lib/ewentcast-session'
 import { disconnectChannelIntegration } from '@/lib/channel-disconnect'
-import { syncChannelDataToDb } from '@/lib/channel-data-sync'
+import { syncHightribeAfterConnect } from '@/lib/sync-hightribe-after-connect'
 import { InlineLoader } from '@/components/Loader'
 
 const INPUT_STYLE: React.CSSProperties = {
@@ -46,11 +46,20 @@ export function ConnectHightribeSection({ onChange }: { onChange?: () => void })
       setSuccess('Hightribe connected — you can now load HT events.')
       setPassword('')
       try {
-        const { events, bookings } = await syncChannelDataToDb('hightribe')
+        const { events, bookings } = await syncHightribeAfterConnect()
         if (events > 0 || bookings > 0) {
-          setSuccess(`Hightribe connected — synced ${events} events, ${bookings} bookings.`)
+          setSuccess(`Hightribe connected — synced ${events} events, ${bookings} bookings to database.`)
+        } else {
+          setSuccess('Hightribe connected. No events found to sync yet.')
         }
-      } catch { /* best-effort */ }
+      } catch (syncErr) {
+        setSuccess('Hightribe connected.')
+        setError(
+          syncErr instanceof Error
+            ? `Connected, but sync failed: ${syncErr.message}. Use Events → Sync.`
+            : 'Connected, but could not save events to database. Use Events → Sync.',
+        )
+      }
       setHtConnected(true)
       onChange?.()
     } catch (e) {

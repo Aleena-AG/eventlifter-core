@@ -84,6 +84,14 @@ function normalizeBooking(
   }
 }
 
+export async function listAllUserBookings(userId: number): Promise<StoredBooking[]> {
+  const rows = await query<RowDataPacket[]>(
+    `SELECT * FROM channel_bookings WHERE user_id = ? ORDER BY registered_at DESC`,
+    [userId],
+  )
+  return rows.map(mapRow)
+}
+
 export async function listChannelBookings(
   channel: ChannelName,
   userId: number,

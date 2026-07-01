@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { getSettings } from '@/lib/api'
 import { loadAllBookings, type BookingListItem } from '@/lib/bookings'
 import { ChannelLogo } from '@/components/ChannelLogo'
 import { InlineLoader, PageLoader } from '@/components/Loader'
@@ -472,14 +471,7 @@ export default function BookingsPage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const settings = await getSettings() as {
-        luma?: { configured?: boolean }
-        eventbrite?: { configured?: boolean; hasPrivateToken?: boolean }
-      }
-      setBookings(await loadAllBookings({
-        ebConfigured: !!settings.eventbrite?.hasPrivateToken,
-        lumaConfigured: !!settings.luma?.configured,
-      }))
+      setBookings(await loadAllBookings())
     } catch {
       setBookings([])
     } finally {
