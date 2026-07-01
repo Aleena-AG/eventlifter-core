@@ -13,7 +13,6 @@ import { HIGHTRIBE_COLOR, LUMA_COLOR, EVENTBRITE_COLOR } from '@/lib/brand'
 import { ConnectHightribeSection } from '@/components/ConnectHightribeSection'
 import { getEwentcastAccount, isEwentcastSignupUser, fetchAuthMe } from '@/lib/ewentcast-session'
 import { disconnectChannelIntegration } from '@/lib/channel-disconnect'
-import { syncChannelDataToDb } from '@/lib/channel-data-sync'
 import { eventbriteRedirectUri } from '@/lib/app-url'
 import { useRouter } from 'next/navigation'
 import type { ChannelKey } from '@/lib/types'
@@ -287,7 +286,7 @@ const EVENTBRITE_STEPS: GuideStep[] = [
   },
   {
     num: 3, title: 'Copy Credentials',
-    desc: 'Copy your Private Token, Client ID, and Client Secret. Paste them into the fields below.',
+    desc: 'Copy your Private Token, API Key, and Client Secret. Paste them into the fields below.',
     path: 'API Key Details → Copy credentials', img: '/eventbrite-guide/step_3_eventbrite.png',
   },
   {
@@ -505,16 +504,6 @@ export default function SettingsPage() {
       await api.updateSettings(patch)
       toast.success(`${section} settings saved`)
       await loadSettings()
-      if (section === 'luma' || section === 'eventbrite') {
-        try {
-          const { events, bookings } = await syncChannelDataToDb(section)
-          if (events > 0 || bookings > 0) {
-            toast.success(`Synced ${events} events, ${bookings} bookings to database`)
-          }
-        } catch {
-          // sync is best-effort after save
-        }
-      }
     } catch (err) {
       toast.error(`Save failed: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
@@ -547,12 +536,6 @@ export default function SettingsPage() {
     try {
       await api.testEventbrite()
       toast.success('Eventbrite connection OK')
-      try {
-        const { events, bookings } = await syncChannelDataToDb('eventbrite')
-        if (events > 0 || bookings > 0) {
-          toast.success(`Synced ${events} events, ${bookings} bookings to database`)
-        }
-      } catch { /* best-effort */ }
     } catch (err) {
       toast.error(`Test failed: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
@@ -573,12 +556,6 @@ export default function SettingsPage() {
       const json = await res.json() as { status: string; message?: string }
       if (!res.ok || json.status === 'error') throw new Error(json.message || 'Invalid API key')
       toast.success('Luma connection OK')
-      try {
-        const { events, bookings } = await syncChannelDataToDb('luma')
-        if (events > 0 || bookings > 0) {
-          toast.success(`Synced ${events} events, ${bookings} bookings to database`)
-        }
-      } catch { /* best-effort */ }
     } catch (err) {
       toast.error(`Test failed: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
@@ -652,8 +629,8 @@ export default function SettingsPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div className="settings-grid-2">
                 <div>
-                  <label style={LABEL}>Client ID</label>
-                  <input style={INPUT} type="text" placeholder="Client ID"
+                  <label style={LABEL}>API Key</label>
+                  <input style={INPUT} type="text" placeholder="API Key"
                     value={eb.clientId || ''}
                     onChange={(e) => updateSection('eventbrite', 'clientId', e.target.value)} />
                 </div>
@@ -726,20 +703,6 @@ export default function SettingsPage() {
                   <input style={INPUT} type="text" placeholder="cal-xxxxx"
                     value={lu.calendarId || ''}
                     onChange={(e) => updateSection('luma', 'calendarId', e.target.value)} />
-                </div>
-              </div>
-              <div className="settings-grid-2">
-                <div>
-                  <label style={LABEL}>API Base URL</label>
-                  <input style={INPUT} type="text" placeholder="https://public-api.luma.com"
-                    value={lu.apiBaseUrl || 'https://public-api.luma.com'}
-                    onChange={(e) => updateSection('luma', 'apiBaseUrl', e.target.value)} />
-                </div>
-                <div>
-                  <label style={LABEL}>Discover Base URL</label>
-                  <input style={INPUT} type="text" placeholder="https://api.lu.ma"
-                    value={lu.discoverBaseUrl || 'https://api.lu.ma'}
-                    onChange={(e) => updateSection('luma', 'discoverBaseUrl', e.target.value)} />
                 </div>
               </div>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>

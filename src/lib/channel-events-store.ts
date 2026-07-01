@@ -51,6 +51,15 @@ export async function listAllStoredBookings(): Promise<StoredChannelBooking[]> {
   return data.bookings || []
 }
 
+export async function getStoredEvent(
+  channel: ChannelName,
+  externalId: string,
+): Promise<StoredChannelEvent | null> {
+  const events = await listStoredEvents(channel)
+  const id = String(externalId)
+  return events.find((e) => e.external_id === id) || null
+}
+
 export async function syncStoredBookings(
   channel: ChannelName,
   bookings: Array<Record<string, unknown>>,

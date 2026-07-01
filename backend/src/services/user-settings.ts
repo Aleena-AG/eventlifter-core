@@ -4,7 +4,7 @@ import { getPool, query } from '../db/pool.js'
 import type { AppSettings, ChannelSettingsKey } from '../types/settings.js'
 
 function defaultRedirectUri(): string {
-  const base = (process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || config.corsOrigin).replace(/\/$/, '')
+  const base = config.appUrl
   return `${base}/api/eventbrite/callback`
 }
 

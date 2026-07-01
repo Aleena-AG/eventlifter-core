@@ -524,13 +524,9 @@ export default function EventsPage() {
   }, [searchParams])
 
   function onPublished() {
-    setHtEvents([])
-    setHtAllEvents([])
-    setLumaEvents([])
-    setEbEvents([])
-    void syncHtEvents(1)
-    void syncLumaEvents()
-    void syncEbEvents()
+    void loadHtEvents(1)
+    void loadLumaEvents()
+    void loadEbEvents()
   }
   function openEdit(channel: ChannelKey, id: string|number) {
     setEditModal({ open: true, channel, eventId: id })

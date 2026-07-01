@@ -1,16 +1,19 @@
 import dotenv from 'dotenv'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { resolveAppUrl } from './lib/app-url.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 
 dotenv.config({ path: path.join(root, '.env.local') })
 dotenv.config({ path: path.join(root, '.env') })
 
+const appUrl = resolveAppUrl()
+
 export const config = {
   port: Number(process.env.BACKEND_PORT || 4000),
-  corsOrigin: process.env.BACKEND_CORS_ORIGIN || 'http://localhost:3000',
-  appUrl: (process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || process.env.BACKEND_CORS_ORIGIN || 'http://localhost:3000').replace(/\/$/, ''),
+  corsOrigin: appUrl,
+  appUrl,
   db: {
     host: process.env.CHANNEL_MANAGER_DB_HOST || '',
     port: Number(process.env.CHANNEL_MANAGER_DB_PORT || 3306),

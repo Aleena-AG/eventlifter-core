@@ -1,5 +1,5 @@
-import { authHeader } from '@/lib/auth'
 import { lumaEventToNorm, unwrapLumaEvent } from '@/lib/luma-event-utils'
+import { getStoredEvent, type ChannelName } from '@/lib/channel-events-store'
 import type { ChannelKey } from '@/lib/types'
 import type { EventFormData } from '@/lib/publish-event'
 
@@ -118,20 +118,16 @@ function normToForm(n: NormEvent): EventFormData {
   }
 }
 
-async function fetchNorm(channel: ChannelKey, id: string | number): Promise<NormEvent> {
+function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): NormEvent {
   if (channel === 'hightribe') {
-    const res = await fetch(`/api/hightribe/events/${id}`, {
-      headers: { Authorization: authHeader(), Accept: 'application/json' },
-    })
-    const raw = await res.json() as { data?: Record<string, unknown> } & Record<string, unknown>
-    const e = (raw.data || raw) as Record<string, unknown>
+    const e = (raw.data as Record<string, unknown>) || raw
     const d = e.dates as Record<string, string> | undefined
     const loc = e.location as Record<string, unknown> | undefined
     const startUtc = d?.starts_at ? stripMs(d.starts_at) : buildDateStr(d?.start_date, d?.start_time)
     const endUtc = d?.ends_at ? stripMs(d.ends_at) : buildDateStr(d?.end_date, d?.end_time)
     const venueLabel = optStr(loc?.location)
     return {
-      title: String(e.title || ''),
+      title: String(e.title || raw.title || ''),
       description: String(e.description || e.overview || ''),
       startUtc, endUtc,
       timezone: String(d?.timezone || e.timezone || 'UTC'),
@@ -147,14 +143,7 @@ async function fetchNorm(channel: ChannelKey, id: string | number): Promise<Norm
   }
 
   if (channel === 'luma') {
-    const res = await fetch(`/api/luma/events?api_id=${id}`, {
-      headers: { Authorization: authHeader(), Accept: 'application/json' },
-    })
-    const raw = await res.json() as { data?: unknown; status?: string; message?: string }
-    if (!res.ok || raw.status === 'error') {
-      throw new Error(raw.message || `Failed to load Luma event (HTTP ${res.status})`)
-    }
-    const e = unwrapLumaEvent(raw.data ?? raw)
+    const e = unwrapLumaEvent(raw.event ? raw : { event: raw })
     const norm = lumaEventToNorm(e)
     return {
       title: norm.title,
@@ -175,8 +164,7 @@ async function fetchNorm(channel: ChannelKey, id: string | number): Promise<Norm
     }
   }
 
-  const res = await fetch(`/api/eventbrite/events/${id}?expand=venue`)
-  const e = await res.json() as Record<string, unknown>
+  const e = raw
   const start = e.start as Record<string, string> | undefined
   const end = e.end as Record<string, string> | undefined
   const name = e.name as { text?: string } | undefined
@@ -185,7 +173,7 @@ async function fetchNorm(channel: ChannelKey, id: string | number): Promise<Norm
   const venue = e.venue as Record<string, unknown> | undefined
   const addr = venue?.address as Record<string, unknown> | undefined
   return {
-    title: name?.text || String(e.id || ''),
+    title: name?.text || String(e.title || e.id || ''),
     description: desc?.text || '',
     startUtc: start?.utc ? stripMs(start.utc) : new Date().toISOString(),
     endUtc: end?.utc ? stripMs(end.utc) : new Date().toISOString(),
@@ -203,8 +191,14 @@ async function fetchNorm(channel: ChannelKey, id: string | number): Promise<Norm
   }
 }
 
+/** Load edit form data from MySQL cache (sync events first if missing). */
 export async function loadEventFormData(channel: ChannelKey, eventId: string | number): Promise<EventFormData> {
-  const norm = await fetchNorm(channel, eventId)
+  const stored = await getStoredEvent(channel as ChannelName, String(eventId))
+  if (!stored) {
+    throw new Error('Event not in database. Open Events and use Sync for this channel first.')
+  }
+  const norm = normFromPayload(channel, stored.payload)
+  if (!norm.title && stored.title) norm.title = stored.title
   return normToForm(norm)
 }
 

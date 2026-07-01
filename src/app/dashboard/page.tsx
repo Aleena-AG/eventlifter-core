@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { getSettings } from '@/lib/api'
 import { isHightribeChannelConnected, isLumaConnected, isEventbriteConnected } from '@/lib/channel-connection'
 import { loadDashboardStats, type DashboardStats } from '@/lib/dashboard-stats'
+import { syncAllConnectedChannels } from '@/lib/sync-all-connected'
 import { ChannelLogo } from '@/components/ChannelLogo'
 import { PageLoader, Spinner } from '@/components/Loader'
 import type { ChannelKey } from '@/lib/types'
@@ -74,6 +75,7 @@ export default function DashboardPage() {
   const [settings, setSettings] = useState<SafeSettings>({})
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -86,6 +88,21 @@ export default function DashboardPage() {
       setStats(null)
     } finally {
       setLoading(false)
+    }
+  }, [])
+
+  const syncAll = useCallback(async () => {
+    setSyncing(true)
+    try {
+      const s = (await getSettings()) as SafeSettings
+      setSettings(s)
+      await syncAllConnectedChannels(s)
+      const dash = await loadDashboardStats(s)
+      setStats(dash)
+    } catch {
+      setStats(null)
+    } finally {
+      setSyncing(false)
     }
   }, [])
 
@@ -124,7 +141,7 @@ export default function DashboardPage() {
           <Link href="/events?create=1" className="dash-btn dash-btn--primary">
             ✦ Create event
           </Link>
-          <button onClick={load} disabled={loading} className="dash-btn dash-btn--ghost" type="button">
+          <button onClick={load} disabled={loading || syncing} className="dash-btn dash-btn--ghost" type="button">
             {loading ? (
               <>
                 <Spinner size={16} />
@@ -132,6 +149,16 @@ export default function DashboardPage() {
               </>
             ) : (
               '↻ Refresh'
+            )}
+          </button>
+          <button onClick={syncAll} disabled={loading || syncing} className="dash-btn dash-btn--sync" type="button">
+            {syncing ? (
+              <>
+                <Spinner size={16} />
+                <span>Syncing…</span>
+              </>
+            ) : (
+              '⇅ Sync'
             )}
           </button>
         </div>

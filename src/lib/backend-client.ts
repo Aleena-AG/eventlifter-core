@@ -1,7 +1,17 @@
-const DEFAULT_BACKEND = 'http://127.0.0.1:4000'
-
+/**
+ * Express API base URL — server-side only (Next.js API routes proxy here).
+ *
+ * APP_URL = public site (OAuth, webhooks, emails, CORS). Set once in .env.
+ * This URL = internal Next → Express on the same machine by default.
+ *
+ * Set BACKEND_URL only when the API runs on a different host (split deployment).
+ */
 export function getBackendUrl(): string {
-  return (process.env.BACKEND_URL || DEFAULT_BACKEND).replace(/\/$/, '')
+  if (process.env.BACKEND_URL) {
+    return process.env.BACKEND_URL.replace(/\/$/, '')
+  }
+  const port = process.env.BACKEND_PORT || '4000'
+  return `http://127.0.0.1:${port}`
 }
 
 export async function backendFetch(

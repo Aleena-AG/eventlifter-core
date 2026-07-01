@@ -2,6 +2,9 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { loadAllBookings, type BookingListItem } from '@/lib/bookings'
+import { getSettings } from '@/lib/api'
+import type { ChannelSettingsView } from '@/lib/channel-connection'
+import { syncAllConnectedChannels } from '@/lib/sync-all-connected'
 import { ChannelLogo } from '@/components/ChannelLogo'
 import { InlineLoader, PageLoader } from '@/components/Loader'
 import { getUser } from '@/lib/auth'
@@ -461,6 +464,7 @@ function BookingTableRow({
 export default function BookingsPage() {
   const [bookings, setBookings] = useState<BookingListItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
   const [filter, setFilter] = useState<Filter>('all')
   const [query, setQuery] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('booked')
@@ -478,6 +482,19 @@ export default function BookingsPage() {
       setLoading(false)
     }
   }, [])
+
+  const syncAll = useCallback(async () => {
+    setSyncing(true)
+    try {
+      const settings = await getSettings()
+      await syncAllConnectedChannels(settings as ChannelSettingsView)
+      await load()
+    } catch {
+      setBookings([])
+    } finally {
+      setSyncing(false)
+    }
+  }, [load])
 
   useEffect(() => { load() }, [load])
 
@@ -583,7 +600,7 @@ export default function BookingsPage() {
           </div>
         </div>
         <div className="bookings-header__actions">
-          <button type="button" className="bookings-refresh-btn" onClick={load} disabled={loading}>
+          <button type="button" className="bookings-refresh-btn" onClick={load} disabled={loading || syncing}>
             {loading ? (
               <InlineLoader label="Refreshing" />
             ) : (
@@ -600,6 +617,9 @@ export default function BookingsPage() {
                 Refresh
               </>
             )}
+          </button>
+          <button type="button" className="bookings-refresh-btn bookings-refresh-btn--sync" onClick={syncAll} disabled={loading || syncing}>
+            {syncing ? <InlineLoader label="Syncing" /> : '⇅ Sync'}
           </button>
         </div>
       </div>
