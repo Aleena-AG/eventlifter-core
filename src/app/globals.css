@@ -697,6 +697,29 @@ textarea::placeholder {
   transform: none;
 }
 
+.auth-btn-ghost {
+  width: 100%;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  color: var(--ink);
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.auth-btn-ghost:hover:not(:disabled) {
+  background: var(--paper);
+  border-color: var(--honey);
+}
+
+.auth-btn-ghost:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .auth-showcase-track {
     animation: none;

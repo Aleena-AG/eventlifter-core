@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 
 import type { AppSettings } from '@/lib/settings-types'
+import { eventbriteRedirectUri } from '@/lib/app-url'
 
 export type { AppSettings }
 
@@ -9,7 +10,7 @@ const DEFAULTS: AppSettings = {
   eventbrite: {
     clientId: '',
     clientSecret: '',
-    redirectUri: 'http://localhost:3000/api/eventbrite/callback',
+    redirectUri: eventbriteRedirectUri(),
     privateToken: '',
     publicToken: '',
   },

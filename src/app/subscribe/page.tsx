@@ -4,6 +4,7 @@ import { useState, useEffect, Suspense } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { getToken, getUser, clearAuth, authHeader, type HtUser } from '@/lib/auth'
+import { logoutLocal } from '@/lib/ewentcast-session'
 import {
   fetchEwentcastMe,
   getEwentcastAccount,
@@ -80,10 +81,7 @@ function SubscribeContent() {
   const handleLogout = async () => {
     setLoggingOut(true)
     try {
-      await fetch('/api/hightribe/logout', {
-        method: 'POST',
-        headers: { Authorization: authHeader(), Accept: 'application/json' },
-      })
+      await logoutLocal()
     } catch {
       // clear locally regardless
     }

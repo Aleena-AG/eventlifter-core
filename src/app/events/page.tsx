@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { authHeader } from '@/lib/auth'
 import { getEwentcastAccount, htApiAuthHeader, isEwentcastSignupUser } from '@/lib/ewentcast-session'
+import { syncStoredEvents } from '@/lib/channel-events-store'
 import { fetchHtEventsPage, type HtEventListItem } from '@/lib/hightribe-events'
 import { Toast, useToast } from '@/components/Toast'
 import { InlineLoader, PageLoader } from '@/components/Loader'
@@ -280,6 +281,9 @@ export default function EventsPage() {
       setHtPage(currentPage)
       setHtLastPage(lastPage)
       setHtTotal(total)
+      try {
+        await syncStoredEvents('hightribe', events as unknown as Array<Record<string, unknown>>)
+      } catch { /* save is best-effort */ }
     } catch { toast.error('Failed to load Hightribe events') }
     finally { setHtLoading(false) }
   }, [toast])
@@ -294,7 +298,7 @@ export default function EventsPage() {
         return
       }
       const entries = raw.data?.entries || raw.entries || []
-      setLumaEvents(entries.map((e): LumaEvent | null => {
+      const mapped = entries.map((e): LumaEvent | null => {
         if (e.event) return e.event
         if (e.id && e.name) {
           return {
@@ -310,7 +314,11 @@ export default function EventsPage() {
           }
         }
         return null
-      }).filter((e): e is LumaEvent => !!e))
+      }).filter((e): e is LumaEvent => !!e)
+      setLumaEvents(mapped)
+      try {
+        await syncStoredEvents('luma', entries as unknown as Array<Record<string, unknown>>)
+      } catch { /* save is best-effort */ }
     } catch { toast.error('Failed to load Luma events') }
     finally { setLumaLoading(false) }
   }, [toast])
@@ -324,7 +332,11 @@ export default function EventsPage() {
       if (orgs.length === 0) { setEbEvents([]); return }
       const evtRes = await fetch(`/api/eventbrite/organizations/${orgs[0].id}/events?page_size=50`)
       const evtData = await evtRes.json() as { events?: EbEvent[] }
-      setEbEvents(evtData.events || [])
+      const events = evtData.events || []
+      setEbEvents(events)
+      try {
+        await syncStoredEvents('eventbrite', events as unknown as Array<Record<string, unknown>>)
+      } catch { /* save is best-effort */ }
     } catch { toast.error('Failed to load Eventbrite events') }
     finally { setEbLoading(false) }
   }, [toast])
@@ -343,7 +355,7 @@ export default function EventsPage() {
 
       try {
         const res = await fetch(
-          `/api/registry/lookup?channel=${deleteTarget.channel}&eventId=${encodeURIComponent(String(deleteTarget.id))}`,
+          `/api/registry?channel=${deleteTarget.channel}&eventId=${encodeURIComponent(String(deleteTarget.id))}`,
         )
         if (res.ok) {
           const data = await res.json() as { links?: Partial<Record<ChannelKey, { eventId: string }>> }
@@ -409,7 +421,7 @@ export default function EventsPage() {
 
     try {
       const res = await fetch(
-        `/api/registry/lookup?channel=${channel}&eventId=${encodeURIComponent(String(id))}`,
+        `/api/registry?channel=${channel}&eventId=${encodeURIComponent(String(id))}`,
       )
       if (res.ok) {
         const data = await res.json() as { master?: { id: string } }

@@ -473,7 +473,7 @@ export function SyncModal({ open, event, htConfigured, lumaConfigured, ebConfigu
       channelRefs[source] = { eventId: String(event.id) }
       let masterId: string | undefined
       const lookup = await fetch(
-        `/api/registry/lookup?channel=${source}&eventId=${encodeURIComponent(String(event.id))}`,
+        `/api/registry?channel=${source}&eventId=${encodeURIComponent(String(event.id))}`,
       )
       if (lookup.ok) {
         const d = await lookup.json() as { master?: { id: string } }

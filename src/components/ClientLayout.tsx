@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { getToken } from '@/lib/auth'
-import { fetchEwentcastMe, needsSubscription } from '@/lib/ewentcast-session'
+import { fetchAuthMe, needsSubscription } from '@/lib/ewentcast-session'
 import { Sidebar } from './Sidebar'
 import { PageLoader } from './Loader'
 import '@/app/app-shell.css'
@@ -16,11 +16,13 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
   const isSignupPage = pathname === '/signup'
   const isSubscribePage = pathname === '/subscribe'
   const isCreatePage = pathname === '/create'
-  const barePage = isLandingPage || isLoginPage || isSignupPage || isSubscribePage || isCreatePage
+  const isForgotPage = pathname === '/forgot-password'
+  const isResetPage = pathname === '/reset-password'
+  const barePage = isLandingPage || isLoginPage || isSignupPage || isSubscribePage || isCreatePage || isForgotPage || isResetPage
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
-    if (isLandingPage || isLoginPage || isSignupPage) {
+    if (isLandingPage || isLoginPage || isSignupPage || isForgotPage || isResetPage) {
       setReady(true)
       return
     }
@@ -36,7 +38,7 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
         return
       }
 
-      await fetchEwentcastMe()
+      await fetchAuthMe()
 
       if (needsSubscription() && !isSubscribePage) {
         router.replace('/subscribe')
@@ -53,7 +55,7 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
 
     checkAuth()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLandingPage, isLoginPage, isSignupPage, isSubscribePage, isCreatePage])
+  }, [isLandingPage, isLoginPage, isSignupPage, isSubscribePage, isCreatePage, isForgotPage, isResetPage])
 
   if (!ready) {
     return (

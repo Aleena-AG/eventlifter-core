@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
 import { getUser, clearAuth, authHeader, type HtUser } from '@/lib/auth'
+import { logoutLocal } from '@/lib/ewentcast-session'
 import { InlineLoader } from '@/components/Loader'
 import { EwentcastLogo } from '@/components/EwentcastLogo'
 import { SidebarNavIcon } from '@/components/SidebarNavIcon'
@@ -37,10 +38,7 @@ export function Sidebar() {
   const handleLogout = async () => {
     setLoggingOut(true)
     try {
-      await fetch('/api/hightribe/logout', {
-        method: 'POST',
-        headers: { Authorization: authHeader(), Accept: 'application/json' },
-      })
+      await logoutLocal()
     } catch {
       // ignore errors — clear locally regardless
     }

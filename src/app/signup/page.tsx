@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { isAuthenticated } from '@/lib/auth'
-import { registerEwentcast } from '@/lib/ewentcast-session'
+import { registerLocal } from '@/lib/ewentcast-session'
 import { InlineLoader } from '@/components/Loader'
 import { EwentcastLogo } from '@/components/EwentcastLogo'
 
@@ -33,7 +33,7 @@ export default function SignupPage() {
     setLoading(true)
     setError('')
     try {
-      const { ewentcast } = await registerEwentcast({ name, email, password })
+      const { ewentcast } = await registerLocal({ name, email, password })
       if (ewentcast.subscription_active) {
         router.replace('/dashboard')
       } else {
@@ -98,7 +98,7 @@ export default function SignupPage() {
           </form>
 
           <p style={{ textAlign: 'center', marginTop: '18px', fontSize: '13px', color: '#8C7F6D' }}>
-            Already have Hightribe?{' '}
+            Already have an account?{' '}
             <Link href="/login" style={{ color: '#D98A2B', textDecoration: 'none' }}>Sign in</Link>
           </p>
         </div>

@@ -3,7 +3,7 @@
 import { authHeader, getToken, setToken, setUser, type HtUser } from '@/lib/auth'
 
 export interface EwentcastAccount {
-  auth_source: 'ewentcast_signup' | 'Hightribe_native'
+  auth_source: 'ewentcast_signup' | 'hightribe_native'
   subscription_plan: string
   subscription_status: string
   subscription_active: boolean
@@ -46,7 +46,6 @@ export function clearEwentcastSession(): void {
   setHtLinkToken(null)
 }
 
-/** Token for Hightribe API calls (events, etc.) */
 export function htApiAuthHeader(): string {
   const account = getEwentcastAccount()
   if (account?.auth_source === 'ewentcast_signup' && account.ht_connected) {
@@ -70,14 +69,14 @@ export function needsHtConnect(): boolean {
   return account?.auth_source === 'ewentcast_signup' && account.subscription_active && !account.ht_connected
 }
 
-export async function fetchEwentcastMe(): Promise<{
+export async function fetchAuthMe(): Promise<{
   user: HtUser
   ewentcast: EwentcastAccount
 } | null> {
   const token = getToken()
   if (!token) return null
 
-  const res = await fetch('/api/hightribe/ewentcast/me', {
+  const res = await fetch('/api/auth/me', {
     headers: { Authorization: authHeader(), Accept: 'application/json' },
   })
   if (!res.ok) return null
@@ -85,20 +84,25 @@ export async function fetchEwentcastMe(): Promise<{
   const data = await res.json() as {
     user?: HtUser
     ewentcast?: EwentcastAccount
+    ht_link_token?: string | null
   }
   if (!data.user || !data.ewentcast) return null
 
   setUser(data.user)
   setEwentcastAccount(data.ewentcast)
+  if (data.ht_link_token) setHtLinkToken(data.ht_link_token)
   return { user: data.user, ewentcast: data.ewentcast }
 }
 
-export async function registerEwentcast(body: {
+/** @deprecated use fetchAuthMe */
+export const fetchEwentcastMe = fetchAuthMe
+
+export async function registerLocal(body: {
   name: string
   email: string
   password: string
 }): Promise<{ token: string; user: HtUser; ewentcast: EwentcastAccount }> {
-  const res = await fetch('/api/hightribe/ewentcast/register', {
+  const res = await fetch('/api/auth/register', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(body),
@@ -119,6 +123,99 @@ export async function registerEwentcast(body: {
   return { token: data.token, user: data.user, ewentcast: data.ewentcast }
 }
 
+/** @deprecated use registerLocal */
+export const registerEwentcast = registerLocal
+
+export async function loginLocal(email: string, password: string): Promise<void> {
+  const res = await fetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ email, password }),
+  })
+  const data = await res.json() as {
+    status?: boolean
+    message?: string
+    token?: string
+    user?: HtUser
+    ewentcast?: EwentcastAccount
+  }
+  if (!res.ok || !data.status || !data.token || !data.user || !data.ewentcast) {
+    throw new Error(data.message || 'Login failed')
+  }
+  setToken(data.token)
+  setUser(data.user)
+  setEwentcastAccount(data.ewentcast)
+}
+
+export async function logoutLocal(): Promise<void> {
+  try {
+    await fetch('/api/auth/logout', {
+      method: 'POST',
+      headers: { Authorization: authHeader(), Accept: 'application/json' },
+    })
+  } catch {
+    // clear locally regardless
+  }
+}
+
+export async function requestPasswordReset(email: string): Promise<{
+  resetToken?: string
+  resetUrl?: string
+}> {
+  const res = await fetch('/api/auth/forgot-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ email }),
+  })
+  const data = await res.json() as {
+    status?: boolean
+    message?: string
+    resetToken?: string
+    resetUrl?: string
+  }
+  if (!res.ok || !data.status) throw new Error(data.message || 'Request failed')
+  return { resetToken: data.resetToken, resetUrl: data.resetUrl }
+}
+
+export async function resetPassword(token: string, password: string): Promise<void> {
+  const res = await fetch('/api/auth/reset-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ token, password }),
+  })
+  const data = await res.json() as { status?: boolean; message?: string }
+  if (!res.ok || !data.status) throw new Error(data.message || 'Reset failed')
+}
+
+export async function loginWithHightribe(email: string, password: string): Promise<void> {
+  const res = await fetch('/api/hightribe/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ email, password }),
+  })
+  const data = await res.json() as {
+    status?: boolean
+    message?: string
+    token?: string
+    user?: HtUser
+  }
+  if (!res.ok || !data.status || !data.token || !data.user) {
+    throw new Error(data.message || 'HighTribe login failed')
+  }
+  setToken(data.token)
+  setUser(data.user)
+  setEwentcastAccount({
+    auth_source: 'hightribe_native',
+    subscription_plan: 'pro_monthly_20',
+    subscription_status: 'active',
+    subscription_active: true,
+    subscription_amount_usd: 20,
+    ht_connected: true,
+    linked_ht_user_id: Number(data.user.id) || null,
+    ht_connected_at: new Date().toISOString(),
+  })
+}
+
 export async function startSubscriptionCheckout(): Promise<string> {
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
   const res = await fetch('/api/hightribe/ewentcast/subscribe', {
@@ -136,14 +233,14 @@ export async function startSubscriptionCheckout(): Promise<string> {
   const data = await res.json() as { checkout_url?: string; message?: string; status?: boolean }
   if (data.checkout_url) return data.checkout_url
   if (data.status && data.message?.includes('already active')) {
-    await fetchEwentcastMe()
+    await fetchAuthMe()
     throw new Error('ALREADY_ACTIVE')
   }
   throw new Error(data.message || 'Could not start checkout')
 }
 
 export async function connectHightribe(email: string, password: string): Promise<void> {
-  const res = await fetch('/api/hightribe/ewentcast/connect-Hightribe', {
+  const res = await fetch('/api/auth/connect-hightribe', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -166,7 +263,7 @@ export async function connectHightribe(email: string, password: string): Promise
 }
 
 export async function disconnectHightribe(): Promise<void> {
-  const res = await fetch('/api/hightribe/ewentcast/disconnect-Hightribe', {
+  const res = await fetch('/api/auth/disconnect-hightribe', {
     method: 'POST',
     headers: { Authorization: authHeader(), Accept: 'application/json' },
   })

@@ -1,6 +1,5 @@
-import fs from 'fs'
-import path from 'path'
 import type { ChannelKey } from '@/lib/types'
+import { backendJson } from '@/lib/backend-client'
 
 export interface ChannelRef {
   eventId: string
@@ -27,117 +26,98 @@ export interface MasterEventRecord {
   updatedAt: string
 }
 
-const FILE = path.join(process.cwd(), 'data', 'event-registry.json')
-
-function ensureFile() {
-  const dir = path.dirname(FILE)
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-  if (!fs.existsSync(FILE)) fs.writeFileSync(FILE, JSON.stringify({ events: [] }, null, 2))
+export async function listMasterEvents(): Promise<MasterEventRecord[]> {
+  const data = await backendJson<{ events: MasterEventRecord[] }>('/api/registry')
+  return data.events
 }
 
-function readAll(): { events: MasterEventRecord[] } {
-  ensureFile()
+export async function getMasterEvent(id: string): Promise<MasterEventRecord | null> {
   try {
-    return JSON.parse(fs.readFileSync(FILE, 'utf8')) as { events: MasterEventRecord[] }
+    return await backendJson<MasterEventRecord>('/api/registry', {
+      method: 'POST',
+      body: JSON.stringify({ masterId: id }),
+    })
   } catch {
-    return { events: [] }
+    return null
   }
 }
 
-function writeAll(data: { events: MasterEventRecord[] }) {
-  ensureFile()
-  fs.writeFileSync(FILE, JSON.stringify(data, null, 2))
+export async function findMasterByChannelEvent(
+  channel: ChannelKey,
+  eventId: string,
+): Promise<MasterEventRecord | null> {
+  const data = await backendJson<{
+    master: { id: string; title: string } | null
+    links: Partial<Record<ChannelKey, { eventId: string; url?: string }>>
+  }>(`/api/registry?channel=${encodeURIComponent(channel)}&eventId=${encodeURIComponent(eventId)}`)
+
+  if (!data.master?.id) return null
+  return getMasterEvent(data.master.id)
 }
 
-export function listMasterEvents(): MasterEventRecord[] {
-  return readAll().events
-}
-
-export function getMasterEvent(id: string): MasterEventRecord | undefined {
-  return readAll().events.find(e => e.id === id)
-}
-
-export function findMasterByChannelEvent(channel: ChannelKey, eventId: string): MasterEventRecord | undefined {
-  return readAll().events.find(e => e.channels[channel]?.eventId === String(eventId))
-}
-
-export function saveMasterEvent(record: MasterEventRecord): MasterEventRecord {
-  const data = readAll()
-  const idx = data.events.findIndex(e => e.id === record.id)
-  record.updatedAt = new Date().toISOString()
-  if (idx >= 0) data.events[idx] = record
-  else data.events.push(record)
-  writeAll(data)
-  return record
-}
-
-export function createMasterEvent(input: {
+export async function createMasterEvent(input: {
   title: string
   capacity: number
   channels?: Partial<Record<ChannelKey, ChannelRef>>
-}): MasterEventRecord {
-  const now = new Date().toISOString()
-  const record: MasterEventRecord = {
-    id: `mst_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    title: input.title,
-    capacity: input.capacity,
-    sold: 0,
-    channels: input.channels || {},
-    attendees: [],
-    createdAt: now,
-    updatedAt: now,
-  }
-  return saveMasterEvent(record)
+}): Promise<MasterEventRecord> {
+  return backendJson<MasterEventRecord>('/api/registry', {
+    method: 'POST',
+    body: JSON.stringify({
+      action: 'create',
+      title: input.title,
+      capacity: input.capacity,
+    }),
+  })
 }
 
-export function registerAttendee(
+export async function registerAttendee(
   masterId: string,
   attendee: Omit<AttendeeRecord, 'registeredAt'> & { registeredAt?: string },
-): MasterEventRecord | null {
-  const master = getMasterEvent(masterId)
-  if (!master) return null
-
-  const email = attendee.email.toLowerCase().trim()
-  const exists = master.attendees.some(a => a.email.toLowerCase() === email)
-  if (!exists) {
-    master.attendees.push({
-      ...attendee,
-      email,
-      registeredAt: attendee.registeredAt || new Date().toISOString(),
-    })
-    master.sold = master.attendees.length
-    saveMasterEvent(master)
-  }
-  return master
+): Promise<MasterEventRecord | null> {
+  return backendJson<MasterEventRecord>('/api/registry', {
+    method: 'POST',
+    body: JSON.stringify({
+      action: 'register_attendee',
+      masterId,
+      attendee: {
+        ...attendee,
+        email: attendee.email.toLowerCase().trim(),
+        registeredAt: attendee.registeredAt || new Date().toISOString(),
+      },
+    }),
+  }).catch(() => null)
 }
 
-export function linkChannelEvent(
+export async function linkChannelEvent(
   masterId: string,
   channel: ChannelKey,
   ref: ChannelRef,
-): MasterEventRecord | null {
-  const master = getMasterEvent(masterId)
-  if (!master) return null
-  master.channels[channel] = ref
-  return saveMasterEvent(master)
+): Promise<MasterEventRecord | null> {
+  try {
+    return await backendJson<MasterEventRecord>('/api/registry', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'link', masterId, channel, ref }),
+    })
+  } catch {
+    return null
+  }
 }
 
-export function deleteMasterEvent(id: string): boolean {
-  const data = readAll()
-  const next = data.events.filter(e => e.id !== id)
-  if (next.length === data.events.length) return false
-  writeAll({ events: next })
+export async function deleteMasterEvent(id: string): Promise<boolean> {
+  await backendJson('/api/registry', {
+    method: 'POST',
+    body: JSON.stringify({ action: 'delete', masterId: id }),
+  })
   return true
 }
 
-export function removeChannelFromMaster(masterId: string, channel: ChannelKey): MasterEventRecord | null {
-  const master = getMasterEvent(masterId)
-  if (!master) return null
-  delete master.channels[channel]
-  const remaining = Object.keys(master.channels).length
-  if (remaining === 0) {
-    deleteMasterEvent(masterId)
-    return null
-  }
-  return saveMasterEvent(master)
+export async function removeChannelFromMaster(
+  masterId: string,
+  channel: ChannelKey,
+): Promise<MasterEventRecord | null> {
+  const data = await backendJson<{ ok: boolean; master: MasterEventRecord | null }>('/api/registry', {
+    method: 'POST',
+    body: JSON.stringify({ action: 'unlink', masterId, channel }),
+  })
+  return data.master
 }

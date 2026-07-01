@@ -1,0 +1,54 @@
+'use client'
+
+import type { ChannelKey } from '@/lib/types'
+import { authHeader } from '@/lib/auth'
+
+export type ChannelName = 'luma' | 'eventbrite' | 'hightribe'
+
+export interface StoredChannelEvent {
+  id: number
+  external_id: string
+  title: string
+  start_at: string | null
+  end_at: string | null
+  timezone: string | null
+  url: string | null
+  cover_url: string | null
+  status: string | null
+  payload: Record<string, unknown>
+  synced_at: string
+}
+
+export async function listStoredEvents(channel: ChannelName): Promise<StoredChannelEvent[]> {
+  const res = await fetch(`/api/events/${channel}`, {
+    headers: { Authorization: authHeader(), Accept: 'application/json' },
+  })
+  if (!res.ok) return []
+  const data = await res.json() as { events?: StoredChannelEvent[] }
+  return data.events || []
+}
+
+export async function syncStoredEvents(
+  channel: ChannelName,
+  events: Array<Record<string, unknown>>,
+): Promise<StoredChannelEvent[]> {
+  const res = await fetch(`/api/events/${channel}/sync`, {
+    method: 'POST',
+    headers: {
+      Authorization: authHeader(),
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({ events }),
+  })
+  if (!res.ok) {
+    const err = await res.json() as { error?: string }
+    throw new Error(err.error || `Sync failed (${res.status})`)
+  }
+  const data = await res.json() as { events?: StoredChannelEvent[] }
+  return data.events || []
+}
+
+export function channelToTab(channel: ChannelKey): ChannelName {
+  return channel
+}

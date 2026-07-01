@@ -15,6 +15,9 @@ import {
 import { ChannelLogo } from '@/components/ChannelLogo'
 import { ConnectHightribeSection } from '@/components/ConnectHightribeSection'
 import { getEwentcastAccount, isEwentcastSignupUser } from '@/lib/ewentcast-session'
+import { disconnectChannelIntegration } from '@/lib/channel-disconnect'
+import { eventbriteRedirectUri } from '@/lib/app-url'
+import { useRouter } from 'next/navigation'
 import type { ChannelKey } from '@/lib/types'
 
 // ─── shared styles ────────────────────────────────────────────────────────────
@@ -39,6 +42,12 @@ const BTN_PRIMARY: React.CSSProperties = {
 const BTN_GHOST: React.CSSProperties = {
   background: 'transparent', border: '1px solid #E8DFD0', borderRadius: '6px',
   color: '#5A4F45', padding: '7px 14px', fontSize: '13px', cursor: 'pointer',
+}
+
+const BTN_DISCONNECT: React.CSSProperties = {
+  background: '#FFFFFF', border: '1px solid #E8DFD0', borderRadius: '6px',
+  color: '#C2502E', padding: '7px 14px', fontSize: '13px', fontWeight: 500,
+  cursor: 'pointer',
 }
 
 // ─── SectionCard ──────────────────────────────────────────────────────────────
@@ -412,9 +421,11 @@ type SettingsShape = {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
+  const router = useRouter()
   const [settings, setSettings] = useState<SettingsShape>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
+  const [disconnecting, setDisconnecting] = useState<string | null>(null)
   const [testing, setTesting] = useState<string | null>(null)
   const [htUser, setHtUser] = useState<HtUser | null>(null)
   const [channelLoadError, setChannelLoadError] = useState<string | null>(null)
@@ -500,6 +511,26 @@ export default function SettingsPage() {
     }
   }
 
+  const disconnectSection = async (section: 'eventbrite' | 'luma' | 'hightribe') => {
+    const names = { eventbrite: 'Eventbrite', luma: 'Luma', hightribe: 'HighTribe' }
+    if (!window.confirm(`Disconnect ${names[section]}?`)) return
+    setDisconnecting(section)
+    try {
+      const result = await disconnectChannelIntegration(section)
+      if (result === 'session') {
+        toast.success('Signed out')
+        router.replace('/login')
+        return
+      }
+      toast.success(`${names[section]} disconnected`)
+      await loadSettings()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Disconnect failed')
+    } finally {
+      setDisconnecting(null)
+    }
+  }
+
   const testEventbrite = async () => {
     setTesting('eventbrite')
     try {
@@ -532,9 +563,11 @@ export default function SettingsPage() {
     }
   }
 
-  const DEFAULT_REDIRECT = 'http://localhost:3000/api/eventbrite/callback'
+  const DEFAULT_REDIRECT = eventbriteRedirectUri()
   const eb = settings.eventbrite || {}
   const lu = settings.luma || {}
+  const ebConnected = !!(eb.privateToken || eb.clientId)
+  const luConnected = !!lu.apiKey
 
   return (
     <div style={{ maxWidth: '680px' }}>
@@ -600,7 +633,7 @@ export default function SettingsPage() {
                     onChange={(e) => updateSection('eventbrite', 'publicToken', e.target.value)} />
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 <button onClick={() => saveSection('eventbrite')} disabled={saving === 'eventbrite'}
                   style={{ ...BTN_PRIMARY, opacity: saving === 'eventbrite' ? 0.6 : 1 }}>
                   {saving === 'eventbrite' ? <InlineLoader label="Saving" /> : 'Save'}
@@ -609,6 +642,15 @@ export default function SettingsPage() {
                   style={{ ...BTN_GHOST, opacity: testing === 'eventbrite' ? 0.6 : 1 }}>
                   {testing === 'eventbrite' ? 'Testing…' : 'Test Connection'}
                 </button>
+                {ebConnected && (
+                  <button
+                    onClick={() => disconnectSection('eventbrite')}
+                    disabled={disconnecting === 'eventbrite'}
+                    style={{ ...BTN_DISCONNECT, opacity: disconnecting === 'eventbrite' ? 0.6 : 1 }}
+                  >
+                    {disconnecting === 'eventbrite' ? <InlineLoader label="…" /> : 'Disconnect'}
+                  </button>
+                )}
               </div>
             </div>
           </SectionCard>
@@ -631,21 +673,7 @@ export default function SettingsPage() {
                     onChange={(e) => updateSection('luma', 'calendarId', e.target.value)} />
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <div>
-                  <label style={LABEL}>API Base URL</label>
-                  <input style={INPUT} type="text" placeholder="https://public-api.luma.com"
-                    value={lu.apiBaseUrl || 'https://public-api.luma.com'}
-                    onChange={(e) => updateSection('luma', 'apiBaseUrl', e.target.value)} />
-                </div>
-                <div>
-                  <label style={LABEL}>Discover Base URL</label>
-                  <input style={INPUT} type="text" placeholder="https://api.lu.ma"
-                    value={lu.discoverBaseUrl || 'https://api.lu.ma'}
-                    onChange={(e) => updateSection('luma', 'discoverBaseUrl', e.target.value)} />
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 <button onClick={() => saveSection('luma')} disabled={saving === 'luma'}
                   style={{ ...BTN_PRIMARY, opacity: saving === 'luma' ? 0.6 : 1 }}>
                   {saving === 'luma' ? <InlineLoader label="Saving" /> : 'Save'}
@@ -654,6 +682,15 @@ export default function SettingsPage() {
                   style={{ ...BTN_GHOST, opacity: testing === 'luma' ? 0.6 : 1 }}>
                   {testing === 'luma' ? 'Testing…' : 'Test Connection'}
                 </button>
+                {luConnected && (
+                  <button
+                    onClick={() => disconnectSection('luma')}
+                    disabled={disconnecting === 'luma'}
+                    style={{ ...BTN_DISCONNECT, opacity: disconnecting === 'luma' ? 0.6 : 1 }}
+                  >
+                    {disconnecting === 'luma' ? <InlineLoader label="…" /> : 'Disconnect'}
+                  </button>
+                )}
               </div>
             </div>
           </SectionCard>

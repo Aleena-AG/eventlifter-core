@@ -3,37 +3,19 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { setToken, setUser, isAuthenticated } from '@/lib/auth'
-import { fetchEwentcastMe } from '@/lib/ewentcast-session'
+import { isAuthenticated } from '@/lib/auth'
+import { fetchAuthMe, loginLocal, loginWithHightribe } from '@/lib/ewentcast-session'
 import { InlineLoader } from '@/components/Loader'
 import { EwentcastLogo } from '@/components/EwentcastLogo'
 import { AuthShowcase } from '@/components/auth/AuthShowcase'
 
 const REMEMBER_EMAIL_KEY = 'ewentcast_login_email'
-const HIGHTRIBE_FORGOT_PASSWORD = 'mailto:support@hightribe.com?subject=Password%20reset%20request'
 
 const PLATFORMS = [
   { name: 'Eventbrite', color: 'var(--rust)' },
   { name: 'Luma', color: 'var(--plum)' },
   { name: 'Hightribe', color: 'var(--honey)' },
 ]
-
-interface LoginResponse {
-  status: boolean
-  message?: string
-  token?: string
-  user?: {
-    id: string | number
-    name: string
-    email: string
-    username?: string
-    type?: string
-    location?: string
-    has_business_profile?: boolean
-    profile?: { avatar?: string; bio?: string }
-  }
-  error?: string
-}
 
 export default function LoginPage() {
   const router = useRouter()
@@ -42,6 +24,7 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [rememberEmail, setRememberEmail] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [htLoading, setHtLoading] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -65,17 +48,7 @@ export default function LoginPage() {
     setLoading(true)
     setError('')
     try {
-      const res = await fetch('/api/hightribe/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ email, password }),
-      })
-      const data: LoginResponse = await res.json()
-
-      if (!res.ok || !data.status || !data.token) {
-        setError(data.message || data.error || 'Login failed. Check your credentials.')
-        return
-      }
+      await loginLocal(email, password)
 
       if (rememberEmail) {
         localStorage.setItem(REMEMBER_EMAIL_KEY, email)
@@ -83,9 +56,7 @@ export default function LoginPage() {
         localStorage.removeItem(REMEMBER_EMAIL_KEY)
       }
 
-      setToken(data.token)
-      if (data.user) setUser(data.user)
-      await fetchEwentcastMe()
+      await fetchAuthMe()
       router.replace('/dashboard')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Network error. Please try again.')
@@ -108,18 +79,7 @@ export default function LoginPage() {
             <span className="auth-badge">Welcome back</span>
             <h1 className="auth-title">Sign in to your studio</h1>
             <p className="auth-subtitle">
-              <span className="auth-subtitle-branded">
-                <span className="auth-subtitle-row">
-                  <span>Use your</span>
-                  <img
-                    src="https://res.cloudinary.com/dstnwi5iq/image/upload/v1782388851/WhatsApp_Image_2026-06-24_at_10.49.13_AM-removebg-preview_mwpjnn.png"
-                    alt="Hightribe"
-                    className="auth-inline-logo"
-                  />
-                  <span>credentials</span>
-                </span>
-                <span className="auth-subtitle-row">to manage events across every channel.</span>
-              </span>
+              Sign in with your Ewentcast account to manage events across every channel.
             </p>
           </header>
 
@@ -153,12 +113,9 @@ export default function LoginPage() {
                   <label className="auth-label" htmlFor="login-password">
                     Password
                   </label>
-                  <a
-                    href={HIGHTRIBE_FORGOT_PASSWORD}
-                    className="auth-link auth-link--sm"
-                  >
+                  <Link href="/forgot-password" className="auth-link auth-link--sm">
                     Forgot password?
-                  </a>
+                  </Link>
                 </div>
                 <div className="auth-input-wrap">
                   <input
@@ -195,6 +152,32 @@ export default function LoginPage() {
 
               <button type="submit" disabled={loading} className="auth-btn-primary">
                 {loading ? <InlineLoader label="Signing in" /> : 'Sign in →'}
+              </button>
+
+              <div className="auth-divider">or</div>
+
+              <button
+                type="button"
+                disabled={htLoading || loading}
+                className="auth-btn-ghost"
+                onClick={async () => {
+                  if (!email || !password) {
+                    setError('Enter email and password to use HighTribe login')
+                    return
+                  }
+                  setHtLoading(true)
+                  setError('')
+                  try {
+                    await loginWithHightribe(email, password)
+                    router.replace('/dashboard')
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'HighTribe login failed')
+                  } finally {
+                    setHtLoading(false)
+                  }
+                }}
+              >
+                {htLoading ? <InlineLoader label="Connecting HighTribe" /> : 'Sign in with HighTribe'}
               </button>
             </form>
 

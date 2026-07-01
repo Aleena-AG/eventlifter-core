@@ -3,13 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "dev": "concurrently -n web,api -c blue,green \"npm run dev:web\" \"npm run dev:api\"",
+    "dev:web": "next dev -p 3000 -H 127.0.0.1",
+    "dev:api": "npm run dev --prefix backend",
+    "build": "npm run build --prefix backend && next build",
+    "start": "concurrently -n web,api -c blue,green \"npm run start:web\" \"npm run start:api\"",
+    "start:web": "next start",
+    "start:api": "npm run start --prefix backend",
+    "migrate": "npm run migrate --prefix backend",
     "lint": "eslint"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",
+    "concurrently": "^9.1.2",
     "next": "16.2.9",
     "react": "19.2.4",
     "react-dom": "19.2.4"
