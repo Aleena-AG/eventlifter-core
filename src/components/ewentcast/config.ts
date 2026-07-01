@@ -15,6 +15,7 @@ export type FieldDef = {
   k: string
   label: string
   hint?: string
+  placeholder?: string
   type?: 'textarea' | 'select' | 'toggle' | 'cover'
   opts?: string[]
   full?: boolean
@@ -23,9 +24,9 @@ export type FieldDef = {
 
 export const SECTIONS: { key: string; label: string; fields: FieldDef[] }[] = [
   { key: 'basics', label: 'Basics', fields: [
-    { k: 'title', label: 'Title', on: ALL_CHANNELS },
-    { k: 'summary', label: 'Summary', hint: 'short line', on: ['hightribe', 'eventbrite'] },
-    { k: 'description', label: 'Description', type: 'textarea', full: true, on: ALL_CHANNELS },
+    { k: 'title', label: 'Title', placeholder: 'e.g. Summer rooftop concert', on: ALL_CHANNELS },
+    { k: 'summary', label: 'Summary', hint: 'short line', placeholder: 'One-line teaser for listings', on: ['hightribe', 'eventbrite'] },
+    { k: 'description', label: 'Description', type: 'textarea', full: true, placeholder: 'Tell guests what to expect…', on: ALL_CHANNELS },
     { k: 'coverUrl', label: 'Cover photo', hint: 'upload or paste URL', type: 'cover', full: true, on: ALL_CHANNELS },
     { k: 'category', label: 'Category', type: 'select', opts: ['Music', 'Food & Drink', 'Arts & Culture', 'Community', 'Business', 'Sports & Fitness'], on: ['hightribe', 'eventbrite'] },
     { k: 'tags', label: 'Tags', hint: 'comma separated', on: ['hightribe', 'luma'] },
@@ -39,9 +40,9 @@ export const SECTIONS: { key: string; label: string; fields: FieldDef[] }[] = [
   ]},
   { key: 'where', label: 'Where', fields: [
     { k: 'format', label: 'Format', type: 'select', opts: ['In person', 'Online', 'Hybrid'], on: ALL_CHANNELS },
-    { k: 'venue', label: 'Venue name', on: ALL_CHANNELS },
-    { k: 'address', label: 'Street address', on: ALL_CHANNELS },
-    { k: 'city', label: 'City', on: ALL_CHANNELS },
+    { k: 'venue', label: 'Venue name', placeholder: 'e.g. The Grand Hall', on: ALL_CHANNELS },
+    { k: 'address', label: 'Street address', placeholder: '123 Main St', on: ALL_CHANNELS },
+    { k: 'city', label: 'City', placeholder: 'City', on: ALL_CHANNELS },
     { k: 'region', label: 'Region / State', on: ALL_CHANNELS },
     { k: 'postal', label: 'Postal code', on: ALL_CHANNELS },
     { k: 'country', label: 'Country', on: ALL_CHANNELS },
@@ -68,49 +69,52 @@ export const SECTIONS: { key: string; label: string; fields: FieldDef[] }[] = [
     { k: 'password', label: 'Access password', hint: 'optional', on: ['eventbrite'] },
   ]},
   { key: 'host', label: 'Host', fields: [
-    { k: 'hostName', label: 'Host / organizer', on: ALL_CHANNELS },
-    { k: 'refundPolicy', label: 'Refund policy', type: 'textarea', full: true, on: ['hightribe', 'eventbrite'] },
-    { k: 'faq', label: 'FAQ', type: 'textarea', full: true, on: ['hightribe', 'eventbrite'] },
+    { k: 'hostName', label: 'Host / organizer', placeholder: 'Your name or organization', on: ALL_CHANNELS },
+    { k: 'refundPolicy', label: 'Refund policy', type: 'textarea', full: true, placeholder: 'e.g. Full refund up to 7 days before the event', on: ['hightribe', 'eventbrite'] },
+    { k: 'faq', label: 'FAQ', type: 'textarea', full: true, placeholder: 'Parking, dress code, accessibility…', on: ['hightribe', 'eventbrite'] },
   ]},
 ]
 
-export const SAMPLE_EVENT: Record<string, string | boolean> = {
-  title: 'Golden Hour Rooftop Session — Venice',
-  summary: 'Sunset music, local makers, golden-hour views.',
-  description: 'An intimate evening on a Venice rooftop — live acoustic as the sun drops over the Pacific. Doors at 5:30, music at 6.',
+export const DEFAULT_EVENT: Record<string, string | boolean> = {
+  title: '',
+  summary: '',
+  description: '',
   coverUrl: '',
-  category: 'Music',
-  tags: 'sunset, rooftop, venice, live music, local',
-  date: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
-  time: '17:30',
-  endDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
-  endTime: '21:00',
-  timezone: 'America/Los_Angeles',
-  format: 'In person',
-  venue: 'Rooftop at Rose Ave',
-  address: '118 Rose Ave',
-  city: 'Venice',
-  region: 'CA',
-  postal: '90291',
-  country: 'US',
-  lat: '33.9982',
-  lng: '-118.4695',
+  category: '',
+  tags: '',
+  date: '',
+  time: '',
+  endDate: '',
+  endTime: '',
+  timezone: '',
+  format: '',
+  venue: '',
+  address: '',
+  city: '',
+  region: '',
+  postal: '',
+  country: '',
+  lat: '',
+  lng: '',
   onlineUrl: '',
-  ticketType: 'Paid',
-  price: '25',
-  currency: 'USD',
-  capacity: '150',
-  minPerOrder: '1',
-  maxPerOrder: '8',
+  ticketType: '',
+  price: '',
+  currency: '',
+  capacity: '',
+  minPerOrder: '',
+  maxPerOrder: '',
   salesStart: '',
   salesEnd: '',
-  waitlist: true,
-  visibility: 'Public',
+  waitlist: false,
+  visibility: '',
   requireApproval: false,
   inviteOnly: false,
-  showRemaining: true,
+  showRemaining: false,
   password: '',
-  hostName: 'Hightribe · Venice Collective',
-  refundPolicy: 'Full refund up to 7 days before the event.',
-  faq: 'Parking? Street parking on Rose Ave.',
+  hostName: '',
+  refundPolicy: '',
+  faq: '',
 }
+
+/** @deprecated Use DEFAULT_EVENT */
+export const SAMPLE_EVENT = DEFAULT_EVENT

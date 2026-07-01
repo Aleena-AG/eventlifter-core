@@ -108,138 +108,134 @@ type GuideStep = {
   note?: string
 }
 
-function StepGuide({ steps, color, title, defaultOpen = false }: {
+function StepGuide({ steps, color, title }: {
   steps: GuideStep[]
   color: string
   title: string
-  defaultOpen?: boolean
 }) {
-  const [open, setOpen] = useState(defaultOpen)
-  const [step, setStep] = useState(0)
-  const current = steps[step]
+  const [collapsed, setCollapsed] = useState(false)
+  const [active, setActive] = useState(0)
 
-  return (
-    <div style={{
-      border: `1px solid ${color}30`, borderRadius: '8px',
-      marginBottom: '16px', overflow: 'hidden',
-      background: `${color}08`,
-    }}>
-      {/* header */}
-      <button
-        onClick={() => setOpen((o) => !o)}
-        style={{
-          width: '100%', display: 'flex', alignItems: 'center',
-          justifyContent: 'space-between', padding: '10px 14px',
-          background: 'transparent', border: 'none', cursor: 'pointer',
-          textAlign: 'left',
-        }}
-      >
-        <span style={{ fontSize: '13px', fontWeight: 600, color }}>
-          {title}
-        </span>
-        <span style={{ fontSize: '12px', color: `${color}99` }}>{open ? '▲' : '▼'}</span>
-      </button>
+  const toggleStep = (i: number) => setActive((prev) => (prev === i ? prev : i))
 
-      {open && (
-        <div style={{ padding: '0 14px 14px', background: '#fff', borderTop: `1px solid ${color}20` }}>
-          {/* progress dots */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '12px 0 14px' }}>
+  if (collapsed) {
+    return (
+      <div className="step-guide step-guide--collapsed" style={{ '--guide-color': color } as React.CSSProperties}>
+        <div className="step-guide__collapsed-bar">
+          <div className="step-guide__collapsed-left">
+            <span className="step-guide__icon step-guide__icon--sm" aria-hidden="true">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                <line x1="8" y1="7" x2="16" y2="7" />
+                <line x1="8" y1="11" x2="14" y2="11" />
+              </svg>
+            </span>
+            <div>
+              <span className="step-guide__collapsed-label">Setup guide</span>
+              <span className="step-guide__collapsed-meta">{steps.length} steps · currently on step {active + 1}</span>
+            </div>
+          </div>
+          <div className="step-guide__collapsed-track" aria-hidden="true">
             {steps.map((s, i) => (
-              <div key={s.num} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <button
-                  onClick={() => setStep(i)}
-                  style={{
-                    width: '8px', height: '8px', borderRadius: '50%', border: 'none',
-                    padding: 0, cursor: 'pointer', flexShrink: 0,
-                    background: i < step ? color : i === step ? '#D98A2B' : '#E8DFD0',
-                    transition: 'background 0.2s',
-                  }}
-                />
-                {i < steps.length - 1 && (
-                  <div style={{ height: '1px', width: '20px', background: i < step ? color : '#E8DFD0' }} />
-                )}
-              </div>
+              <span
+                key={s.num}
+                className={`step-guide__collapsed-dot${i <= active ? ' step-guide__collapsed-dot--done' : ''}`}
+              />
             ))}
           </div>
+          <button type="button" className="step-guide__expand-btn" onClick={() => setCollapsed(false)}>
+            Open guide
+          </button>
+        </div>
+      </div>
+    )
+  }
 
-          {/* slide */}
-          <div style={{ border: '1px solid #E8DFD0', borderRadius: '8px', overflow: 'hidden' }}>
-            <div style={{
-              background: '#F8F4FB', borderBottom: '1px solid #E8DFD0',
-              minHeight: '160px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              overflow: 'hidden',
-            }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={current.img}
-                alt={current.title}
-                style={{ width: '100%', height: 'auto', display: 'block', maxHeight: '240px', objectFit: 'cover' }}
-                onError={(e) => {
-                  const img = e.currentTarget as HTMLImageElement
-                  const p = img.parentElement
-                  img.style.display = 'none'
-                  if (p) p.innerHTML = '<span style="font-size:12px;color:#8C7F6D;padding:16px">Screenshot not found</span>'
-                }}
-              />
-            </div>
-            <div style={{ padding: '12px 14px' }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
-                <div style={{
-                  width: '26px', height: '26px', borderRadius: '50%', flexShrink: 0,
-                  background: color, color: '#fff', display: 'flex',
-                  alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 700,
-                }}>
-                  {current.num}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#211B16', marginBottom: '3px' }}>
-                    {current.title}
+  return (
+    <div className="step-guide" style={{ '--guide-color': color } as React.CSSProperties}>
+      <div className="step-guide__hero">
+        <div className="step-guide__hero-text">
+          <span className="step-guide__eyebrow">Step-by-step guide</span>
+          <h3 className="step-guide__hero-title">{title}</h3>
+          <p className="step-guide__hero-desc">
+            Complete these {steps.length} steps on the provider&apos;s site, then paste the values into the form below.
+          </p>
+        </div>
+        <button type="button" className="step-guide__collapse-btn" onClick={() => setCollapsed(true)}>
+          Minimize
+        </button>
+      </div>
+
+      <ol className="step-guide__timeline">
+        {steps.map((s, i) => {
+          const isActive = i === active
+          const isDone = i < active
+          return (
+            <li
+              key={s.num}
+              className={`step-guide__item${isActive ? ' step-guide__item--active' : ''}${isDone ? ' step-guide__item--done' : ''}`}
+            >
+              <button
+                type="button"
+                className="step-guide__item-trigger"
+                onClick={() => toggleStep(i)}
+                aria-expanded={isActive}
+              >
+                <span className="step-guide__item-marker" aria-hidden="true">
+                  {isDone ? (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  ) : s.num}
+                </span>
+                <span className="step-guide__item-summary">
+                  <span className="step-guide__item-title">{s.title}</span>
+                  {!isActive && <span className="step-guide__item-hint">{s.path}</span>}
+                </span>
+                <span className="step-guide__item-chevron" aria-hidden="true">{isActive ? '−' : '+'}</span>
+              </button>
+
+              {isActive && (
+                <div className="step-guide__item-panel">
+                  <div className="step-guide__screenshot">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={s.img}
+                      alt={`Step ${s.num}: ${s.title}`}
+                      onError={(e) => {
+                        const img = e.currentTarget as HTMLImageElement
+                        const p = img.parentElement
+                        img.style.display = 'none'
+                        if (p) p.innerHTML = '<span class="step-guide__img-fallback">Screenshot not found</span>'
+                      }}
+                    />
                   </div>
-                  <div style={{ fontSize: '12px', color: '#5A4F45', lineHeight: 1.6, marginBottom: '6px' }}>
-                    {current.desc}
+                  <p className="step-guide__step-desc">{s.desc}</p>
+                  <div className="step-guide__meta">
+                    <code className="step-guide__path">{s.path}</code>
+                    {s.note && <span className="step-guide__note">{s.note}</span>}
                   </div>
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
-                    <code style={{
-                      fontSize: '11px', background: '#FBF7F0', border: '1px solid #E8DFD0',
-                      borderRadius: '4px', padding: '2px 7px', color,
-                    }}>
-                      {current.path}
-                    </code>
-                    {current.note && (
-                      <span style={{
-                        fontSize: '11px', background: 'rgba(217,138,43,0.1)',
-                        border: '1px solid rgba(217,138,43,0.3)', borderRadius: '4px',
-                        padding: '2px 7px', color: '#D98A2B',
-                      }}>
-                        {current.note}
-                      </span>
+                  <div className="step-guide__item-footer">
+                    {i > 0 && (
+                      <button type="button" className="step-guide__footer-btn" onClick={() => setActive(i - 1)}>
+                        ← Previous step
+                      </button>
+                    )}
+                    {i < steps.length - 1 ? (
+                      <button type="button" className="step-guide__footer-btn step-guide__footer-btn--primary" onClick={() => setActive(i + 1)}>
+                        Next step →
+                      </button>
+                    ) : (
+                      <span className="step-guide__done-msg">You&apos;re done — paste your credentials below.</span>
                     )}
                   </div>
                 </div>
-              </div>
-            </div>
-          </div>
-
-          {/* nav */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '10px' }}>
-            <button
-              onClick={() => setStep((s) => Math.max(0, s - 1))}
-              disabled={step === 0}
-              style={{ ...BTN_GHOST, fontSize: '12px', padding: '4px 12px', opacity: step === 0 ? 0.35 : 1 }}
-            >
-              ← Prev
-            </button>
-            <span style={{ fontSize: '12px', color: '#8C7F6D' }}>{step + 1} / {steps.length}</span>
-            <button
-              onClick={() => setStep((s) => Math.min(steps.length - 1, s + 1))}
-              disabled={step === steps.length - 1}
-              style={{ ...BTN_GHOST, fontSize: '12px', padding: '4px 12px', opacity: step === steps.length - 1 ? 0.35 : 1 }}
-            >
-              Next →
-            </button>
-          </div>
-        </div>
-      )}
+              )}
+            </li>
+          )
+        })}
+      </ol>
     </div>
   )
 }
@@ -560,7 +556,7 @@ export default function SettingsPage() {
   const webhookOnly = focusChannel === 'luma' || focusChannel === 'eventbrite' ? focusChannel : undefined
 
   return (
-    <div className={`settings-page${focusChannel ? ' settings-page--narrow' : ''}`}>
+    <div className="settings-page">
       <Toast toasts={toasts} onRemove={removeToast} />
 
       {focusChannel && (
@@ -609,8 +605,13 @@ export default function SettingsPage() {
         <>
           {showEventbrite && (
           <SectionCard title="Eventbrite" channel="eventbrite">
-            <StepGuide steps={EVENTBRITE_STEPS} color={EVENTBRITE_COLOR} title="Setup guide (4 steps)" />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div className="settings-channel-layout">
+              <div className="settings-channel-layout__guide">
+                <StepGuide steps={EVENTBRITE_STEPS} color={EVENTBRITE_COLOR} title="How to connect Eventbrite" />
+              </div>
+              <div className="settings-channel-layout__form">
+                <p className="settings-form-heading">Paste your credentials here</p>
+                <div className="settings-form-fields">
               <div className="settings-grid-2">
                 <div>
                   <label style={LABEL}>Client ID</label>
@@ -658,14 +659,21 @@ export default function SettingsPage() {
                   {testing === 'eventbrite' ? 'Testing…' : 'Test Connection'}
                 </button>
               </div>
+                </div>
+              </div>
             </div>
           </SectionCard>
           )}
 
           {showLuma && (
           <SectionCard title="Luma" channel="luma">
-            <StepGuide steps={LUMA_STEPS} color={LUMA_COLOR} title="Setup guide (4 steps)" />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div className="settings-channel-layout">
+              <div className="settings-channel-layout__guide">
+                <StepGuide steps={LUMA_STEPS} color={LUMA_COLOR} title="How to connect Luma" />
+              </div>
+              <div className="settings-channel-layout__form">
+                <p className="settings-form-heading">Paste your credentials here</p>
+                <div className="settings-form-fields">
               <div className="settings-grid-2">
                 <div>
                   <label style={LABEL}>API Key</label>
@@ -703,6 +711,8 @@ export default function SettingsPage() {
                   style={{ ...BTN_GHOST, opacity: testing === 'luma' ? 0.6 : 1 }}>
                   {testing === 'luma' ? 'Testing…' : 'Test Connection'}
                 </button>
+              </div>
+                </div>
               </div>
             </div>
           </SectionCard>
