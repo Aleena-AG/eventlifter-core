@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { resolveAppSettings } from '@/lib/channel-settings-server'
+import { backendFetch } from '@/lib/backend-client'
 import {
   loadSettings,
   mergeSettingsPatch,
@@ -10,9 +10,51 @@ import {
 
 export { loadSettings, saveSettings } from '@/lib/settings-store'
 
-export async function GET(req: NextRequest) {
+async function proxyToBackend(req: NextRequest, init?: RequestInit): Promise<NextResponse> {
+  const auth = req.headers.get('authorization')
+  if (!auth) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const url = new URL(req.url)
+  const qs = url.search
+  const path = `/api/settings${qs}`
+
   try {
-    const settings = await resolveAppSettings(req.headers.get('authorization'))
+    const res = await backendFetch(path, {
+      ...init,
+      method: init?.method || req.method,
+      headers: {
+        Authorization: auth,
+        Accept: 'application/json',
+        ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+        ...(init?.headers as Record<string, string> | undefined),
+      },
+      body: init?.body,
+    })
+
+    const text = await res.text()
+    let data: unknown = {}
+    try {
+      data = text ? JSON.parse(text) : {}
+    } catch {
+      data = { error: text.slice(0, 200) || `HTTP ${res.status}` }
+    }
+    return NextResponse.json(data, { status: res.status })
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : 'Backend unavailable' },
+      { status: 503 },
+    )
+  }
+}
+
+export async function GET(req: NextRequest) {
+  const auth = req.headers.get('authorization')?.trim()
+  if (auth) return proxyToBackend(req)
+
+  try {
+    const settings = loadSettings()
     return NextResponse.json(toPublicSettingsView(settings))
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Failed to load settings'
@@ -20,30 +62,24 @@ export async function GET(req: NextRequest) {
   }
 }
 
-/** Local cache only (webhook secret). Luma/Eventbrite keys live on Hightribe API. */
+/** Per-user settings in MySQL when logged in; file cache only without auth. */
 export async function PUT(req: NextRequest) {
+  const auth = req.headers.get('authorization')?.trim()
+  const patch = await req.json() as Partial<AppSettings>
+
+  if (auth) {
+    return proxyToBackend(req, {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    })
+  }
+
   try {
-    const localOnly = req.nextUrl.searchParams.get('localOnly') === '1'
-    const patch = await req.json() as Partial<AppSettings>
-    let updated = mergeSettingsPatch(loadSettings(), patch)
-
-    if (!localOnly) {
-      const auth = req.headers.get('authorization')?.trim()
-      if (patch.luma || patch.eventbrite) {
-        if (!auth) {
-          return NextResponse.json(
-            { error: 'Use Hightribe channel-integrations API for Luma/Eventbrite keys' },
-            { status: 400 },
-          )
-        }
-      }
-    }
-
+    const updated = mergeSettingsPatch(loadSettings(), patch)
     saveSettings(updated)
     return NextResponse.json(toPublicSettingsView(updated))
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Failed to save settings'
-    console.error('[settings PUT]', msg, e)
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }

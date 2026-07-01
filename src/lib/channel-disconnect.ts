@@ -5,15 +5,12 @@ import {
   isEwentcastSignupUser,
   logoutLocal,
 } from '@/lib/ewentcast-session'
-import {
-  appSettingsToHtPatch,
-  htDataToPublicForm,
-  saveChannelSettingsViaProxy,
-} from '@/lib/channel-settings-client'
 import type { ChannelKey } from '@/lib/types'
+import { purgeChannelDataFromDb } from '@/lib/channel-data-sync'
+import type { AppSettings } from '@/lib/settings-types'
 
-async function clearLocalSettings(patch: Record<string, unknown>): Promise<void> {
-  const res = await fetch('/api/settings?localOnly=1', {
+async function saveUserSettings(patch: Partial<AppSettings>): Promise<void> {
+  const res = await fetch('/api/settings', {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
@@ -23,49 +20,30 @@ async function clearLocalSettings(patch: Record<string, unknown>): Promise<void>
     body: JSON.stringify(patch),
   })
   if (!res.ok) {
-    const data = await res.json() as { error?: string }
-    throw new Error(data.error || 'Failed to clear local settings')
+    const data = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(data.error || 'Failed to save settings')
+  }
+}
+
+async function clearChannelSettingsInDb(channel: 'luma' | 'eventbrite' | 'hightribe'): Promise<void> {
+  try {
+    const res = await fetch(`/api/settings/${channel}`, {
+      method: 'DELETE',
+      headers: { Authorization: authHeader(), Accept: 'application/json' },
+    })
+    if (!res.ok) return
+    await res.json().catch(() => undefined)
+  } catch {
+    // best-effort
   }
 }
 
 async function clearLumaCredentials(): Promise<void> {
-  const empty = {
-    luma: { apiKey: '', calendarId: '', apiBaseUrl: '', discoverBaseUrl: '' },
-  }
-
-  await clearLocalSettings(htDataToPublicForm(appSettingsToHtPatch(empty)))
-
-  if (getUser()) {
-    try {
-      const saved = await saveChannelSettingsViaProxy(appSettingsToHtPatch(empty))
-      await clearLocalSettings(htDataToPublicForm(saved))
-    } catch {
-      // Local cache cleared; HT sync optional for ewentcast-only users
-    }
-  }
+  await clearChannelSettingsInDb('luma')
 }
 
 async function clearEventbriteCredentials(): Promise<void> {
-  const empty = {
-    eventbrite: {
-      clientId: '',
-      clientSecret: '',
-      redirectUri: '',
-      privateToken: '',
-      publicToken: '',
-    },
-  }
-
-  await clearLocalSettings(htDataToPublicForm(appSettingsToHtPatch(empty)))
-
-  if (getUser()) {
-    try {
-      const saved = await saveChannelSettingsViaProxy(appSettingsToHtPatch(empty))
-      await clearLocalSettings(htDataToPublicForm(saved))
-    } catch {
-      // Local cache cleared
-    }
-  }
+  await clearChannelSettingsInDb('eventbrite')
 }
 
 async function disconnectHightribeChannel(): Promise<'linked' | 'session'> {
@@ -74,7 +52,11 @@ async function disconnectHightribeChannel(): Promise<'linked' | 'session'> {
     return 'linked'
   }
   if (getUser()) {
-    await logoutLocal()
+    try {
+      await logoutLocal()
+    } catch {
+      // clear locally even if logout API fails
+    }
     clearAuth()
     return 'session'
   }
@@ -84,18 +66,25 @@ async function disconnectHightribeChannel(): Promise<'linked' | 'session'> {
 export async function disconnectChannelIntegration(
   channel: ChannelKey,
 ): Promise<'linked' | 'session' | 'cleared'> {
+  let result: 'linked' | 'session' | 'cleared'
+
   if (channel === 'luma') {
     await clearLumaCredentials()
-    return 'cleared'
-  }
-  if (channel === 'eventbrite') {
+    result = 'cleared'
+  } else if (channel === 'eventbrite') {
     await clearEventbriteCredentials()
-    return 'cleared'
+    result = 'cleared'
+  } else if (channel === 'hightribe') {
+    result = await disconnectHightribeChannel()
+  } else {
+    throw new Error('Unknown channel')
   }
-  if (channel === 'hightribe') {
-    return disconnectHightribeChannel()
+
+  if (getUser()) {
+    void purgeChannelDataFromDb(channel)
   }
-  throw new Error('Unknown channel')
+
+  return result
 }
 
 export function channelDisconnectLabel(channel: ChannelKey, connected: boolean): string | null {
@@ -106,3 +95,6 @@ export function channelDisconnectLabel(channel: ChannelKey, connected: boolean):
   if (channel === 'hightribe') return 'Sign out'
   return 'Disconnect'
 }
+
+// exported for settings save helpers if needed elsewhere
+export { saveUserSettings }

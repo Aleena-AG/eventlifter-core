@@ -10,6 +10,7 @@ dotenv.config({ path: path.join(root, '.env') })
 export const config = {
   port: Number(process.env.BACKEND_PORT || 4000),
   corsOrigin: process.env.BACKEND_CORS_ORIGIN || 'http://localhost:3000',
+  appUrl: (process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || process.env.BACKEND_CORS_ORIGIN || 'http://localhost:3000').replace(/\/$/, ''),
   db: {
     host: process.env.CHANNEL_MANAGER_DB_HOST || '',
     port: Number(process.env.CHANNEL_MANAGER_DB_PORT || 3306),
@@ -23,6 +24,13 @@ export const config = {
   sessionDays: Number(process.env.AUTH_SESSION_DAYS || 30),
   resetTokenHours: Number(process.env.AUTH_RESET_TOKEN_HOURS || 2),
   htApiBase: (process.env.HT_API_BASE || 'https://api.hightribe.com').replace(/\/$/, ''),
+  smtp: {
+    host: process.env.SMTP_HOST || '',
+    port: Number(process.env.SMTP_PORT || 2525),
+    user: process.env.SMTP_USER || '',
+    pass: process.env.SMTP_PASS || '',
+    from: process.env.SMTP_FROM || 'Ewentcast <noreply@ewentcast.com>',
+  },
 }
 
 export function dbConfigured(): boolean {

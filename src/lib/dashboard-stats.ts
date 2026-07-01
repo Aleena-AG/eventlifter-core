@@ -1,6 +1,6 @@
 'use client'
 
-import { getUser } from '@/lib/auth'
+import { isEventbriteConnected, isHightribeChannelConnected, isLumaConnected } from '@/lib/channel-connection'
 import { channelFetch } from '@/lib/channel-fetch'
 import { loadAllBookings } from '@/lib/bookings'
 import { fetchHtEventsPage, fetchHtHostStats } from '@/lib/hightribe-events'
@@ -177,10 +177,9 @@ export async function loadDashboardStats(settings: {
   luma?: { configured?: boolean }
   eventbrite?: { configured?: boolean; hasPrivateToken?: boolean; oauthConfigured?: boolean }
 }): Promise<DashboardStats> {
-  const htUser = getUser()
-  const htConfigured = !!htUser
-  const lumaConfigured = !!settings.luma?.configured
-  const ebConfigured = !!settings.eventbrite?.hasPrivateToken
+  const htConfigured = isHightribeChannelConnected()
+  const lumaConfigured = isLumaConnected(settings)
+  const ebConfigured = isEventbriteConnected(settings)
 
   const channels: Record<ChannelKey, ChannelStats> = {
     hightribe: { events: 0, tickets: 0, bookings: 0, configured: htConfigured },

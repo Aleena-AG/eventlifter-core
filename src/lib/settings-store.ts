@@ -117,7 +117,12 @@ export function saveSettings(settings: AppSettings): void {
   const file = getSettingsFilePath()
   const dir = path.dirname(file)
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-  fs.writeFileSync(file, JSON.stringify(settings, null, 2))
+  const toSave: AppSettings = {
+    eventbrite: { ...settings.eventbrite },
+    luma: { ...settings.luma },
+    hightribe: { ...settings.hightribe },
+  }
+  fs.writeFileSync(file, JSON.stringify(toSave, null, 2))
 }
 
 export function mergeSettingsPatch(current: AppSettings, patch: Partial<AppSettings>): AppSettings {

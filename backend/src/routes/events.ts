@@ -7,6 +7,8 @@ import {
   upsertChannelEvents,
   type ChannelName,
 } from '../services/events.js'
+import { listChannelBookings, upsertChannelBookings } from '../services/bookings.js'
+import { purgeChannelData } from '../services/channel-data.js'
 
 export const eventsRouter = Router()
 
@@ -39,6 +41,33 @@ eventsRouter.post('/:channel/sync', requireAuth, async (req: AuthedRequest, res)
     return res.json({ ...result, events })
   } catch (err) {
     return res.status(500).json({ error: err instanceof Error ? err.message : 'sync failed' })
+  }
+})
+
+eventsRouter.post('/:channel/sync-bookings', requireAuth, async (req: AuthedRequest, res) => {
+  const channel = parseChannel(req.params.channel)
+  if (!channel) return res.status(400).json({ error: 'invalid channel' })
+  const body = req.body as { bookings?: Array<Record<string, unknown>> }
+  if (!Array.isArray(body.bookings)) {
+    return res.status(400).json({ error: 'bookings array required' })
+  }
+  try {
+    const result = await upsertChannelBookings(channel, req.user!.id, body.bookings)
+    const bookings = await listChannelBookings(channel, req.user!.id)
+    return res.json({ ...result, bookings })
+  } catch (err) {
+    return res.status(500).json({ error: err instanceof Error ? err.message : 'booking sync failed' })
+  }
+})
+
+eventsRouter.delete('/:channel', requireAuth, async (req: AuthedRequest, res) => {
+  const channel = parseChannel(req.params.channel)
+  if (!channel) return res.status(400).json({ error: 'invalid channel' })
+  try {
+    const result = await purgeChannelData(req.user!.id, channel)
+    return res.json({ ok: true, ...result })
+  } catch (err) {
+    return res.status(500).json({ error: err instanceof Error ? err.message : 'purge failed' })
   }
 })
 

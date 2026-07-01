@@ -17,6 +17,8 @@ function ResetForm() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -61,27 +63,50 @@ function ResetForm() {
           {error && <div className="auth-error" role="alert">{error}</div>}
           <div className="auth-field">
             <label className="auth-label" htmlFor="new-password">New password</label>
-            <input
-              id="new-password"
-              type="password"
-              required
-              minLength={8}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="auth-input"
-            />
+            <div className="auth-input-wrap">
+              <input
+                id="new-password"
+                type={showPassword ? 'text' : 'password'}
+                required
+                minLength={8}
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="auth-input"
+                placeholder="Min. 8 characters"
+              />
+              <button
+                type="button"
+                className="auth-toggle-pw"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-pressed={showPassword}
+              >
+                {showPassword ? 'Hide' : 'Show'}
+              </button>
+            </div>
           </div>
           <div className="auth-field">
             <label className="auth-label" htmlFor="confirm-password">Confirm password</label>
-            <input
-              id="confirm-password"
-              type="password"
-              required
-              minLength={8}
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              className="auth-input"
-            />
+            <div className="auth-input-wrap">
+              <input
+                id="confirm-password"
+                type={showConfirm ? 'text' : 'password'}
+                required
+                minLength={8}
+                autoComplete="new-password"
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                className="auth-input"
+              />
+              <button
+                type="button"
+                className="auth-toggle-pw"
+                onClick={() => setShowConfirm((v) => !v)}
+                aria-pressed={showConfirm}
+              >
+                {showConfirm ? 'Hide' : 'Show'}
+              </button>
+            </div>
           </div>
           <button type="submit" disabled={loading} className="auth-btn-primary">
             {loading ? <InlineLoader label="Updating" /> : 'Update password'}

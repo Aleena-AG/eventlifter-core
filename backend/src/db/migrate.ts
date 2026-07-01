@@ -110,7 +110,7 @@ async function seedFromJsonIfEmpty() {
   return { imported }
 }
 
-export async function runMigrations(): Promise<{ applied: string[]; imported: number }> {
+export async function runMigrations(opts?: { seed?: boolean }): Promise<{ applied: string[]; imported: number }> {
   await ensureMigrationsTable()
 
   const legacy = await query<{ id: string }[]>(
@@ -143,8 +143,47 @@ export async function runMigrations(): Promise<{ applied: string[]; imported: nu
 
   await runOptionalAlters()
 
-  const { imported } = await seedFromJsonIfEmpty()
+  const shouldSeed = opts?.seed !== false
+  const { imported } = shouldSeed ? await seedFromJsonIfEmpty() : { imported: 0 }
   return { applied, imported }
+}
+
+const APP_TABLES = [
+  'channel_bookings',
+  'luma_events',
+  'eventbrite_events',
+  'hightribe_events',
+  'ht_connections',
+  'user_settings',
+  'subscriptions',
+  'password_reset_tokens',
+  'sessions',
+  'users',
+  'attendees',
+  'channel_refs',
+  'master_events',
+  'app_settings',
+  'schema_migrations',
+]
+
+/** Drop all app tables and re-run migrations. Use for a clean local/dev database. */
+export async function runFreshMigrations(opts?: { seed?: boolean }): Promise<{
+  dropped: string[]
+  applied: string[]
+  imported: number
+}> {
+  const pool = getPool()
+  const dropped: string[] = []
+
+  await pool.query('SET FOREIGN_KEY_CHECKS = 0')
+  for (const table of APP_TABLES) {
+    await pool.query(`DROP TABLE IF EXISTS \`${table}\``)
+    dropped.push(table)
+  }
+  await pool.query('SET FOREIGN_KEY_CHECKS = 1')
+
+  const { applied, imported } = await runMigrations({ seed: opts?.seed })
+  return { dropped, applied, imported }
 }
 
 async function runOptionalAlters() {
@@ -159,7 +198,9 @@ async function runOptionalAlters() {
   }
 }
 
-if (process.argv[1]?.replace(/\\/g, '/').includes('/db/migrate')) {
+const thisFile = fileURLToPath(import.meta.url)
+
+if (process.argv[1] && path.resolve(process.argv[1]) === thisFile) {
   runMigrations()
     .then((r) => {
       console.log(JSON.stringify({ ok: true, ...r }))

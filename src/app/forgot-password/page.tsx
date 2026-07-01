@@ -12,6 +12,7 @@ export default function ForgotPasswordPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [resetUrl, setResetUrl] = useState('')
+  const [emailed, setEmailed] = useState(false)
   const [sent, setSent] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -23,10 +24,12 @@ export default function ForgotPasswordPage() {
     setLoading(true)
     setError('')
     setResetUrl('')
+    setEmailed(false)
     try {
       const result = await requestPasswordReset(email)
       setSent(true)
       if (result.resetUrl) setResetUrl(result.resetUrl)
+      setEmailed(!!result.emailed || (!result.resetUrl && !result.resetToken))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Request failed')
     } finally {
@@ -55,11 +58,15 @@ export default function ForgotPasswordPage() {
             {sent ? (
               <div>
                 <p style={{ fontSize: 14, color: '#4E7A4B', marginBottom: 12 }}>
-                  If an account exists for that email, a reset link has been created.
+                  {emailed
+                    ? 'If an account exists for that email, we sent a password reset link. Check your inbox (and spam).'
+                    : 'If an account exists for that email, a reset link has been created.'}
                 </p>
                 {resetUrl && (
                   <div style={{ background: '#F1EADC', border: '1px solid #E8DFD0', borderRadius: 10, padding: 14, marginBottom: 16 }}>
-                    <p style={{ fontSize: 12, color: '#8C7F6D', margin: '0 0 8px' }}>Local dev — use this link:</p>
+                    <p style={{ fontSize: 12, color: '#8C7F6D', margin: '0 0 8px' }}>
+                      Dev mode (no SMTP) — use this link:
+                    </p>
                     <Link href={resetUrl.replace(/^https?:\/\/[^/]+/, '')} className="auth-link" style={{ wordBreak: 'break-all' }}>
                       {resetUrl.replace(/^https?:\/\/[^/]+/, '')}
                     </Link>
@@ -76,6 +83,7 @@ export default function ForgotPasswordPage() {
                     id="forgot-email"
                     type="email"
                     required
+                    autoComplete="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="auth-input"

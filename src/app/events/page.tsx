@@ -3,6 +3,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { authHeader } from '@/lib/auth'
+import {
+  isEventbriteConnected,
+  isHightribeChannelConnected,
+  isLumaConnected,
+} from '@/lib/channel-connection'
 import { getEwentcastAccount, htApiAuthHeader, isEwentcastSignupUser } from '@/lib/ewentcast-session'
 import { syncStoredEvents } from '@/lib/channel-events-store'
 import { fetchHtEventsPage, type HtEventListItem } from '@/lib/hightribe-events'
@@ -446,12 +451,12 @@ export default function EventsPage() {
 
   useEffect(() => {
     fetch('/api/settings').then(r => r.json()).then((s: {
-      luma?: { apiKey?: string; configured?: boolean }
-      eventbrite?: { privateToken?: string; clientId?: string }
+      luma?: { configured?: boolean }
+      eventbrite?: { hasPrivateToken?: boolean; configured?: boolean }
     }) => {
-      setHtConfigured(true)
-      setLumaConfigured(!!(s.luma?.configured || s.luma?.apiKey))
-      setEbConfigured(!!(s.eventbrite?.privateToken || s.eventbrite?.clientId))
+      setHtConfigured(isHightribeChannelConnected())
+      setLumaConfigured(isLumaConnected(s))
+      setEbConfigured(isEventbriteConnected(s))
     }).catch(() => {})
   }, [])
 

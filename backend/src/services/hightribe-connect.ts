@@ -1,6 +1,7 @@
 import { getPool } from '../db/pool.js'
 import { config } from '../config.js'
 import { getAccountView, type AccountView } from './auth.js'
+import { purgeChannelData } from './channel-data.js'
 
 interface HtLoginResponse {
   status?: boolean
@@ -50,6 +51,7 @@ export async function connectHightribeAccount(
 }
 
 export async function disconnectHightribeAccount(userId: number): Promise<AccountView> {
+  await purgeChannelData(userId, 'hightribe')
   await getPool().query('DELETE FROM ht_connections WHERE user_id = ?', [userId])
   return getAccountView(userId)
 }

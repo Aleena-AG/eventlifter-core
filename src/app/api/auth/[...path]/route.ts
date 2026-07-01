@@ -21,8 +21,20 @@ async function proxy(req: NextRequest, pathSegments: string[]) {
     init.body = await req.text()
   }
 
-  const res = await fetch(target, init)
-  const data = await res.json()
+  let res: Response
+  try {
+    res = await fetch(target, init)
+  } catch (err) {
+    throw err
+  }
+
+  const text = await res.text()
+  let data: unknown = {}
+  try {
+    data = text ? JSON.parse(text) : {}
+  } catch {
+    data = { status: false, message: text.slice(0, 200) || `HTTP ${res.status}` }
+  }
   return NextResponse.json(data, { status: res.status })
 }
 

@@ -28,6 +28,40 @@ export async function listStoredEvents(channel: ChannelName): Promise<StoredChan
   return data.events || []
 }
 
+export async function syncStoredBookings(
+  channel: ChannelName,
+  bookings: Array<Record<string, unknown>>,
+): Promise<unknown[]> {
+  const res = await fetch(`/api/events/${channel}/sync-bookings`, {
+    method: 'POST',
+    headers: {
+      Authorization: authHeader(),
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({ bookings }),
+  })
+  if (!res.ok) {
+    const err = await res.json() as { error?: string }
+    throw new Error(err.error || `Booking sync failed (${res.status})`)
+  }
+  const data = await res.json() as { bookings?: unknown[] }
+  return data.bookings || []
+}
+
+export async function purgeChannelDataFromDb(channel: ChannelName): Promise<void> {
+  try {
+    const res = await fetch(`/api/events/${channel}`, {
+      method: 'DELETE',
+      headers: { Authorization: authHeader(), Accept: 'application/json' },
+    })
+    if (!res.ok) return
+    await res.json().catch(() => undefined)
+  } catch {
+    // best-effort — backend may be offline
+  }
+}
+
 export async function syncStoredEvents(
   channel: ChannelName,
   events: Array<Record<string, unknown>>,

@@ -179,7 +179,7 @@ function dedupeBookings(items: BookingListItem[]): BookingListItem[] {
   return out
 }
 
-async function fetchAllHtBookings(): Promise<BookingListItem[]> {
+export async function fetchHightribeBookingsList(): Promise<BookingListItem[]> {
   const list: BookingListItem[] = []
   let page = 1
   let lastPage = 1
@@ -259,7 +259,7 @@ export async function fetchLumaBookingList(
   return list
 }
 
-async function fetchEbEvents(): Promise<Array<{ id: string; name?: { text?: string } }>> {
+export async function fetchEbEventsForSync(): Promise<Array<{ id: string; name?: { text?: string } }>> {
   const orgRes = await channelFetch('/api/eventbrite/users/me/organizations')
   if (!orgRes.ok) return []
   const orgData = await orgRes.json() as { organizations?: Array<{ id: string }> }
@@ -271,7 +271,7 @@ async function fetchEbEvents(): Promise<Array<{ id: string; name?: { text?: stri
   return evtData.events || []
 }
 
-async function fetchLumaEvents(): Promise<Array<{ api_id: string; name: string }>> {
+export async function fetchLumaEventsForSync(): Promise<Array<{ api_id: string; name: string }>> {
   const res = await channelFetch('/api/luma/events/hosted?upcoming_only=false&fetch_all=true')
   if (!res.ok) return []
   const raw = await res.json() as { data?: { entries?: unknown[] }; entries?: unknown[] }
@@ -299,19 +299,19 @@ export async function loadAllBookings(opts?: {
     }> }>
 
   const htPromise = getUser()
-    ? fetchAllHtBookings().catch(() => [])
+    ? fetchHightribeBookingsList().catch(() => [])
     : Promise.resolve([])
 
   const ebPromise = ebConfigured
     ? (async () => {
-        const events = opts?.ebEvents?.length ? opts.ebEvents : await fetchEbEvents()
+        const events = opts?.ebEvents?.length ? opts.ebEvents : await fetchEbEventsForSync()
         return events.length ? fetchEbBookingList(events) : []
       })().catch(() => [])
     : Promise.resolve([])
 
   const lumaPromise = lumaConfigured
     ? (async () => {
-        const events = opts?.lumaEvents?.length ? opts.lumaEvents : await fetchLumaEvents()
+        const events = opts?.lumaEvents?.length ? opts.lumaEvents : await fetchLumaEventsForSync()
         return events.length ? fetchLumaBookingList(events) : []
       })().catch(() => [])
     : Promise.resolve([])

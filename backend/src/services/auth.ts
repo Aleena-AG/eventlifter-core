@@ -2,6 +2,7 @@ import type { RowDataPacket } from 'mysql2'
 import { config } from '../config.js'
 import { getPool, query } from '../db/pool.js'
 import { hashPassword, newToken, verifyPassword } from '../lib/crypto.js'
+import { isEmailConfigured, sendPasswordResetEmail } from './email.js'
 
 export interface UserRow extends RowDataPacket {
   id: number
@@ -166,34 +167,53 @@ export async function loginUser(
 
 export async function requestPasswordReset(email: string): Promise<{
   ok: boolean
+  emailed?: boolean
   resetToken?: string
   resetUrl?: string
 }> {
   const rows = await query<UserRow[]>(
-    'SELECT id FROM users WHERE email = ? LIMIT 1',
+    'SELECT id, email, name FROM users WHERE email = ? LIMIT 1',
     [email.trim().toLowerCase()],
   )
   if (!rows[0]) {
     return { ok: true }
   }
 
+  const user = rows[0]
   const token = newToken()
   const expiresAt = resetExpiry()
-  await getPool().query(
+  const pool = getPool()
+
+  await pool.query(
+    'DELETE FROM password_reset_tokens WHERE user_id = ? AND used_at IS NULL',
+    [user.id],
+  )
+  await pool.query(
     `INSERT INTO password_reset_tokens (user_id, token, expires_at, created_at)
      VALUES (?, ?, ?, ?)`,
-    [rows[0].id, token, expiresAt, new Date()],
+    [user.id, token, expiresAt, new Date()],
   )
 
+  const resetUrl = `${config.appUrl}/reset-password?token=${token}`
+
+  if (isEmailConfigured()) {
+    await sendPasswordResetEmail({
+      to: user.email,
+      name: user.name,
+      resetUrl,
+    })
+    return { ok: true, emailed: true }
+  }
+
   if (config.exposeResetToken) {
-    const origin = config.corsOrigin.replace(/\/$/, '')
     return {
       ok: true,
       resetToken: token,
-      resetUrl: `${origin}/reset-password?token=${token}`,
+      resetUrl,
     }
   }
 
+  console.warn('[requestPasswordReset] SMTP not configured and AUTH_EXPOSE_RESET_TOKEN is false — email not sent')
   return { ok: true }
 }
 

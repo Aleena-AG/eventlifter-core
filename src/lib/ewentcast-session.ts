@@ -59,6 +59,16 @@ export function isEwentcastSignupUser(): boolean {
   return getEwentcastAccount()?.auth_source === 'ewentcast_signup'
 }
 
+/** Luma/Eventbrite keys on Hightribe API — only when HT link token is available. */
+export function canLoadHtChannelKeys(): boolean {
+  if (!getToken()) return false
+  if (isEwentcastSignupUser()) {
+    const account = getEwentcastAccount()
+    return !!(account?.ht_connected && getHtLinkToken())
+  }
+  return true
+}
+
 export function needsSubscription(): boolean {
   const account = getEwentcastAccount()
   return account?.auth_source === 'ewentcast_signup' && !account.subscription_active
@@ -159,6 +169,7 @@ export async function logoutLocal(): Promise<void> {
 }
 
 export async function requestPasswordReset(email: string): Promise<{
+  emailed?: boolean
   resetToken?: string
   resetUrl?: string
 }> {
@@ -170,11 +181,12 @@ export async function requestPasswordReset(email: string): Promise<{
   const data = await res.json() as {
     status?: boolean
     message?: string
+    emailed?: boolean
     resetToken?: string
     resetUrl?: string
   }
   if (!res.ok || !data.status) throw new Error(data.message || 'Request failed')
-  return { resetToken: data.resetToken, resetUrl: data.resetUrl }
+  return { emailed: data.emailed, resetToken: data.resetToken, resetUrl: data.resetUrl }
 }
 
 export async function resetPassword(token: string, password: string): Promise<void> {
@@ -262,13 +274,41 @@ export async function connectHightribe(email: string, password: string): Promise
   if (data.ht_link_token) setHtLinkToken(data.ht_link_token)
 }
 
-export async function disconnectHightribe(): Promise<void> {
-  const res = await fetch('/api/auth/disconnect-hightribe', {
-    method: 'POST',
-    headers: { Authorization: authHeader(), Accept: 'application/json' },
-  })
-  const data = await res.json() as { status?: boolean; ewentcast?: EwentcastAccount; message?: string }
-  if (!res.ok || !data.status) throw new Error(data.message || 'Disconnect failed')
-  if (data.ewentcast) setEwentcastAccount(data.ewentcast)
+function applyLocalHightribeDisconnect(): void {
+  const account = getEwentcastAccount()
+  if (account) {
+    setEwentcastAccount({
+      ...account,
+      ht_connected: false,
+      linked_ht_user_id: null,
+      ht_connected_at: null,
+    })
+  }
   setHtLinkToken(null)
+}
+
+/** @returns true when the server confirmed disconnect */
+export async function disconnectHightribe(): Promise<boolean> {
+  try {
+    const res = await fetch('/api/auth/disconnect-hightribe', {
+      method: 'POST',
+      headers: { Authorization: authHeader(), Accept: 'application/json' },
+    })
+    const data = await res.json().catch(() => ({})) as {
+      status?: boolean
+      ewentcast?: EwentcastAccount
+      message?: string
+    }
+    if (res.ok && data.status) {
+      if (data.ewentcast) setEwentcastAccount(data.ewentcast)
+      else applyLocalHightribeDisconnect()
+      setHtLinkToken(null)
+      return true
+    }
+  } catch {
+    // server unreachable — fall back to local disconnect below
+  }
+
+  applyLocalHightribeDisconnect()
+  return false
 }

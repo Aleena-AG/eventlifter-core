@@ -1,7 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import { connectHightribe, disconnectHightribe, getEwentcastAccount, isEwentcastSignupUser } from '@/lib/ewentcast-session'
+import {
+  connectHightribe,
+  getEwentcastAccount,
+  isEwentcastSignupUser,
+} from '@/lib/ewentcast-session'
+import { disconnectChannelIntegration } from '@/lib/channel-disconnect'
+import { syncChannelDataToDb } from '@/lib/channel-data-sync'
 import { InlineLoader } from '@/components/Loader'
 
 const INPUT_STYLE: React.CSSProperties = {
@@ -22,7 +28,7 @@ const BTN_SECONDARY: React.CSSProperties = {
 }
 
 export function ConnectHightribeSection({ onChange }: { onChange?: () => void }) {
-  const account = getEwentcastAccount()
+  const [htConnected, setHtConnected] = useState(() => !!getEwentcastAccount()?.ht_connected)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -30,8 +36,6 @@ export function ConnectHightribeSection({ onChange }: { onChange?: () => void })
   const [success, setSuccess] = useState('')
 
   if (!isEwentcastSignupUser()) return null
-
-  const connected = account?.ht_connected
 
   const handleConnect = async () => {
     setLoading(true)
@@ -41,6 +45,13 @@ export function ConnectHightribeSection({ onChange }: { onChange?: () => void })
       await connectHightribe(email, password)
       setSuccess('Hightribe connected — you can now load HT events.')
       setPassword('')
+      try {
+        const { events, bookings } = await syncChannelDataToDb('hightribe')
+        if (events > 0 || bookings > 0) {
+          setSuccess(`Hightribe connected — synced ${events} events, ${bookings} bookings.`)
+        }
+      } catch { /* best-effort */ }
+      setHtConnected(true)
       onChange?.()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Connect failed')
@@ -50,10 +61,13 @@ export function ConnectHightribeSection({ onChange }: { onChange?: () => void })
   }
 
   const handleDisconnect = async () => {
+    if (!window.confirm('Disconnect HighTribe? Cached events and bookings will be removed.')) return
     setLoading(true)
     setError('')
+    setSuccess('')
     try {
-      await disconnectHightribe()
+      await disconnectChannelIntegration('hightribe')
+      setHtConnected(false)
       setSuccess('Hightribe disconnected.')
       onChange?.()
     } catch (e) {
@@ -72,13 +86,13 @@ export function ConnectHightribeSection({ onChange }: { onChange?: () => void })
         Link your existing Hightribe account to pull HT events into Ewentcast. Luma & Eventbrite work without this.
       </p>
 
-      {connected ? (
+      {htConnected ? (
         <div>
           <span style={{ fontSize: '12px', padding: '3px 10px', borderRadius: '20px', background: 'rgba(63,185,80,0.1)', border: '1px solid rgba(63,185,80,0.3)', color: '#4E7A4B' }}>
             ✓ Hightribe connected
           </span>
           <button onClick={handleDisconnect} disabled={loading} style={{ ...BTN_SECONDARY, marginLeft: '10px', opacity: loading ? 0.6 : 1 }}>
-            Disconnect
+            {loading ? <InlineLoader label="…" /> : 'Disconnect'}
           </button>
         </div>
       ) : (

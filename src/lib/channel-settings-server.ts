@@ -1,25 +1,21 @@
-import { htDataToAppSettings } from '@/lib/channel-settings-shared'
-import { fetchHtChannelSettings } from '@/lib/ht-channel-settings'
-import {
-  loadSettings,
-  mergeSettingsPatch,
-  saveSettings,
-  type AppSettings,
-} from '@/lib/settings-store'
+import { backendFetch } from '@/lib/backend-client'
+import { loadSettings, type AppSettings } from '@/lib/settings-store'
 
-/** Resolve channel keys for this request — syncs from Hightribe when a Bearer token is present. */
+/** Resolve channel keys for API proxies — per-user MySQL when authenticated. */
 export async function resolveAppSettings(authorization?: string | null): Promise<AppSettings> {
-  let settings = loadSettings()
   const auth = authorization?.trim()
-  if (!auth) return settings
-
-  try {
-    const ht = await fetchHtChannelSettings(auth, false)
-    settings = mergeSettingsPatch(settings, htDataToAppSettings(ht))
-    saveSettings(settings)
-  } catch (e) {
-    console.warn('[resolveAppSettings] Hightribe sync failed:', e instanceof Error ? e.message : e)
+  if (auth) {
+    try {
+      const res = await backendFetch('/api/settings?full=1', {
+        headers: { Authorization: auth },
+      })
+      if (res.ok) {
+        return await res.json() as AppSettings
+      }
+    } catch (e) {
+      console.warn('[resolveAppSettings] user settings load failed:', e instanceof Error ? e.message : e)
+    }
   }
 
-  return settings
+  return loadSettings()
 }

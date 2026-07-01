@@ -6,6 +6,7 @@ import { healthRouter } from './routes/health.js'
 import { registryRouter } from './routes/registry.js'
 import { authRouter } from './routes/auth.js'
 import { eventsRouter } from './routes/events.js'
+import { settingsRouter } from './routes/settings.js'
 
 const app = express()
 
@@ -15,6 +16,7 @@ app.use(express.json({ limit: '2mb' }))
 app.use(healthRouter)
 app.use('/api/auth', authRouter)
 app.use('/api/events', eventsRouter)
+app.use('/api/settings', settingsRouter)
 app.use('/api/registry', registryRouter)
 
 app.use((_req, res) => {

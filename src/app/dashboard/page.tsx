@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { getSettings } from '@/lib/api'
-import { getUser } from '@/lib/auth'
+import { isHightribeChannelConnected, isLumaConnected, isEventbriteConnected } from '@/lib/channel-connection'
 import { loadDashboardStats, type DashboardStats } from '@/lib/dashboard-stats'
 import { ChannelLogo } from '@/components/ChannelLogo'
 import { PageLoader, Spinner } from '@/components/Loader'
@@ -93,7 +93,7 @@ export default function DashboardPage() {
     load()
   }, [load])
 
-  const htConfigured = !!getUser()
+  const htConfigured = isHightribeChannelConnected()
   const lumaConfigured = !!settings.luma?.configured
   const ebConfigured = !!settings.eventbrite?.hasPrivateToken
   const anyConfigured = lumaConfigured || ebConfigured || htConfigured
