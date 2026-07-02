@@ -59,9 +59,9 @@ async function ensureUserSubscription(userId: number): Promise<void> {
   )
   if (existing.length > 0) return
 
-  const status = 'active'
+  const status = 'trialing'
   const trialEnd = new Date()
-  trialEnd.setDate(trialEnd.getDate() + 14)
+  trialEnd.setDate(trialEnd.getDate() + config.trialDays)
   await getPool().query(
     `INSERT INTO subscriptions (user_id, plan, status, trial_ends_at, created_at, updated_at)
      VALUES (?, 'pro_monthly_20', ?, ?, ?, ?)`,

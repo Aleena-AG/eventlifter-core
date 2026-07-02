@@ -4,14 +4,14 @@ import {
 } from '../../../../../backend/src/services/events'
 import { purgeChannelData } from '../../../../../backend/src/services/channel-data'
 import { parseChannel } from '@/lib/server/channels'
-import { isErrorResponse, requireSession } from '@/lib/server/session'
+import { isErrorResponse, requireSubscribedSession } from '@/lib/server/session'
 
 export const runtime = 'nodejs'
 
 type RouteContext = { params: Promise<{ channel: string }> }
 
 export async function GET(req: NextRequest, ctx: RouteContext) {
-  const session = await requireSession(req)
+  const session = await requireSubscribedSession(req)
   if (isErrorResponse(session)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -32,7 +32,7 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
 }
 
 export async function DELETE(req: NextRequest, ctx: RouteContext) {
-  const session = await requireSession(req)
+  const session = await requireSubscribedSession(req)
   if (isErrorResponse(session)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }

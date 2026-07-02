@@ -21,7 +21,7 @@ export function TrialWarningBanner() {
   const ended = days <= 0
 
   const message = ended
-    ? 'Your free trial has ended. Subscribe to keep using Ewentcast.'
+    ? 'Your free trial has ended. Upgrade to Pro to keep using Ewentcast.'
     : days === 1
       ? '1 day left in your free trial.'
       : `${days} days left in your free trial.`
@@ -40,7 +40,7 @@ export function TrialWarningBanner() {
           <span>{message}</span>
         </div>
         <Link href="/subscribe" className="app-trial-banner__cta">
-          {ended ? 'Subscribe now' : 'Upgrade'}
+          Upgrade to Pro
         </Link>
       </div>
     </div>

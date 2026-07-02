@@ -1,5 +1,5 @@
 import type { RowDataPacket } from 'mysql2'
-import { config } from '../config'
+import { config, isDevPaymentBypass } from '../config'
 import { getPool, query } from '../db/pool'
 import { hashPassword, newToken, verifyPassword } from '../lib/crypto'
 import { isEmailConfigured, sendPasswordResetEmail } from './email'
@@ -72,7 +72,11 @@ export async function getAccountView(userId: number): Promise<AccountView> {
   const status = (sub?.status as string) || 'trialing'
   const trialEndsAt = sub?.trial_ends_at ? new Date(sub.trial_ends_at as Date) : null
   const trialStillValid = status === 'trialing' && (!trialEndsAt || trialEndsAt > new Date())
-  const active = config.skipPayment || status === 'active' || trialStillValid
+  const paidActive = status === 'active'
+  const active =
+    paidActive
+    || trialStillValid
+    || (isDevPaymentBypass() && authSource === 'ewentcast_signup')
   const daysLeft = status === 'trialing' ? trialDaysRemaining(trialEndsAt) : null
 
   return {
@@ -135,7 +139,7 @@ export async function registerUser(input: {
   const now = new Date()
   const passwordHash = hashPassword(input.password)
   const trialEnd = new Date()
-  trialEnd.setDate(trialEnd.getDate() + 14)
+  trialEnd.setDate(trialEnd.getDate() + config.trialDays)
 
   const pool = getPool()
   const [result] = await pool.query<{ insertId: number }>(
@@ -145,11 +149,10 @@ export async function registerUser(input: {
   )
   const userId = (result as unknown as { insertId: number }).insertId
 
-  const status = config.skipPayment ? 'active' : 'trialing'
   await pool.query(
     `INSERT INTO subscriptions (user_id, plan, status, trial_ends_at, created_at, updated_at)
-     VALUES (?, 'pro_monthly_20', ?, ?, ?, ?)`,
-    [userId, status, trialEnd, now, now],
+     VALUES (?, 'pro_monthly_20', 'trialing', ?, ?, ?)`,
+    [userId, trialEnd, now, now],
   )
 
   const token = await createSession(userId)
