@@ -70,16 +70,17 @@ export async function handleBookingWebhook(
 ): Promise<{ master: MasterEventRecord | null; synced: { channel: ChannelKey; ok: boolean; error?: string }[] }> {
   const { findMasterByChannelEvent, registerAttendee } = await import('@/lib/event-registry')
 
-  const master = findMasterByChannelEvent(sourceChannel, channelEventId)
+  const master = await findMasterByChannelEvent(sourceChannel, channelEventId)
   if (!master) return { master: null, synced: [] }
 
-  registerAttendee(master.id, {
+  await registerAttendee(master.id, {
     email: attendee.email,
     name: attendee.name,
     source: sourceChannel,
     registeredAt: attendee.registeredAt,
   })
-  const updated = findMasterByChannelEvent(sourceChannel, channelEventId)!
+  const updated = await findMasterByChannelEvent(sourceChannel, channelEventId)
+  if (!updated) return { master: null, synced: [] }
   const synced = await syncCapacityAcrossChannels(updated, sourceChannel)
   return { master: updated, synced }
 }

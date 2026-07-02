@@ -160,6 +160,17 @@
   transform: none;
 }
 
+.bookings-refresh-btn--sync {
+  border-color: rgba(194, 80, 46, 0.35);
+  color: #c2502e;
+  background: rgba(194, 80, 46, 0.06);
+}
+
+.bookings-refresh-btn--sync:hover:not(:disabled) {
+  background: rgba(194, 80, 46, 0.12);
+  border-color: rgba(194, 80, 46, 0.5);
+}
+
 /* header mobile tweaks moved to bottom responsive section */
 
 /* ── Controls bar ── */

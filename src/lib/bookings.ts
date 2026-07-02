@@ -1,6 +1,6 @@
 'use client'
 
-import { getUser } from '@/lib/auth'
+import { authHeader, getUser } from '@/lib/auth'
 import { channelFetch } from '@/lib/channel-fetch'
 import { fetchHtBookingsPage } from '@/lib/hightribe-events'
 import { lumaHostedEventRef } from '@/lib/luma-event-utils'
@@ -179,7 +179,7 @@ function dedupeBookings(items: BookingListItem[]): BookingListItem[] {
   return out
 }
 
-async function fetchAllHtBookings(): Promise<BookingListItem[]> {
+export async function fetchHightribeBookingsList(): Promise<BookingListItem[]> {
   const list: BookingListItem[] = []
   let page = 1
   let lastPage = 1
@@ -259,7 +259,7 @@ export async function fetchLumaBookingList(
   return list
 }
 
-async function fetchEbEvents(): Promise<Array<{ id: string; name?: { text?: string } }>> {
+export async function fetchEbEventsForSync(): Promise<Array<{ id: string; name?: { text?: string } }>> {
   const orgRes = await channelFetch('/api/eventbrite/users/me/organizations')
   if (!orgRes.ok) return []
   const orgData = await orgRes.json() as { organizations?: Array<{ id: string }> }
@@ -271,7 +271,7 @@ async function fetchEbEvents(): Promise<Array<{ id: string; name?: { text?: stri
   return evtData.events || []
 }
 
-async function fetchLumaEvents(): Promise<Array<{ api_id: string; name: string }>> {
+export async function fetchLumaEventsForSync(): Promise<Array<{ api_id: string; name: string }>> {
   const res = await channelFetch('/api/luma/events/hosted?upcoming_only=false&fetch_all=true')
   if (!res.ok) return []
   const raw = await res.json() as { data?: { entries?: unknown[] }; entries?: unknown[] }
@@ -282,46 +282,36 @@ async function fetchLumaEvents(): Promise<Array<{ api_id: string; name: string }
   }).filter(ev => ev.api_id)
 }
 
-export async function loadAllBookings(opts?: {
-  ebConfigured?: boolean
-  lumaConfigured?: boolean
-  ebEvents?: Array<{ id: string; name?: { text?: string } }>
-  lumaEvents?: Array<{ api_id: string; name: string }>
-}): Promise<BookingListItem[]> {
-  const ebConfigured = !!opts?.ebConfigured
-  const lumaConfigured = !!opts?.lumaConfigured
+export async function loadAllBookings(): Promise<BookingListItem[]> {
+  const res = await fetch('/api/events/bookings', {
+    headers: { Authorization: authHeader(), Accept: 'application/json' },
+  })
+  if (!res.ok) return []
+  const data = await res.json() as {
+    bookings?: Array<{
+      external_id: string
+      channel: ChannelKey
+      event_title: string
+      guest_name: string
+      guest_email: string
+      registered_at: string
+      status: string | null
+      ticket_count: number | null
+    }>
+  }
 
-  const registryPromise = fetch('/api/registry')
-    .then(r => r.json())
-    .catch(() => ({ events: [] })) as Promise<{ events?: Array<{
-      title?: string
-      attendees?: Array<{ source: ChannelKey; email: string; name?: string; registeredAt?: string }>
-    }> }>
+  const list: BookingListItem[] = (data.bookings || []).map((b) => ({
+    id: b.external_id,
+    name: b.guest_name,
+    email: b.guest_email,
+    channel: b.channel,
+    eventTitle: b.event_title,
+    registeredAt: b.registered_at,
+    status: b.status || undefined,
+    ticketCount: b.ticket_count ?? undefined,
+    source: 'api' as const,
+  }))
 
-  const htPromise = getUser()
-    ? fetchAllHtBookings().catch(() => [])
-    : Promise.resolve([])
-
-  const ebPromise = ebConfigured
-    ? (async () => {
-        const events = opts?.ebEvents?.length ? opts.ebEvents : await fetchEbEvents()
-        return events.length ? fetchEbBookingList(events) : []
-      })().catch(() => [])
-    : Promise.resolve([])
-
-  const lumaPromise = lumaConfigured
-    ? (async () => {
-        const events = opts?.lumaEvents?.length ? opts.lumaEvents : await fetchLumaEvents()
-        return events.length ? fetchLumaBookingList(events) : []
-      })().catch(() => [])
-    : Promise.resolve([])
-
-  const [registryData, htBookings, ebBookings, lumaBookings] = await Promise.all([
-    registryPromise, htPromise, ebPromise, lumaPromise,
-  ])
-
-  const webhookBookings = bookingsFromRegistry(registryData.events || [])
-  const combined = dedupeBookings([...webhookBookings, ...htBookings, ...ebBookings, ...lumaBookings])
-  combined.sort((a, b) => new Date(b.registeredAt).getTime() - new Date(a.registeredAt).getTime())
-  return combined
+  list.sort((a, b) => new Date(b.registeredAt).getTime() - new Date(a.registeredAt).getTime())
+  return list
 }

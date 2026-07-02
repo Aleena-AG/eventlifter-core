@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 
 import type { AppSettings } from '@/lib/settings-types'
+import { eventbriteRedirectUri } from '@/lib/app-url'
 
 export type { AppSettings }
 
@@ -9,7 +10,7 @@ const DEFAULTS: AppSettings = {
   eventbrite: {
     clientId: '',
     clientSecret: '',
-    redirectUri: 'http://localhost:3000/api/eventbrite/callback',
+    redirectUri: eventbriteRedirectUri(),
     privateToken: '',
     publicToken: '',
   },
@@ -116,7 +117,12 @@ export function saveSettings(settings: AppSettings): void {
   const file = getSettingsFilePath()
   const dir = path.dirname(file)
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-  fs.writeFileSync(file, JSON.stringify(settings, null, 2))
+  const toSave: AppSettings = {
+    eventbrite: { ...settings.eventbrite },
+    luma: { ...settings.luma },
+    hightribe: { ...settings.hightribe },
+  }
+  fs.writeFileSync(file, JSON.stringify(toSave, null, 2))
 }
 
 export function mergeSettingsPatch(current: AppSettings, patch: Partial<AppSettings>): AppSettings {

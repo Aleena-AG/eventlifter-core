@@ -1,6 +1,6 @@
 'use client'
 
-import { authHeader } from '@/lib/auth'
+import { htApiAuthHeader } from '@/lib/ewentcast-session'
 import type { HtChannelSettingsData } from '@/lib/channel-settings-shared'
 
 export type { HtChannelSettingsData } from '@/lib/channel-settings-shared'
@@ -14,7 +14,7 @@ type HtApiResponse = {
 }
 
 export async function fetchChannelSettingsViaProxy(masked = true): Promise<HtChannelSettingsData> {
-  const auth = authHeader()
+  const auth = htApiAuthHeader()
   if (!auth) throw new Error('Login to Hightribe first')
 
   const qs = masked ? '?masked=1' : ''
@@ -32,7 +32,7 @@ export async function fetchChannelSettingsViaProxy(masked = true): Promise<HtCha
 export async function saveChannelSettingsViaProxy(
   payload: HtChannelSettingsData,
 ): Promise<HtChannelSettingsData> {
-  const auth = authHeader()
+  const auth = htApiAuthHeader()
   if (!auth) throw new Error('Login to Hightribe first')
 
   const res = await fetch('/api/hightribe/channel-integrations/settings', {

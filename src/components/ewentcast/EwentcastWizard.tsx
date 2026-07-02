@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { getUser } from '@/lib/auth'
+import { channelConnectionMap, connectedChannels } from '@/lib/channel-connection'
 import type { AttendeeRecord } from '@/lib/event-registry'
 import { publishToAllChannels, updateChannelEvent, type EventFormData } from '@/lib/publish-event'
 import type { EventCoverFiles } from '@/lib/cover-image'
@@ -50,7 +51,7 @@ export function EwentcastWizard({
   const [ev, setEv] = useState<EventFormData>({ ...DEFAULT_EVENT })
   const [coverFile, setCoverFile] = useState<File | null>(null)
   const [targets, setTargets] = useState<ChannelKey[]>(
-    isEdit && editChannel ? [editChannel] : [...ALL_CHANNELS],
+    isEdit && editChannel ? [editChannel] : [],
   )
   const [pub, setPub] = useState<PubState>({})
   const [publishing, setPublishing] = useState(false)
@@ -61,7 +62,7 @@ export function EwentcastWizard({
   const [attendees, setAttendees] = useState<AttendeeRecord[]>([])
   const [sold, setSold] = useState(0)
   const [conns, setConns] = useState<Record<ChannelKey, boolean>>({
-    hightribe: true, eventbrite: false, luma: false,
+    hightribe: false, eventbrite: false, luma: false,
   })
 
   useEffect(() => {
@@ -90,16 +91,14 @@ export function EwentcastWizard({
 
   useEffect(() => {
     fetch('/api/settings').then(r => r.json()).then((s: {
-      eventbrite?: { hasPrivateToken?: boolean; clientId?: string }
+      eventbrite?: { hasPrivateToken?: boolean; configured?: boolean }
       luma?: { configured?: boolean }
     }) => {
-      setConns({
-        hightribe: true,
-        eventbrite: !!(s.eventbrite?.hasPrivateToken || s.eventbrite?.clientId),
-        luma: !!s.luma?.configured,
-      })
+      const map = channelConnectionMap(s)
+      setConns(map)
+      if (!isEdit) setTargets(connectedChannels(s))
     }).catch(() => {})
-  }, [])
+  }, [isEdit])
 
   const liveTargets = targets.filter(t => conns[t])
   const connCount = ALL_CHANNELS.filter(c => conns[c]).length

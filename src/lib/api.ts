@@ -93,6 +93,7 @@ export const api = {
 
 // Named exports kept for backwards compat with existing page imports
 import type { AppSettings, ConnectionsResponse, EventsResponse, EventStatusResponse, MasterEvent, PublishResult, ChannelKey, CreateEventPayload } from './types'
+import { channelConnectionMap } from './channel-connection'
 
 export async function getSettings(): Promise<AppSettings> {
   return get<AppSettings>('/api/settings')
@@ -113,18 +114,12 @@ export async function getEventbriteStatus(): Promise<unknown> {
 // These endpoints no longer exist in the standalone architecture.
 // They return empty stubs so existing page code doesn't break at runtime.
 export async function getConnections(_hostId: string): Promise<ConnectionsResponse> {
-  // Try to derive connection status from settings
-  const settings = await get<AppSettings>('/api/settings')
-  const s = settings as {
-    luma?: { configured?: boolean }
-    eventbrite?: { configured?: boolean; hasPrivateToken?: boolean }
-    hightribe?: { configured?: boolean }
-  }
-  const channels = [
-    { channel: 'hightribe' as ChannelKey, status: s.hightribe?.configured ? 'connected' : 'disconnected' },
-    { channel: 'eventbrite' as ChannelKey, status: (s.eventbrite?.configured || s.eventbrite?.hasPrivateToken) ? 'connected' : 'disconnected' },
-    { channel: 'luma' as ChannelKey, status: s.luma?.configured ? 'connected' : 'disconnected' },
-  ]
+  const settings = await getSettings()
+  const map = channelConnectionMap(settings)
+  const channels = (['hightribe', 'eventbrite', 'luma'] as ChannelKey[]).map((channel) => ({
+    channel,
+    status: map[channel] ? ('connected' as const) : ('disconnected' as const),
+  }))
   return { channels }
 }
 

@@ -6,18 +6,15 @@ import { useSearchParams } from 'next/navigation'
 import { api } from '@/lib/api'
 import { Toast, useToast } from '@/components/Toast'
 import { InlineLoader, PageLoader } from '@/components/Loader'
-import { authHeader, getUser } from '@/lib/auth'
+import { getUser } from '@/lib/auth'
 import type { HtUser } from '@/lib/auth'
-import {
-  appSettingsToHtPatch,
-  fetchChannelSettingsViaProxy,
-  htDataToPublicForm,
-  saveChannelSettingsViaProxy,
-} from '@/lib/channel-settings-client'
 import { ChannelLogo } from '@/components/ChannelLogo'
 import { HIGHTRIBE_COLOR, LUMA_COLOR, EVENTBRITE_COLOR } from '@/lib/brand'
 import { ConnectHightribeSection } from '@/components/ConnectHightribeSection'
-import { getEwentcastAccount, isEwentcastSignupUser } from '@/lib/ewentcast-session'
+import { getEwentcastAccount, isEwentcastSignupUser, fetchAuthMe } from '@/lib/ewentcast-session'
+import { disconnectChannelIntegration } from '@/lib/channel-disconnect'
+import { eventbriteRedirectUri } from '@/lib/app-url'
+import { useRouter } from 'next/navigation'
 import type { ChannelKey } from '@/lib/types'
 import { CHANNEL_META } from '@/lib/channels'
 import './settings.css'
@@ -46,6 +43,12 @@ const BTN_PRIMARY: React.CSSProperties = {
 const BTN_GHOST: React.CSSProperties = {
   background: 'transparent', border: '1px solid #E8DFD0', borderRadius: '6px',
   color: '#5A4F45', padding: '7px 14px', fontSize: '13px', cursor: 'pointer',
+}
+
+const BTN_DISCONNECT: React.CSSProperties = {
+  background: '#FFFFFF', border: '1px solid #E8DFD0', borderRadius: '6px',
+  color: '#C2502E', padding: '7px 14px', fontSize: '13px', fontWeight: 500,
+  cursor: 'pointer',
 }
 
 // ─── SectionCard ──────────────────────────────────────────────────────────────
@@ -279,7 +282,7 @@ const EVENTBRITE_STEPS: GuideStep[] = [
   },
   {
     num: 3, title: 'Copy Credentials',
-    desc: 'Copy your Private Token, Client ID, and Client Secret. Paste them into the fields below.',
+    desc: 'Copy your Private Token, API Key, and Client Secret. Paste them into the fields below.',
     path: 'API Key Details → Copy credentials', img: '/eventbrite-guide/step_3_eventbrite.png',
   },
   {
@@ -419,6 +422,7 @@ type SettingsShape = {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
+  const router = useRouter()
   const searchParams = useSearchParams()
   const channelParam = searchParams.get('channel')
   const focusChannel = FOCUS_CHANNELS.includes(channelParam as ChannelKey)
@@ -428,6 +432,7 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<SettingsShape>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
+  const [disconnecting, setDisconnecting] = useState<string | null>(null)
   const [testing, setTesting] = useState<string | null>(null)
   const [htUser, setHtUser] = useState<HtUser | null>(null)
   const [channelLoadError, setChannelLoadError] = useState<string | null>(null)
@@ -435,44 +440,23 @@ export default function SettingsPage() {
 
   useEffect(() => { setHtUser(getUser()) }, [])
 
+  useEffect(() => {
+    fetchAuthMe().catch(() => {})
+  }, [])
+
   const loadSettings = useCallback(async () => {
     setLoading(true)
     setChannelLoadError(null)
     try {
-      const local = await api.getSettings() as SettingsShape
-      const merged: SettingsShape = {
-        hightribe: local.hightribe || {},
-        luma: local.luma || {},
-        eventbrite: local.eventbrite || {},
-      }
-      if (getUser()) {
-        try {
-          const ht = await fetchChannelSettingsViaProxy(true)
-          const fromHt = htDataToPublicForm(ht)
-          if (fromHt.luma) {
-            merged.luma = {
-              apiKey: fromHt.luma.apiKey || merged.luma?.apiKey || '',
-              calendarId: fromHt.luma.calendarId || merged.luma?.calendarId || '',
-              apiBaseUrl: fromHt.luma.apiBaseUrl || merged.luma?.apiBaseUrl || 'https://public-api.luma.com',
-              discoverBaseUrl: fromHt.luma.discoverBaseUrl || merged.luma?.discoverBaseUrl || 'https://api.lu.ma',
-            }
-          }
-          if (fromHt.eventbrite) {
-            merged.eventbrite = {
-              clientId: fromHt.eventbrite.clientId || merged.eventbrite?.clientId || '',
-              clientSecret: fromHt.eventbrite.clientSecret || merged.eventbrite?.clientSecret || '',
-              redirectUri: fromHt.eventbrite.redirectUri || merged.eventbrite?.redirectUri || '',
-              privateToken: fromHt.eventbrite.privateToken || merged.eventbrite?.privateToken || '',
-              publicToken: fromHt.eventbrite.publicToken || merged.eventbrite?.publicToken || '',
-            }
-          }
-        } catch (e) {
-          setChannelLoadError(e instanceof Error ? e.message : 'Could not load keys from Hightribe')
-        }
-      }
-      setSettings(merged)
-    } catch {
+      const data = await api.getSettings() as SettingsShape
+      setSettings({
+        hightribe: data.hightribe || {},
+        luma: data.luma || {},
+        eventbrite: data.eventbrite || {},
+      })
+    } catch (e) {
       setSettings({})
+      setChannelLoadError(e instanceof Error ? e.message : 'Could not load settings')
     } finally {
       setLoading(false)
     }
@@ -485,31 +469,61 @@ export default function SettingsPage() {
   }
 
   const saveSection = async (section: keyof SettingsShape) => {
-    if ((section === 'luma' || section === 'eventbrite') && !getUser()) {
-      toast.error('Sign in to Hightribe first')
+    if (!getUser()) {
+      toast.error('Sign in first')
       return
     }
     setSaving(section)
     try {
-      if (section === 'luma' || section === 'eventbrite') {
-        const patch = section === 'luma'
-          ? { luma: { apiKey: settings.luma?.apiKey || '', calendarId: settings.luma?.calendarId || '', apiBaseUrl: settings.luma?.apiBaseUrl || '', discoverBaseUrl: settings.luma?.discoverBaseUrl || '' } }
-          : { eventbrite: { clientId: settings.eventbrite?.clientId || '', clientSecret: settings.eventbrite?.clientSecret || '', redirectUri: settings.eventbrite?.redirectUri || '', privateToken: settings.eventbrite?.privateToken || '', publicToken: settings.eventbrite?.publicToken || '' } }
-        const saved = await saveChannelSettingsViaProxy(appSettingsToHtPatch(patch))
-        await fetch('/api/settings?localOnly=1', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json', Authorization: authHeader() },
-          body: JSON.stringify(htDataToPublicForm(saved)),
-        })
-      } else {
-        await api.updateSettings({ [section]: settings[section] })
-      }
+      const patch =
+        section === 'luma'
+          ? {
+              luma: {
+                apiKey: settings.luma?.apiKey || '',
+                calendarId: settings.luma?.calendarId || '',
+                apiBaseUrl: settings.luma?.apiBaseUrl || 'https://public-api.luma.com',
+                discoverBaseUrl: settings.luma?.discoverBaseUrl || 'https://api.lu.ma',
+              },
+            }
+          : section === 'eventbrite'
+            ? {
+                eventbrite: {
+                  clientId: settings.eventbrite?.clientId || '',
+                  clientSecret: settings.eventbrite?.clientSecret || '',
+                  redirectUri: settings.eventbrite?.redirectUri || eventbriteRedirectUri(),
+                  privateToken: settings.eventbrite?.privateToken || '',
+                  publicToken: settings.eventbrite?.publicToken || '',
+                },
+              }
+            : { hightribe: settings.hightribe || {} }
+
+      await api.updateSettings(patch)
       toast.success(`${section} settings saved`)
       await loadSettings()
     } catch (err) {
       toast.error(`Save failed: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setSaving(null)
+    }
+  }
+
+  const disconnectSection = async (section: 'eventbrite' | 'luma' | 'hightribe') => {
+    const names = { eventbrite: 'Eventbrite', luma: 'Luma', hightribe: 'HighTribe' }
+    if (!window.confirm(`Disconnect ${names[section]}?`)) return
+    setDisconnecting(section)
+    try {
+      const result = await disconnectChannelIntegration(section)
+      if (result === 'session') {
+        toast.success('Signed out')
+        router.replace('/login')
+        return
+      }
+      toast.success(`${names[section]} disconnected`)
+      await loadSettings()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Disconnect failed')
+    } finally {
+      setDisconnecting(null)
     }
   }
 
@@ -545,9 +559,11 @@ export default function SettingsPage() {
     }
   }
 
-  const DEFAULT_REDIRECT = 'http://localhost:3000/api/eventbrite/callback'
+  const DEFAULT_REDIRECT = eventbriteRedirectUri()
   const eb = settings.eventbrite || {}
   const lu = settings.luma || {}
+  const ebConnected = !!eb.privateToken
+  const luConnected = !!lu.apiKey
 
   const showEventbrite = !focusChannel || focusChannel === 'eventbrite'
   const showLuma = !focusChannel || focusChannel === 'luma'
@@ -597,7 +613,7 @@ export default function SettingsPage() {
           borderRadius: '8px', padding: '10px 14px', marginBottom: '14px',
           fontSize: '12px', color: '#C2502E',
         }}>
-          Could not load keys from Hightribe: {channelLoadError}
+          Could not load settings: {channelLoadError}
         </div>
       )}
 
@@ -614,8 +630,8 @@ export default function SettingsPage() {
                 <div className="settings-form-fields">
               <div className="settings-grid-2">
                 <div>
-                  <label style={LABEL}>Client ID</label>
-                  <input style={INPUT} type="text" placeholder="Client ID"
+                  <label style={LABEL}>API Key</label>
+                  <input style={INPUT} type="text" placeholder="API Key"
                     value={eb.clientId || ''}
                     onChange={(e) => updateSection('eventbrite', 'clientId', e.target.value)} />
                 </div>
@@ -649,7 +665,7 @@ export default function SettingsPage() {
                     onChange={(e) => updateSection('eventbrite', 'publicToken', e.target.value)} />
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 <button onClick={() => saveSection('eventbrite')} disabled={saving === 'eventbrite'}
                   style={{ ...BTN_PRIMARY, opacity: saving === 'eventbrite' ? 0.6 : 1 }}>
                   {saving === 'eventbrite' ? <InlineLoader label="Saving" /> : 'Save'}
@@ -658,6 +674,15 @@ export default function SettingsPage() {
                   style={{ ...BTN_GHOST, opacity: testing === 'eventbrite' ? 0.6 : 1 }}>
                   {testing === 'eventbrite' ? 'Testing…' : 'Test Connection'}
                 </button>
+                {ebConnected && (
+                  <button
+                    onClick={() => disconnectSection('eventbrite')}
+                    disabled={disconnecting === 'eventbrite'}
+                    style={{ ...BTN_DISCONNECT, opacity: disconnecting === 'eventbrite' ? 0.6 : 1 }}
+                  >
+                    {disconnecting === 'eventbrite' ? <InlineLoader label="…" /> : 'Disconnect'}
+                  </button>
+                )}
               </div>
                 </div>
               </div>
@@ -688,21 +713,7 @@ export default function SettingsPage() {
                     onChange={(e) => updateSection('luma', 'calendarId', e.target.value)} />
                 </div>
               </div>
-              <div className="settings-grid-2">
-                <div>
-                  <label style={LABEL}>API Base URL</label>
-                  <input style={INPUT} type="text" placeholder="https://public-api.luma.com"
-                    value={lu.apiBaseUrl || 'https://public-api.luma.com'}
-                    onChange={(e) => updateSection('luma', 'apiBaseUrl', e.target.value)} />
-                </div>
-                <div>
-                  <label style={LABEL}>Discover Base URL</label>
-                  <input style={INPUT} type="text" placeholder="https://api.lu.ma"
-                    value={lu.discoverBaseUrl || 'https://api.lu.ma'}
-                    onChange={(e) => updateSection('luma', 'discoverBaseUrl', e.target.value)} />
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 <button onClick={() => saveSection('luma')} disabled={saving === 'luma'}
                   style={{ ...BTN_PRIMARY, opacity: saving === 'luma' ? 0.6 : 1 }}>
                   {saving === 'luma' ? <InlineLoader label="Saving" /> : 'Save'}
@@ -711,6 +722,15 @@ export default function SettingsPage() {
                   style={{ ...BTN_GHOST, opacity: testing === 'luma' ? 0.6 : 1 }}>
                   {testing === 'luma' ? 'Testing…' : 'Test Connection'}
                 </button>
+                {luConnected && (
+                  <button
+                    onClick={() => disconnectSection('luma')}
+                    disabled={disconnecting === 'luma'}
+                    style={{ ...BTN_DISCONNECT, opacity: disconnecting === 'luma' ? 0.6 : 1 }}
+                  >
+                    {disconnecting === 'luma' ? <InlineLoader label="…" /> : 'Disconnect'}
+                  </button>
+                )}
               </div>
                 </div>
               </div>

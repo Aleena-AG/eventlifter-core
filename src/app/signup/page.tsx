@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { isAuthenticated } from '@/lib/auth'
-import { registerEwentcast } from '@/lib/ewentcast-session'
+import { registerLocal } from '@/lib/ewentcast-session'
 import { InlineLoader } from '@/components/Loader'
 import { AuthShowcase } from '@/components/auth/AuthShowcase'
 import { EWENTCAST_WORDMARK, HIGHTRIBE_COLOR, LUMA_COLOR, EVENTBRITE_COLOR } from '@/lib/brand'
@@ -41,7 +41,7 @@ export default function SignupPage() {
     setLoading(true)
     setError('')
     try {
-      const { ewentcast } = await registerEwentcast({ name, email, password })
+      const { ewentcast } = await registerLocal({ name, email, password })
       if (ewentcast.subscription_active) {
         router.replace('/dashboard')
       } else {

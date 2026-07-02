@@ -69,6 +69,17 @@
   background: #f9fafb;
 }
 
+.dash-btn--sync {
+  border-color: rgba(194, 80, 46, 0.35);
+  color: #c2502e;
+  background: rgba(194, 80, 46, 0.06);
+}
+
+.dash-btn--sync:hover:not(:disabled) {
+  background: rgba(194, 80, 46, 0.12);
+  border-color: rgba(194, 80, 46, 0.5);
+}
+
 .dash-btn:disabled {
   opacity: 0.65;
   cursor: default;

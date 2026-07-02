@@ -3,8 +3,16 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { authHeader } from '@/lib/auth'
+import {
+  isEventbriteConnected,
+  isHightribeChannelConnected,
+  isLumaConnected,
+} from '@/lib/channel-connection'
 import { getEwentcastAccount, htApiAuthHeader, isEwentcastSignupUser } from '@/lib/ewentcast-session'
-import { fetchHtEventsPage, type HtEventListItem } from '@/lib/hightribe-events'
+import { listStoredEvents } from '@/lib/channel-events-store'
+import { syncChannelDataToDb } from '@/lib/channel-data-sync'
+import { storedToEbEvent, storedToHtEvent, storedToLumaEvent } from '@/lib/channel-db-mappers'
+import type { HtEventListItem } from '@/lib/hightribe-events'
 import { Toast, useToast } from '@/components/Toast'
 import { InlineLoader, PageLoader } from '@/components/Loader'
 import { SyncModal, SyncSource } from '@/components/SyncModal'
@@ -260,7 +268,9 @@ export default function EventsPage() {
 
   // Hightribe state
   const [htEvents, setHtEvents] = useState<HtEvent[]>([])
+  const [htAllEvents, setHtAllEvents] = useState<HtEvent[]>([])
   const [htLoading, setHtLoading] = useState(false)
+  const [htSyncing, setHtSyncing] = useState(false)
   const [htPage, setHtPage] = useState(1)
   const [htLastPage, setHtLastPage] = useState(1)
   const [htTotal, setHtTotal] = useState<number | null>(null)
@@ -268,68 +278,112 @@ export default function EventsPage() {
   // Luma state
   const [lumaEvents, setLumaEvents] = useState<LumaEvent[]>([])
   const [lumaLoading, setLumaLoading] = useState(false)
+  const [lumaSyncing, setLumaSyncing] = useState(false)
 
   // Eventbrite state
   const [ebEvents, setEbEvents] = useState<EbEvent[]>([])
   const [ebLoading, setEbLoading] = useState(false)
+  const [ebSyncing, setEbSyncing] = useState(false)
 
   // ── Fetchers ──────────────────────────────────────────────────────────────
-  const loadHtEvents = useCallback(async (page = 1) => {
+  const applyHtPage = useCallback((all: HtEvent[], page: number) => {
+    const perPage = 12
+    const lastPage = Math.max(1, Math.ceil(all.length / perPage))
+    const safePage = Math.min(Math.max(1, page), lastPage)
+    setHtAllEvents(all)
+    setHtEvents(all.slice((safePage - 1) * perPage, safePage * perPage))
+    setHtPage(safePage)
+    setHtLastPage(lastPage)
+    setHtTotal(all.length)
+  }, [])
+
+  const loadHtEventsFromDb = useCallback(async (page = 1) => {
     setHtLoading(true)
     try {
-      const { events, currentPage, lastPage, total } = await fetchHtEventsPage(page, 12)
-      setHtEvents(events)
-      setHtPage(currentPage)
-      setHtLastPage(lastPage)
-      setHtTotal(total)
-    } catch { toast.error('Failed to load Hightribe events') }
-    finally { setHtLoading(false) }
-  }, [toast])
+      const rows = await listStoredEvents('hightribe')
+      const events = rows.map(storedToHtEvent)
+      applyHtPage(events, page)
+    } catch {
+      toast.error('Failed to load Hightribe events from database')
+    } finally {
+      setHtLoading(false)
+    }
+  }, [applyHtPage, toast])
 
-  const loadLumaEvents = useCallback(async () => {
+  const syncHtEvents = useCallback(async (page = 1) => {
+    setHtSyncing(true)
+    try {
+      const { events } = await syncChannelDataToDb('hightribe')
+      toast.success(events > 0 ? `Synced ${events} events from Hightribe` : 'Hightribe sync complete')
+      await loadHtEventsFromDb(page)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Hightribe sync failed')
+    } finally {
+      setHtSyncing(false)
+    }
+  }, [loadHtEventsFromDb, toast])
+
+  const loadHtEvents = useCallback(async (page = 1) => {
+    await loadHtEventsFromDb(page)
+  }, [loadHtEventsFromDb])
+
+  const loadLumaEventsFromDb = useCallback(async () => {
     setLumaLoading(true)
     try {
-      const res = await fetch('/api/luma/events/hosted?upcoming_only=false&fetch_all=true', { headers: { Authorization: authHeader() } })
-      const raw = await res.json() as { data?: { entries?: LumaEntry[] }; entries?: LumaEntry[]; status?: string; message?: string; error?: string }
-      if (!res.ok || raw.status === 'error') {
-        toast.error(`Luma: ${raw.message || raw.error || `HTTP ${res.status}`}`)
-        return
-      }
-      const entries = raw.data?.entries || raw.entries || []
-      setLumaEvents(entries.map((e): LumaEvent | null => {
-        if (e.event) return e.event
-        if (e.id && e.name) {
-          return {
-            api_id: e.id,
-            name: e.name,
-            start_at: e.start_at || '',
-            end_at: e.end_at || '',
-            timezone: e.timezone || 'UTC',
-            url: e.url,
-            cover_url: e.cover_url,
-            geo_address_json: e.geo_address_json,
-            meeting_url: e.meeting_url,
-          }
-        }
-        return null
-      }).filter((e): e is LumaEvent => !!e))
-    } catch { toast.error('Failed to load Luma events') }
-    finally { setLumaLoading(false) }
+      const rows = await listStoredEvents('luma')
+      setLumaEvents(rows.map(storedToLumaEvent))
+    } catch {
+      toast.error('Failed to load Luma events from database')
+    } finally {
+      setLumaLoading(false)
+    }
   }, [toast])
 
-  const loadEbEvents = useCallback(async () => {
+  const syncLumaEvents = useCallback(async () => {
+    setLumaSyncing(true)
+    try {
+      const { events, bookings } = await syncChannelDataToDb('luma')
+      toast.success(`Synced ${events} events, ${bookings} bookings`)
+      await loadLumaEventsFromDb()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Luma sync failed')
+    } finally {
+      setLumaSyncing(false)
+    }
+  }, [loadLumaEventsFromDb, toast])
+
+  const loadLumaEvents = useCallback(async () => {
+    await loadLumaEventsFromDb()
+  }, [loadLumaEventsFromDb])
+
+  const loadEbEventsFromDb = useCallback(async () => {
     setEbLoading(true)
     try {
-      const orgRes = await fetch('/api/eventbrite/users/me/organizations')
-      const orgData = await orgRes.json() as { organizations?: Array<{ id: string }> }
-      const orgs = orgData.organizations || []
-      if (orgs.length === 0) { setEbEvents([]); return }
-      const evtRes = await fetch(`/api/eventbrite/organizations/${orgs[0].id}/events?page_size=50`)
-      const evtData = await evtRes.json() as { events?: EbEvent[] }
-      setEbEvents(evtData.events || [])
-    } catch { toast.error('Failed to load Eventbrite events') }
-    finally { setEbLoading(false) }
+      const rows = await listStoredEvents('eventbrite')
+      setEbEvents(rows.map(storedToEbEvent))
+    } catch {
+      toast.error('Failed to load Eventbrite events from database')
+    } finally {
+      setEbLoading(false)
+    }
   }, [toast])
+
+  const syncEbEvents = useCallback(async () => {
+    setEbSyncing(true)
+    try {
+      const { events, bookings } = await syncChannelDataToDb('eventbrite')
+      toast.success(`Synced ${events} events, ${bookings} bookings`)
+      await loadEbEventsFromDb()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Eventbrite sync failed')
+    } finally {
+      setEbSyncing(false)
+    }
+  }, [loadEbEventsFromDb, toast])
+
+  const loadEbEvents = useCallback(async () => {
+    await loadEbEventsFromDb()
+  }, [loadEbEventsFromDb])
 
   // Load linked copies when delete dialog opens
   useEffect(() => {
@@ -345,7 +399,7 @@ export default function EventsPage() {
 
       try {
         const res = await fetch(
-          `/api/registry/lookup?channel=${deleteTarget.channel}&eventId=${encodeURIComponent(String(deleteTarget.id))}`,
+          `/api/registry?channel=${deleteTarget.channel}&eventId=${encodeURIComponent(String(deleteTarget.id))}`,
         )
         if (res.ok) {
           const data = await res.json() as { links?: Partial<Record<ChannelKey, { eventId: string }>> }
@@ -401,7 +455,10 @@ export default function EventsPage() {
     for (const t of targets) {
       try {
         await deleteOnChannel(t.channel, t.eventId)
-        if (t.channel === 'hightribe') setHtEvents(ev => ev.filter(e => String(e.id) !== String(t.eventId)))
+        if (t.channel === 'hightribe') {
+          setHtEvents(ev => ev.filter(e => String(e.id) !== String(t.eventId)))
+          setHtAllEvents(ev => ev.filter(e => String(e.id) !== String(t.eventId)))
+        }
         else if (t.channel === 'luma') setLumaEvents(ev => ev.filter(e => e.api_id !== String(t.eventId)))
         else setEbEvents(ev => ev.filter(e => e.id !== String(t.eventId)))
       } catch (err) {
@@ -411,7 +468,7 @@ export default function EventsPage() {
 
     try {
       const res = await fetch(
-        `/api/registry/lookup?channel=${channel}&eventId=${encodeURIComponent(String(id))}`,
+        `/api/registry?channel=${channel}&eventId=${encodeURIComponent(String(id))}`,
       )
       if (res.ok) {
         const data = await res.json() as { master?: { id: string } }
@@ -434,12 +491,12 @@ export default function EventsPage() {
 
   useEffect(() => {
     fetch('/api/settings').then(r => r.json()).then((s: {
-      luma?: { apiKey?: string; configured?: boolean }
-      eventbrite?: { privateToken?: string; clientId?: string }
+      luma?: { configured?: boolean }
+      eventbrite?: { hasPrivateToken?: boolean; configured?: boolean }
     }) => {
-      setHtConfigured(true)
-      setLumaConfigured(!!(s.luma?.configured || s.luma?.apiKey))
-      setEbConfigured(!!(s.eventbrite?.privateToken || s.eventbrite?.clientId))
+      setHtConfigured(isHightribeChannelConnected())
+      setLumaConfigured(isLumaConnected(s))
+      setEbConfigured(isEventbriteConnected(s))
     }).catch(() => {})
   }, [])
 
@@ -467,12 +524,9 @@ export default function EventsPage() {
   }, [searchParams])
 
   function onPublished() {
-    setHtEvents([])
-    setLumaEvents([])
-    setEbEvents([])
-    loadHtEvents(1)
-    loadLumaEvents()
-    loadEbEvents()
+    void loadHtEvents(1)
+    void loadLumaEvents()
+    void loadEbEvents()
   }
   function openEdit(channel: ChannelKey, id: string|number) {
     setEditModal({ open: true, channel, eventId: id })
@@ -579,9 +633,24 @@ export default function EventsPage() {
                 'Your hosted events'
               )}
             </span>
-            <button type="button" className="events-refresh-btn" onClick={() => loadHtEvents(1)} disabled={htLoading}>
-              {htLoading ? <InlineLoader label="Refreshing" /> : '↻ Refresh'}
-            </button>
+            <div className="events-toolbar-actions">
+              <button
+                type="button"
+                className="events-refresh-btn"
+                onClick={() => loadHtEvents(htPage)}
+                disabled={htLoading || htSyncing}
+              >
+                {htLoading ? <InlineLoader label="Refreshing" /> : '↻ Refresh'}
+              </button>
+              <button
+                type="button"
+                className="events-refresh-btn events-refresh-btn--sync"
+                onClick={() => syncHtEvents(htPage)}
+                disabled={htLoading || htSyncing}
+              >
+                {htSyncing ? <InlineLoader label="Syncing" /> : '⇅ Sync'}
+              </button>
+            </div>
           </div>
           {htLoading ? (
             <PageLoader label="Loading Hightribe events…" />
@@ -612,12 +681,12 @@ export default function EventsPage() {
               </div>
               {htLastPage > 1 && (
                 <div className="events-pagination">
-                  <button type="button" className="events-page-btn" onClick={() => loadHtEvents(htPage - 1)} disabled={htPage <= 1 || htLoading}>← Prev</button>
+                  <button type="button" className="events-page-btn" onClick={() => applyHtPage(htAllEvents, htPage - 1)} disabled={htPage <= 1 || htLoading}>← Prev</button>
                   <span className="events-page-info">
                     Page {htPage} / {htLastPage}
                     {htTotal !== null && <span style={{ marginLeft:'6px' }}>· {htTotal} events</span>}
                   </span>
-                  <button type="button" className="events-page-btn" onClick={() => loadHtEvents(htPage + 1)} disabled={htPage >= htLastPage || htLoading}>Next →</button>
+                  <button type="button" className="events-page-btn" onClick={() => applyHtPage(htAllEvents, htPage + 1)} disabled={htPage >= htLastPage || htLoading}>Next →</button>
                 </div>
               )}
             </>
@@ -634,9 +703,24 @@ export default function EventsPage() {
             <span className="events-toolbar-count">
               <strong>{lumaEvents.length}</strong> {lumaEvents.length === 1 ? 'event' : 'events'}
             </span>
-            <button type="button" className="events-refresh-btn" onClick={loadLumaEvents} disabled={lumaLoading}>
-              {lumaLoading ? <InlineLoader label="Refreshing" /> : '↻ Refresh'}
-            </button>
+            <div className="events-toolbar-actions">
+              <button
+                type="button"
+                className="events-refresh-btn"
+                onClick={loadLumaEvents}
+                disabled={lumaLoading || lumaSyncing}
+              >
+                {lumaLoading ? <InlineLoader label="Refreshing" /> : '↻ Refresh'}
+              </button>
+              <button
+                type="button"
+                className="events-refresh-btn events-refresh-btn--sync"
+                onClick={syncLumaEvents}
+                disabled={lumaLoading || lumaSyncing}
+              >
+                {lumaSyncing ? <InlineLoader label="Syncing" /> : '⇅ Sync'}
+              </button>
+            </div>
           </div>
           {lumaLoading ? (
             <PageLoader label="Loading Luma events…" />
@@ -668,9 +752,24 @@ export default function EventsPage() {
             <span className="events-toolbar-count">
               <strong>{ebEvents.length}</strong> {ebEvents.length === 1 ? 'event' : 'events'}
             </span>
-            <button type="button" className="events-refresh-btn" onClick={loadEbEvents} disabled={ebLoading}>
-              {ebLoading ? <InlineLoader label="Refreshing" /> : '↻ Refresh'}
-            </button>
+            <div className="events-toolbar-actions">
+              <button
+                type="button"
+                className="events-refresh-btn"
+                onClick={loadEbEvents}
+                disabled={ebLoading || ebSyncing}
+              >
+                {ebLoading ? <InlineLoader label="Refreshing" /> : '↻ Refresh'}
+              </button>
+              <button
+                type="button"
+                className="events-refresh-btn events-refresh-btn--sync"
+                onClick={syncEbEvents}
+                disabled={ebLoading || ebSyncing}
+              >
+                {ebSyncing ? <InlineLoader label="Syncing" /> : '⇅ Sync'}
+              </button>
+            </div>
           </div>
           {ebLoading ? (
             <PageLoader label="Loading Eventbrite events…" />

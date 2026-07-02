@@ -3,7 +3,9 @@
 import Link from 'next/link'
 import type { ChannelKey } from '@/lib/types'
 import { CAP_LABELS, CHANNEL_META } from '@/lib/channels'
+import { channelDisconnectLabel } from '@/lib/channel-disconnect'
 import { ChannelLogo } from './ChannelLogo'
+import { InlineLoader } from './Loader'
 
 const AUTH_LABELS: Record<string, string> = {
   native: 'Native',
@@ -16,11 +18,31 @@ const FEATURED_CAPS = ['publish', 'webhooks', 'capacitySync', 'pullAttendees'] a
 interface ChannelCardProps {
   channel: ChannelKey
   connected: boolean
+  onDisconnect?: () => void
+  disconnecting?: boolean
 }
 
-export function ChannelCard({ channel, connected }: ChannelCardProps) {
+const BTN_DISCONNECT: React.CSSProperties = {
+  background: '#FFFFFF',
+  border: '1px solid #E8DFD0',
+  borderRadius: '6px',
+  color: '#C2502E',
+  padding: '6px 12px',
+  fontSize: '12px',
+  fontWeight: 500,
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
+}
+
+export function ChannelCard({
+  channel,
+  connected,
+  onDisconnect,
+  disconnecting = false,
+}: ChannelCardProps) {
   const meta = CHANNEL_META[channel]
   const settingsHref = `/settings?channel=${channel}`
+  const disconnectLabel = channelDisconnectLabel(channel, connected)
 
   return (
     <article
@@ -63,6 +85,16 @@ export function ChannelCard({ channel, connected }: ChannelCardProps) {
       </div>
 
       <div className="channel-card__foot">
+        {connected && onDisconnect && disconnectLabel && (
+          <button
+            type="button"
+            onClick={onDisconnect}
+            disabled={disconnecting}
+            style={{ ...BTN_DISCONNECT, opacity: disconnecting ? 0.6 : 1, cursor: disconnecting ? 'default' : 'pointer' }}
+          >
+            {disconnecting ? <InlineLoader label="…" /> : disconnectLabel}
+          </button>
+        )}
         <Link href={settingsHref} className="channel-card__cta">
           {connected ? 'Manage connection →' : 'Connect in Settings →'}
         </Link>
