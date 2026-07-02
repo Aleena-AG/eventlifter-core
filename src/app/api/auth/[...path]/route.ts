@@ -43,8 +43,14 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
     const { path } = await ctx.params
     return await proxy(req, path)
   } catch (err) {
+    const backendUrl = getBackendUrl()
+    const raw = err instanceof Error ? err.message : 'Backend unavailable'
+    const message =
+      raw === 'fetch failed'
+        ? `Express API not reachable at ${backendUrl}. Start backend with npm start and check pm2 logs.`
+        : raw
     return NextResponse.json(
-      { status: false, message: err instanceof Error ? err.message : 'Backend unavailable' },
+      { status: false, message },
       { status: 503 },
     )
   }
@@ -55,8 +61,14 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     const { path } = await ctx.params
     return await proxy(req, path)
   } catch (err) {
+    const backendUrl = getBackendUrl()
+    const raw = err instanceof Error ? err.message : 'Backend unavailable'
+    const message =
+      raw === 'fetch failed'
+        ? `Express API not reachable at ${backendUrl}. Start backend with npm start and check pm2 logs.`
+        : raw
     return NextResponse.json(
-      { status: false, message: err instanceof Error ? err.message : 'Backend unavailable' },
+      { status: false, message },
       { status: 503 },
     )
   }
