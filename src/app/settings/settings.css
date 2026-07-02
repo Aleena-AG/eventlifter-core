@@ -81,6 +81,125 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
+.settings-subscription {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.settings-subscription__main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.settings-subscription__eyebrow {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #8c7f6d;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.settings-subscription__plan {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: #211b16;
+}
+
+.settings-subscription__price {
+  margin-left: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #8c7f6d;
+}
+
+.settings-subscription__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.settings-subscription__badge--active {
+  background: rgba(78, 122, 75, 0.12);
+  border: 1px solid rgba(78, 122, 75, 0.28);
+  color: #4e7a4b;
+}
+
+.settings-subscription__badge--trial {
+  background: rgba(217, 138, 43, 0.12);
+  border: 1px solid rgba(217, 138, 43, 0.28);
+  color: #b8731f;
+}
+
+.settings-subscription__badge--inactive,
+.settings-subscription__badge--expired {
+  background: rgba(194, 80, 46, 0.1);
+  border: 1px solid rgba(194, 80, 46, 0.25);
+  color: #c2502e;
+}
+
+.settings-subscription__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.settings-subscription__item {
+  background: #fbf7f0;
+  border: 1px solid #e8dfd0;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.settings-subscription__item-label {
+  display: block;
+  font-size: 11px;
+  color: #8c7f6d;
+  margin-bottom: 4px;
+}
+
+.settings-subscription__item-value {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #211b16;
+  text-transform: capitalize;
+}
+
+.settings-subscription__detail {
+  margin: 0;
+  font-size: 13px;
+  color: #8c7f6d;
+  line-height: 1.5;
+}
+
+.settings-subscription__cta {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 16px;
+  border-radius: 8px;
+  background: #d98a2b;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.settings-subscription__cta:hover {
+  background: #c47d26;
+}
+
 @media (max-width: 960px) {
   .settings-channel-layout {
     grid-template-columns: 1fr;

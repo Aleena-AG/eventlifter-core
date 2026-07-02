@@ -11,7 +11,7 @@ import type { HtUser } from '@/lib/auth'
 import { ChannelLogo } from '@/components/ChannelLogo'
 import { HIGHTRIBE_COLOR, LUMA_COLOR, EVENTBRITE_COLOR } from '@/lib/brand'
 import { ConnectHightribeSection } from '@/components/ConnectHightribeSection'
-import { getEwentcastAccount, isEwentcastSignupUser, fetchAuthMe } from '@/lib/ewentcast-session'
+import { getEwentcastAccount, isEwentcastSignupUser, fetchAuthMe, type EwentcastAccount } from '@/lib/ewentcast-session'
 import { disconnectChannelIntegration } from '@/lib/channel-disconnect'
 import { effectiveEventbriteRedirectUri } from '@/lib/app-url'
 import { useAppUrl, useEventbriteRedirectUri } from '@/lib/use-app-url'
@@ -110,6 +110,108 @@ function PortalUrlRow({ label, value, hint }: { label: string; value: string; hi
         <code className="settings-portal-url-value">{value}</code>
         <CopyButton value={value} />
       </div>
+    </div>
+  )
+}
+
+function subscriptionStatusMeta(account: EwentcastAccount): {
+  label: string
+  tone: 'active' | 'trial' | 'inactive' | 'expired'
+  detail: string
+} {
+  const price = account.subscription_amount_usd ?? 20
+  if (account.subscription_status === 'active' && account.subscription_active) {
+    return {
+      label: 'Pro — Active',
+      tone: 'active',
+      detail: `$${price}/month · Full access`,
+    }
+  }
+  if (account.subscription_status === 'trialing' && account.subscription_active) {
+    const days = account.trial_days_remaining
+    const detail = days != null
+      ? `${days} day${days === 1 ? '' : 's'} left in free trial`
+      : account.trial_ends_at
+        ? `Trial ends ${new Date(account.trial_ends_at).toLocaleDateString()}`
+        : 'Free trial active'
+    return { label: 'Free trial', tone: 'trial', detail }
+  }
+  if (account.subscription_status === 'inactive' || !account.subscription_active) {
+    return {
+      label: 'Inactive',
+      tone: 'inactive',
+      detail: 'Subscribe to Pro to use Ewentcast',
+    }
+  }
+  return {
+    label: account.subscription_status,
+    tone: 'expired',
+    detail: 'Upgrade required',
+  }
+}
+
+function SubscriptionStatusCard({ account }: { account: EwentcastAccount }) {
+  const meta = subscriptionStatusMeta(account)
+  const showUpgrade = account.auth_source === 'ewentcast_signup'
+    && account.subscription_status !== 'active'
+
+  return (
+    <div className="settings-subscription">
+      <div className="settings-subscription__main">
+        <div>
+          <p className="settings-subscription__eyebrow">Ewentcast plan</p>
+          <p className="settings-subscription__plan">
+            {account.subscription_plan === 'pro_monthly_20' ? 'Pro' : account.subscription_plan}
+            <span className="settings-subscription__price">
+              ${account.subscription_amount_usd ?? 20}/mo
+            </span>
+          </p>
+        </div>
+        <span className={`settings-subscription__badge settings-subscription__badge--${meta.tone}`}>
+          {meta.label}
+        </span>
+      </div>
+
+      <div className="settings-subscription__grid">
+        <div className="settings-subscription__item">
+          <span className="settings-subscription__item-label">Status</span>
+          <span className="settings-subscription__item-value">{account.subscription_status}</span>
+        </div>
+        <div className="settings-subscription__item">
+          <span className="settings-subscription__item-label">Access</span>
+          <span className="settings-subscription__item-value">
+            {account.subscription_active ? 'Active' : 'Blocked'}
+          </span>
+        </div>
+        {account.trial_days_remaining != null && account.subscription_status === 'trialing' && (
+          <div className="settings-subscription__item">
+            <span className="settings-subscription__item-label">Trial left</span>
+            <span className="settings-subscription__item-value">
+              {account.trial_days_remaining} day{account.trial_days_remaining === 1 ? '' : 's'}
+            </span>
+          </div>
+        )}
+        {account.trial_ends_at && account.subscription_status === 'trialing' && (
+          <div className="settings-subscription__item">
+            <span className="settings-subscription__item-label">Trial ends</span>
+            <span className="settings-subscription__item-value">
+              {new Date(account.trial_ends_at).toLocaleDateString(undefined, {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+              })}
+            </span>
+          </div>
+        )}
+      </div>
+
+      <p className="settings-subscription__detail">{meta.detail}</p>
+
+      {showUpgrade && (
+        <Link href="/subscribe" className="settings-subscription__cta">
+          {account.subscription_active ? 'Upgrade to Pro' : 'Subscribe to Pro'}
+        </Link>
+      )}
     </div>
   )
 }
@@ -473,13 +575,16 @@ export default function SettingsPage() {
   const [disconnecting, setDisconnecting] = useState<string | null>(null)
   const [testing, setTesting] = useState<string | null>(null)
   const [htUser, setHtUser] = useState<HtUser | null>(null)
+  const [account, setAccount] = useState<EwentcastAccount | null>(null)
   const [channelLoadError, setChannelLoadError] = useState<string | null>(null)
   const { toasts, toast, removeToast } = useToast()
 
   useEffect(() => { setHtUser(getUser()) }, [])
 
   useEffect(() => {
-    fetchAuthMe().catch(() => {})
+    fetchAuthMe()
+      .then((data) => setAccount(data?.ewentcast ?? getEwentcastAccount()))
+      .catch(() => setAccount(getEwentcastAccount()))
   }, [])
 
   const loadSettings = useCallback(async () => {
@@ -661,6 +766,12 @@ export default function SettingsPage() {
 
       {loading ? <PageLoader label="Loading settings…" /> : (
         <>
+          {!focusChannel && account?.auth_source === 'ewentcast_signup' && (
+            <SectionCard title="Subscription" icon="◆">
+              <SubscriptionStatusCard account={account} />
+            </SectionCard>
+          )}
+
           {showEventbrite && (
           <SectionCard title="Eventbrite" channel="eventbrite">
             <div className="settings-channel-layout">
