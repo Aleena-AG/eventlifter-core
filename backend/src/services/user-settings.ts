@@ -1,7 +1,7 @@
 import type { RowDataPacket } from 'mysql2'
-import { config } from '../config.js'
-import { getPool, query } from '../db/pool.js'
-import type { AppSettings, ChannelSettingsKey } from '../types/settings.js'
+import { config } from '../config'
+import { getPool, query } from '../db/pool'
+import type { AppSettings, ChannelSettingsKey } from '../types/settings'
 
 function defaultRedirectUri(): string {
   const base = config.appUrl

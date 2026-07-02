@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from 'express'
-import { resolveSession, type UserRow } from '../services/auth.js'
+import { resolveSession, type UserRow } from '../services/auth'
 
 export interface AuthedRequest extends Request {
   user?: UserRow

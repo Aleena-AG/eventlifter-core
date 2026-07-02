@@ -1,4 +1,4 @@
-import { runFreshMigrations } from './migrate.js'
+import { runFreshMigrations } from './migrate'
 
 const seed = process.argv.includes('--seed')
 

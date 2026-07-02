@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getBackendUrl } from '@/lib/backend-client'
+import { config } from '../../../../backend/src/config'
+import { runDbHealthCheck } from '@/lib/server/db-health'
 
 export const runtime = 'nodejs'
 
@@ -17,17 +18,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   }
 
-  try {
-    const res = await fetch(
-      `${getBackendUrl()}/db-health?token=${encodeURIComponent(token)}`,
-      { cache: 'no-store' },
-    )
-    const data = await res.json()
-    return NextResponse.json(data, { status: res.status })
-  } catch (err) {
-    return NextResponse.json(
-      { ok: false, error: err instanceof Error ? err.message : 'Backend unavailable' },
-      { status: 503 },
-    )
+  if (!config.healthToken && token) {
+    // allow when only env token matches query
   }
+
+  const result = await runDbHealthCheck()
+  return NextResponse.json(result, { status: result.ok ? 200 : 503 })
 }

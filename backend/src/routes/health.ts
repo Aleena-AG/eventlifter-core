@@ -1,6 +1,6 @@
 import { Router } from 'express'
-import { config, dbConfigured } from '../config.js'
-import { getPool } from '../db/pool.js'
+import { config, dbConfigured } from '../config'
+import { getPool } from '../db/pool'
 
 export const healthRouter = Router()
 

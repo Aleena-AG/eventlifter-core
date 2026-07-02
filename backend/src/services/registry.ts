@@ -1,7 +1,7 @@
 import type { ResultSetHeader } from 'mysql2'
 import type { RowDataPacket } from 'mysql2'
-import { getPool, query } from '../db/pool.js'
-import type { AttendeeRecord, ChannelKey, ChannelRef, MasterEventRecord } from '../types.js'
+import { getPool, query } from '../db/pool'
+import type { AttendeeRecord, ChannelKey, ChannelRef, MasterEventRecord } from '../types'
 
 type MasterRow = RowDataPacket & {
   id: string

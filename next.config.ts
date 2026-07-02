@@ -12,6 +12,8 @@ const appUrl = (
 const nextConfig: NextConfig = {
     reactStrictMode: false,
 
+    serverExternalPackages: ["mysql2"],
+
     env: {
         NEXT_PUBLIC_APP_URL: appUrl,
     },

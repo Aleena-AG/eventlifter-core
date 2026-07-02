@@ -1,6 +1,6 @@
 import { Router } from 'express'
-import type { AuthedRequest } from '../middleware/auth.js'
-import { requireAuth } from '../middleware/auth.js'
+import type { AuthedRequest } from '../middleware/auth'
+import { requireAuth } from '../middleware/auth'
 import {
   getMe,
   loginUser,
@@ -8,12 +8,12 @@ import {
   requestPasswordReset,
   resetPassword,
   deleteSession,
-} from '../services/auth.js'
+} from '../services/auth'
 import {
   connectHightribeAccount,
   disconnectHightribeAccount,
   loginHightribeAccount,
-} from '../services/hightribe-connect.js'
+} from '../services/hightribe-connect'
 
 export const authRouter = Router()
 

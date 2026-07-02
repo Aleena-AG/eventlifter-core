@@ -1,7 +1,7 @@
 import type { ResultSetHeader, RowDataPacket } from 'mysql2'
-import { getPool, query } from '../db/pool.js'
-import { deleteAllChannelBookings } from './bookings.js'
-import type { ChannelName } from './events.js'
+import { getPool, query } from '../db/pool'
+import { deleteAllChannelBookings } from './bookings'
+import type { ChannelName } from './events'
 
 const EVENT_TABLE: Record<ChannelName, string> = {
   luma: 'luma_events',
