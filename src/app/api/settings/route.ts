@@ -13,7 +13,7 @@ import {
   toPublicSettingsView as toDbPublicSettingsView,
   updateUserSettings,
 } from '../../../../backend/src/services/user-settings'
-import { isErrorResponse, requireSession } from '@/lib/server/session'
+import { assertEwentcastSubscription, isErrorResponse, requireSession } from '@/lib/server/session'
 
 export { loadSettings, saveSettings } from '@/lib/settings-store'
 
@@ -22,6 +22,8 @@ export const runtime = 'nodejs'
 export async function GET(req: NextRequest) {
   const session = await requireSession(req)
   if (!isErrorResponse(session)) {
+    const denied = await assertEwentcastSubscription(session.user.id)
+    if (denied) return denied
     try {
       const full = req.nextUrl.searchParams.get('full') === '1'
       const settings = await getUserSettings(session.user.id)
@@ -48,6 +50,8 @@ export async function PUT(req: NextRequest) {
   const session = await requireSession(req)
 
   if (!isErrorResponse(session)) {
+    const denied = await assertEwentcastSubscription(session.user.id)
+    if (denied) return denied
     try {
       const updated = await updateUserSettings(session.user.id, patch as Partial<DbAppSettings>)
       return NextResponse.json(toDbPublicSettingsView(updated))

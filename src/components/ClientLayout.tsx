@@ -6,6 +6,7 @@ import { useRouter, usePathname } from 'next/navigation'
 import { getToken } from '@/lib/auth'
 import { fetchAuthMe, needsSubscription } from '@/lib/ewentcast-session'
 import { Sidebar } from './Sidebar'
+import { TrialWarningBanner } from './TrialWarningBanner'
 import { PageLoader } from './Loader'
 import { EwentcastLogo } from './EwentcastLogo'
 import '@/app/app-shell.css'
@@ -143,6 +144,7 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
       />
 
       <div className="app-main-wrap">
+        <TrialWarningBanner />
         <main className="app-main">{children}</main>
       </div>
     </>

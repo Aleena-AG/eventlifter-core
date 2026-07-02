@@ -1,5 +1,5 @@
 import type { RowDataPacket } from 'mysql2'
-import { config } from '../config'
+import { config, isDevPaymentBypass } from '../config'
 import { getPool, query } from '../db/pool'
 import { hashPassword, newToken, verifyPassword } from '../lib/crypto'
 import { isEmailConfigured, sendPasswordResetEmail } from './email'
@@ -19,6 +19,8 @@ export interface AccountView {
   subscription_status: string
   subscription_active: boolean
   subscription_amount_usd: number
+  trial_ends_at: string | null
+  trial_days_remaining: number | null
   ht_connected: boolean
   linked_ht_user_id: number | null
   ht_connected_at: string | null
@@ -42,6 +44,13 @@ function resetExpiry(): Date {
   return d
 }
 
+function trialDaysRemaining(trialEndsAt: Date | null): number | null {
+  if (!trialEndsAt) return null
+  const diff = trialEndsAt.getTime() - Date.now()
+  if (diff <= 0) return 0
+  return Math.ceil(diff / (1000 * 60 * 60 * 24))
+}
+
 export async function getAccountView(userId: number): Promise<AccountView> {
   const subs = await query<RowDataPacket[]>(
     'SELECT plan, status, trial_ends_at, current_period_end FROM subscriptions WHERE user_id = ? LIMIT 1',
@@ -61,7 +70,14 @@ export async function getAccountView(userId: number): Promise<AccountView> {
   const authSource: AccountView['auth_source'] =
     users[0]?.auth_source === 'hightribe' ? 'hightribe_native' : 'ewentcast_signup'
   const status = (sub?.status as string) || 'trialing'
-  const active = config.skipPayment || status === 'active' || status === 'trialing'
+  const trialEndsAt = sub?.trial_ends_at ? new Date(sub.trial_ends_at as Date) : null
+  const trialStillValid = status === 'trialing' && (!trialEndsAt || trialEndsAt > new Date())
+  const paidActive = status === 'active'
+  const active =
+    paidActive
+    || trialStillValid
+    || (isDevPaymentBypass() && authSource === 'ewentcast_signup')
+  const daysLeft = status === 'trialing' ? trialDaysRemaining(trialEndsAt) : null
 
   return {
     auth_source: authSource,
@@ -69,6 +85,8 @@ export async function getAccountView(userId: number): Promise<AccountView> {
     subscription_status: status,
     subscription_active: active,
     subscription_amount_usd: 20,
+    trial_ends_at: trialEndsAt ? trialEndsAt.toISOString() : null,
+    trial_days_remaining: daysLeft,
     ht_connected: !!htRow?.ht_user_id,
     linked_ht_user_id: htRow?.ht_user_id ? Number(htRow.ht_user_id) : null,
     ht_connected_at: htRow?.connected_at
@@ -121,7 +139,7 @@ export async function registerUser(input: {
   const now = new Date()
   const passwordHash = hashPassword(input.password)
   const trialEnd = new Date()
-  trialEnd.setDate(trialEnd.getDate() + 14)
+  trialEnd.setDate(trialEnd.getDate() + config.trialDays)
 
   const pool = getPool()
   const [result] = await pool.query<{ insertId: number }>(
@@ -131,11 +149,10 @@ export async function registerUser(input: {
   )
   const userId = (result as unknown as { insertId: number }).insertId
 
-  const status = config.skipPayment ? 'active' : 'trialing'
   await pool.query(
     `INSERT INTO subscriptions (user_id, plan, status, trial_ends_at, created_at, updated_at)
-     VALUES (?, 'pro_monthly_20', ?, ?, ?, ?)`,
-    [userId, status, trialEnd, now, now],
+     VALUES (?, 'pro_monthly_20', 'trialing', ?, ?, ?)`,
+    [userId, trialEnd, now, now],
   )
 
   const token = await createSession(userId)

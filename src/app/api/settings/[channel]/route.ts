@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { clearChannelSettings, toPublicSettingsView } from '../../../../../backend/src/services/user-settings'
-import { isErrorResponse, requireSession } from '@/lib/server/session'
+import { isErrorResponse, requireSubscribedSession } from '@/lib/server/session'
 
 export const runtime = 'nodejs'
 
 type RouteContext = { params: Promise<{ channel: string }> }
 
 export async function DELETE(req: NextRequest, ctx: RouteContext) {
-  const session = await requireSession(req)
+  const session = await requireSubscribedSession(req)
   if (isErrorResponse(session)) return session
 
   const { channel } = await ctx.params

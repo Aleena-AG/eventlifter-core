@@ -90,7 +90,9 @@ function SubscribeContent() {
   }
 
   const price = account?.subscription_amount_usd ?? 20
-  const active = account?.subscription_active
+  const paidActive = account?.subscription_status === 'active' && account?.subscription_active
+  const isTrialing = account?.subscription_status === 'trialing' && account?.subscription_active
+  const needsPay = needsSubscription()
 
   if (loading) {
     return (
@@ -127,12 +129,18 @@ function SubscribeContent() {
           <Link href="/" style={{ textDecoration: 'none', color: 'inherit', display: 'inline-block' }}>
             <EwentcastLogo height={52} wordmarkOnly onLight style={{ margin: '0 auto 16px' }} />
             <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700, color: '#211B16' }}>
-              {active ? 'You\'re all set!' : 'Activate Ewentcast Pro'}
+              {paidActive
+                ? 'You\'re all set!'
+                : isTrialing
+                  ? 'Upgrade to Pro'
+                  : 'Your trial has ended'}
             </h1>
             <p style={{ margin: '8px 0 0', fontSize: '14px', color: '#8C7F6D' }}>
-              {active
-                ? 'Your subscription is active'
-                : 'One plan — all your channels in one place'}
+              {paidActive
+                ? 'Your Pro subscription is active'
+                : isTrialing
+                  ? `${account?.trial_days_remaining ?? 14} days left in your free trial`
+                  : 'Upgrade to Pro to continue using Ewentcast'}
             </p>
           </Link>
         </div>
@@ -147,7 +155,7 @@ function SubscribeContent() {
             boxShadow: '0 14px 40px rgba(33, 27, 22, 0.06)',
           }}
         >
-          {!active && (
+          {!paidActive && (
             <>
               {/* Price block */}
               <div
@@ -203,7 +211,7 @@ function SubscribeContent() {
             </>
           )}
 
-          {active && (
+          {paidActive && (
             <div style={{ textAlign: 'center', marginBottom: '24px' }}>
               <div
                 style={{
@@ -221,7 +229,7 @@ function SubscribeContent() {
             </div>
           )}
 
-          {success === '1' && !active && (
+          {success === '1' && needsPay && (
             <div
               style={{
                 marginBottom: '16px', padding: '12px 14px',
@@ -233,7 +241,7 @@ function SubscribeContent() {
             </div>
           )}
 
-          {canceled === '1' && !active && (
+          {canceled === '1' && needsPay && (
             <div
               style={{
                 marginBottom: '16px', padding: '12px 14px',
@@ -257,7 +265,7 @@ function SubscribeContent() {
             </div>
           )}
 
-          {!active ? (
+          {!paidActive ? (
             <>
               <button
                 type="button"
@@ -272,27 +280,45 @@ function SubscribeContent() {
                   transition: 'background 0.15s',
                 }}
               >
-                {checkoutLoading ? <InlineLoader label="Opening Stripe checkout" /> : `Subscribe — $${price}/mo`}
+                {checkoutLoading
+                  ? <InlineLoader label="Opening Stripe checkout" />
+                  : isTrialing
+                    ? `Upgrade to Pro — $${price}/mo`
+                    : `Subscribe — $${price}/mo`}
               </button>
               <p style={{ textAlign: 'center', margin: '12px 0 0', fontSize: '11px', color: '#8C7F6D', lineHeight: 1.5 }}>
                 Secure payment via Stripe · Same as Hightribe billing
                 <br />
                 Not satisfied? Full refund within 14 days — contact support.
               </p>
-              <button
-                type="button"
-                onClick={handleLogout}
-                disabled={loggingOut}
-                style={{
-                  width: '100%', marginTop: '14px',
-                  background: 'none', border: '1px solid #E8DFD0', borderRadius: '10px',
-                  color: '#8C7F6D', padding: '10px', fontSize: '13px',
-                  cursor: loggingOut ? 'default' : 'pointer',
-                  opacity: loggingOut ? 0.6 : 1,
-                }}
-              >
-                {loggingOut ? <InlineLoader label="Signing out" /> : 'Sign out — pay later or use another account'}
-              </button>
+              {isTrialing ? (
+                <Link
+                  href="/dashboard"
+                  style={{
+                    display: 'block', textAlign: 'center', marginTop: '14px',
+                    background: 'none', border: '1px solid #E8DFD0', borderRadius: '10px',
+                    color: '#8C7F6D', padding: '10px', fontSize: '13px',
+                    textDecoration: 'none',
+                  }}
+                >
+                  Continue with free trial →
+                </Link>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  disabled={loggingOut}
+                  style={{
+                    width: '100%', marginTop: '14px',
+                    background: 'none', border: '1px solid #E8DFD0', borderRadius: '10px',
+                    color: '#8C7F6D', padding: '10px', fontSize: '13px',
+                    cursor: loggingOut ? 'default' : 'pointer',
+                    opacity: loggingOut ? 0.6 : 1,
+                  }}
+                >
+                  {loggingOut ? <InlineLoader label="Signing out" /> : 'Sign out — pay later or use another account'}
+                </button>
+              )}
             </>
           ) : (
             <Link
@@ -316,7 +342,7 @@ function SubscribeContent() {
 
         <p style={{ textAlign: 'center', marginTop: user ? '8px' : '20px', fontSize: '12px', color: '#8C7F6D', lineHeight: 1.6 }}>
           Hightribe connect is optional
-          {!active && (
+          {!paidActive && (
             <>
               {' · '}
               <Link href="/signup" style={{ color: '#8C7F6D', textDecoration: 'none' }}>Create another account</Link>

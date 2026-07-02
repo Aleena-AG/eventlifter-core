@@ -23,6 +23,7 @@ export const config = {
   },
   healthToken: process.env.DB_HEALTH_TOKEN || '',
   skipPayment: process.env.EWENTCAST_SKIP_PAYMENT === 'true',
+  trialDays: Number(process.env.EWENTCAST_TRIAL_DAYS || 14),
   exposeResetToken: process.env.AUTH_EXPOSE_RESET_TOKEN === 'true' || process.env.NODE_ENV !== 'production',
   sessionDays: Number(process.env.AUTH_SESSION_DAYS || 30),
   resetTokenHours: Number(process.env.AUTH_RESET_TOKEN_HOURS || 2),
@@ -38,4 +39,9 @@ export const config = {
 
 export function dbConfigured(): boolean {
   return !!(config.db.host && config.db.user && config.db.password && config.db.database)
+}
+
+/** Local dev only — never bypasses billing in production. */
+export function isDevPaymentBypass(): boolean {
+  return config.skipPayment && process.env.NODE_ENV !== 'production'
 }

@@ -8,6 +8,8 @@ export interface EwentcastAccount {
   subscription_status: string
   subscription_active: boolean
   subscription_amount_usd: number
+  trial_ends_at?: string | null
+  trial_days_remaining?: number | null
   ht_connected: boolean
   linked_ht_user_id?: number | null
   ht_connected_at?: string | null
@@ -72,6 +74,20 @@ export function canLoadHtChannelKeys(): boolean {
 export function needsSubscription(): boolean {
   const account = getEwentcastAccount()
   return account?.auth_source === 'ewentcast_signup' && !account.subscription_active
+}
+
+export function isOnFreeTrial(): boolean {
+  const account = getEwentcastAccount()
+  return account?.auth_source === 'ewentcast_signup'
+    && account.subscription_status === 'trialing'
+    && account.subscription_active
+}
+
+export function getTrialDaysRemaining(): number | null {
+  const account = getEwentcastAccount()
+  if (!isOnFreeTrial()) return null
+  if (account?.trial_days_remaining == null) return null
+  return account.trial_days_remaining
 }
 
 export function needsHtConnect(): boolean {
