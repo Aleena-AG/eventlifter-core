@@ -575,31 +575,31 @@ export default function BookingsPage() {
               <path d="M9 12h6M9 16h4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
             </svg>
           </div>
-          <div>
+          <div className="bookings-header__text">
             <div className="bookings-header__eyebrow">Registrations</div>
             <h1>Bookings</h1>
             <p>Incoming registrations from webhooks and connected channels</p>
-            {!loading && bookings.length > 0 && (
-              <div className="bookings-header__stats">
-                <span className="bookings-header-stat">
-                  <strong>{filtered.length}</strong> shown
-                </span>
-                <span className="bookings-header-stat">
-                  <strong>{summary.approved}</strong> approved
-                </span>
-                <span className="bookings-header-stat">
-                  <strong>{summary.tickets}</strong> tickets
-                </span>
-                {summary.revenue > 0 && (
-                  <span className="bookings-header-stat bookings-header-stat--accent">
-                    <strong>{summary.revenue.toLocaleString()} {summary.currency}</strong>
-                  </span>
-                )}
-              </div>
-            )}
           </div>
         </div>
         <div className="bookings-header__actions">
+          {!loading && bookings.length > 0 && (
+            <div className="bookings-header__stats">
+              <span className="bookings-header-stat">
+                <strong>{filtered.length}</strong> shown
+              </span>
+              <span className="bookings-header-stat">
+                <strong>{summary.approved}</strong> approved
+              </span>
+              <span className="bookings-header-stat">
+                <strong>{summary.tickets}</strong> tickets
+              </span>
+              {summary.revenue > 0 && (
+                <span className="bookings-header-stat bookings-header-stat--accent">
+                  <strong>{summary.revenue.toLocaleString()} {summary.currency}</strong>
+                </span>
+              )}
+            </div>
+          )}
           <button type="button" className="bookings-refresh-btn" onClick={load} disabled={loading || syncing}>
             {loading ? (
               <InlineLoader label="Refreshing" />
@@ -673,7 +673,7 @@ export default function BookingsPage() {
           </p>
         </div>
       ) : (
-        <>
+        <div className="bookings-content">
           <div className="bookings-list-toolbar bookings-mobile-only">
             <span className="bookings-table-toolbar__count">
               <strong>{filtered.length}</strong>
@@ -739,7 +739,7 @@ export default function BookingsPage() {
               </table>
             </div>
           </div>
-        </>
+        </div>
       )}
     </div>
   )

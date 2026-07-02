@@ -10,11 +10,11 @@ import type { EventCoverFiles } from '@/lib/cover-image'
 import { loadEventFormData } from '@/lib/event-form-data'
 import type { ChannelKey } from '@/lib/types'
 import {
-  ALL_CHANNELS, CH_META, SAMPLE_EVENT, SECTIONS, WIZARD_STEPS,
+  ALL_CHANNELS, CH_META, DEFAULT_EVENT, SECTIONS, WIZARD_STEPS,
 } from './config'
+import { getFormCompletion } from './form-completion'
 import { InlineLoader, PageLoader } from '@/components/Loader'
 import { EwentcastLogo } from '@/components/EwentcastLogo'
-import { HIGHTRIBE_COLOR } from '@/lib/brand'
 
 function Swatch({ color, size = 10 }: { color: string; size?: number }) {
   return <span className="ew-swatch" style={{ width: size, height: size, background: color }} />
@@ -24,7 +24,7 @@ function Dots({ on }: { on: ChannelKey[] }) {
   return (
     <span className="ew-dots">
       {ALL_CHANNELS.map(c => (
-        <i key={c} style={{ background: on.includes(c) ? CH_META[c].color : '#E8DFD0' }} />
+        <i key={c} style={{ background: on.includes(c) ? CH_META[c].color : 'var(--line)' }} />
       ))}
     </span>
   )
@@ -48,7 +48,7 @@ export function EwentcastWizard({
   const isEdit = mode === 'edit' && !!editChannel && editEventId != null && editEventId !== ''
   const [step, setStep] = useState(0)
   const [section, setSection] = useState(0)
-  const [ev, setEv] = useState<EventFormData>({ ...SAMPLE_EVENT })
+  const [ev, setEv] = useState<EventFormData>({ ...DEFAULT_EVENT })
   const [coverFile, setCoverFile] = useState<File | null>(null)
   const [targets, setTargets] = useState<ChannelKey[]>(
     isEdit && editChannel ? [editChannel] : [],
@@ -102,6 +102,8 @@ export function EwentcastWizard({
 
   const liveTargets = targets.filter(t => conns[t])
   const connCount = ALL_CHANNELS.filter(c => conns[c]).length
+  const formCompletion = getFormCompletion(ev, liveTargets)
+  const { pct: formPct, allComplete: formComplete, sectionStatuses } = formCompletion
   const user = getUser()
   const initials = user?.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'UH'
 
@@ -166,10 +168,17 @@ export function EwentcastWizard({
     )
     let ctrl: React.ReactNode
     if (f.type === 'textarea') {
-      ctrl = <textarea value={String(v ?? '')} onChange={e => setField(f.k, e.target.value)} />
+      ctrl = (
+        <textarea
+          value={String(v ?? '')}
+          placeholder={f.placeholder}
+          onChange={e => setField(f.k, e.target.value)}
+        />
+      )
     } else if (f.type === 'select') {
       ctrl = (
         <select value={String(v ?? '')} onChange={e => setField(f.k, e.target.value)}>
+          <option value="">Select…</option>
           {(f.opts || []).map(o => <option key={o} value={o}>{o}</option>)}
         </select>
       )
@@ -227,7 +236,13 @@ export function EwentcastWizard({
         </div>
       )
     } else {
-      ctrl = <input value={String(v ?? '')} onChange={e => setField(f.k, e.target.value)} />
+      ctrl = (
+        <input
+          value={String(v ?? '')}
+          placeholder={f.placeholder}
+          onChange={e => setField(f.k, e.target.value)}
+        />
+      )
     }
     return <div key={f.k} className={`ew-field${f.full ? ' full' : ''}`}>{lab}{ctrl}</div>
   }
@@ -246,7 +261,7 @@ export function EwentcastWizard({
           <div className="ew-head">
             <span className="ew-eyebrow">Edit event</span>
             <h2>Could not load event</h2>
-            <p style={{ color: '#C2502E' }}>{loadError}</p>
+            <p style={{ color: 'var(--error)' }}>{loadError}</p>
           </div>
           <div className="ew-foot">
             <button type="button" className="ew-btn ghost" onClick={onClose}>Close</button>
@@ -261,7 +276,7 @@ export function EwentcastWizard({
         <div className="ew-head">
           <span className="ew-eyebrow">{isEdit ? `Edit · ${editChannel ? CH_META[editChannel].name : ''}` : 'Step 1 · Master event'}</span>
           <h2>{isEdit ? 'Update event' : 'Create it once'}</h2>
-          <p>{isEdit ? 'Changes save back to the channel this event lives on.' : 'Fill it in full here. The dots on each field show which platforms accept it.'}</p>
+          <p>{isEdit ? 'Changes save back to the channel this event lives on.' : 'Work through each tab below. Colored dots on each field show which platforms need it.'}</p>
         </div>
 
         <div className="ew-pubto">
@@ -287,32 +302,66 @@ export function EwentcastWizard({
           {!isEdit && <Link href="/channels" className="ew-link">⚙ Manage channels</Link>}
         </div>
 
-        <div className="ew-tabs" role="tablist" aria-label="Event sections">
-          {SECTIONS.map((s, i) => (
-            <button
-              key={s.key}
-              type="button"
-              role="tab"
-              aria-selected={i === section}
-              className={i === section ? 'active' : ''}
-              onClick={() => setSection(i)}
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
+        <div className="ew-tabs-panel">
+          <div className="ew-tabs-meta">
+            <span className="ew-tabs-current">
+              {sec.label} · step {section + 1} of {SECTIONS.length}
+            </span>
+            <span className="ew-tabs-pct">{formPct}% complete</span>
+          </div>
 
-        <div className="ew-section-progress" aria-hidden="true">
-          <div
-            className="ew-section-progress-fill"
-            style={{ width: `${((section + 1) / SECTIONS.length) * 100}%` }}
-          />
+          <div className="ew-tabs" role="tablist" aria-label="Event sections">
+            {SECTIONS.map((s, i) => {
+              const st = sectionStatuses[i]
+              const tabClass = [
+                i === section ? 'active' : '',
+                st.complete ? 'done' : '',
+                st.pct > 0 && !st.complete ? 'started' : '',
+              ].filter(Boolean).join(' ')
+              return (
+                <button
+                  key={s.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={i === section}
+                  aria-label={`${s.label}, ${st.pct}% filled${st.complete ? ', complete' : ''}`}
+                  className={tabClass}
+                  onClick={() => setSection(i)}
+                >
+                  <span className="ew-tab-label">
+                    <span className="ew-tab-step">{st.complete ? '✓' : i + 1}</span>
+                    {s.label}
+                  </span>
+                  <span className="ew-tab-track" aria-hidden="true">
+                    <span className="ew-tab-fill" style={{ width: `${st.pct}%` }} />
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+
+          <div className="ew-section-progress-wrap">
+            <div
+              className="ew-section-progress"
+              role="progressbar"
+              aria-valuenow={formPct}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label="Form completion"
+            >
+              <div
+                className="ew-section-progress-fill"
+                style={{ width: `${formPct}%` }}
+              />
+            </div>
+            <span className="ew-section-progress-pct">{formPct}%</span>
+          </div>
         </div>
 
         <div className="ew-card">
           <div className="ew-card-top">
-            <span className="ew-eyebrow">{sec.label}</span>
-            <div className="ew-legend">
+            <span className="ew-eyebrow">{sec.label} · {section + 1} of {SECTIONS.length}</span>
+            <div className="ew-legend" title="Platform compatibility">
               {ALL_CHANNELS.map(c => (
                 <span key={c}><Swatch color={CH_META[c].color} size={7} />{CH_META[c].name}</span>
               ))}
@@ -324,7 +373,6 @@ export function EwentcastWizard({
 
         <div className="ew-foot">
           {saveError && <span className="note ew-foot-error">{saveError}</span>}
-      
           <div className="ew-foot-actions">
             {section > 0 && (
               <button type="button" className="ew-btn ghost" onClick={() => setSection(section - 1)}>
@@ -341,7 +389,13 @@ export function EwentcastWizard({
                 {saving ? <InlineLoader label="Saving" /> : 'Save changes'}
               </button>
             ) : (
-              <button type="button" className="ew-btn primary" disabled={liveTargets.length === 0} onClick={() => setStep(1)}>
+              <button
+                type="button"
+                className="ew-btn primary"
+                disabled={liveTargets.length === 0 || !formComplete}
+                title={!formComplete ? `Complete all sections to publish (${formPct}% done)` : undefined}
+                onClick={() => setStep(1)}
+              >
                 Review &amp; publish →
               </button>
             )}
@@ -366,7 +420,7 @@ export function EwentcastWizard({
 
         <div className="ew-castgrid">
           <div className="ew-master">
-            <span className="ew-eyebrow" style={{ color: HIGHTRIBE_COLOR }}>Master event</span>
+            <span className="ew-eyebrow" style={{ color: 'var(--hightribe)' }}>Master event</span>
             {ev.coverUrl && (
               <img
                 src={String(ev.coverUrl)}
@@ -390,21 +444,21 @@ export function EwentcastWizard({
               return (
                 <div key={ch} className="ew-lane">
                   <span
-                    className={`sig${st === 'publishing' ? ' pub' : ''}`}
-                    style={{ background: st === 'synced' ? '#4E7A4B' : st === 'publishing' ? CH_META[ch].color : '#E8DFD0' }}
+                    className={`sig${st === 'publishing' ? ' pub' : ''}${st === 'synced' ? ' ew-sig-synced' : ''}`}
+                    style={st === 'publishing' ? { background: CH_META[ch].color } : undefined}
                   />
                   <span className="nm"><Swatch color={CH_META[ch].color} />{CH_META[ch].name}</span>
                   {st === 'synced' && url ? (
                     <a href={`https://${url}`} target="_blank" rel="noreferrer">{url} ↗</a>
                   ) : st === 'error' ? (
-                    <span className="mid" style={{ color: '#C2502E' }}>{pub[ch]?.message}</span>
+                    <span className="mid" style={{ color: 'var(--error)' }}>{pub[ch]?.message}</span>
                   ) : (
                     <span className="mid">{CH_META[ch].cap}</span>
                   )}
-                  {st === 'synced' && <span className="ew-pill" style={{ color: '#4E7A4B' }}>✓ Synced</span>}
+                  {st === 'synced' && <span className="ew-pill ew-text-success">✓ Synced</span>}
                   {st === 'publishing' && <span className="ew-pill" style={{ color: CH_META[ch].color }}><span className="ew-spin" /> Publishing</span>}
                   {st === 'queued' && <span className="ew-pill" style={{ color: 'var(--muted)' }}>◌ Queued</span>}
-                  {!st && <span className="ew-pill" style={{ color: '#8C7F6D' }}>Ready</span>}
+                  {!st && <span className="ew-pill" style={{ color: 'var(--muted)' }}>Ready</span>}
                 </div>
               )
             })}
@@ -468,20 +522,20 @@ export function EwentcastWizard({
                   <div className="ew-srcs"><span><Swatch color={CH_META[a.source].color} size={7} />{CH_META[a.source].name}</span></div>
                 </div>
               </div>
-              <span style={{ fontSize: 12, color: '#4E7A4B' }}>✓ Registered</span>
+              <span className="ew-text-success" style={{ fontSize: 12 }}>✓ Registered</span>
             </div>
           ))}
         </div>
         </div>
 
         <div className="ew-foot">
-          {modal ? (
-            <button type="button" className="ew-link" onClick={onDone}>← Back to events</button>
-          ) : (
-            <Link href="/events" className="ew-link">← View all events</Link>
-          )}
           <div className="ew-foot-actions">
-            <button type="button" className="ew-btn ghost" onClick={() => { setStep(0); setPub({}) }}>Create another</button>
+            {modal ? (
+              <button type="button" className="ew-btn ghost" onClick={onDone}>← Back to events</button>
+            ) : (
+              <Link href="/events" className="ew-btn ghost">← View all events</Link>
+            )}
+            <button type="button" className="ew-btn primary" onClick={() => { setStep(0); setPub({}) }}>Create another</button>
           </div>
         </div>
       </div>
@@ -510,7 +564,7 @@ export function EwentcastWizard({
                     <span className="n">{i + 1}</span>
                     <span className="ew-stepper-label">{isEdit ? 'Edit' : label}</span>
                   </button>
-                  {!isEdit && i < WIZARD_STEPS.length - 1 && <span style={{ color: '#E8DFD0' }}>·</span>}
+                  {!isEdit && i < WIZARD_STEPS.length - 1 && <span style={{ color: 'var(--line)' }}>·</span>}
                 </span>
               ))}
             </div>
