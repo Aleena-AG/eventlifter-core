@@ -52,45 +52,50 @@ function trialDaysRemaining(trialEndsAt: Date | null): number | null {
 }
 
 export async function getAccountView(userId: number): Promise<AccountView> {
-  const subs = await query<RowDataPacket[]>(
-    'SELECT plan, status, trial_ends_at, current_period_end FROM subscriptions WHERE user_id = ? LIMIT 1',
+  const rows = await query<RowDataPacket[]>(
+    `SELECT u.auth_source,
+            s.plan, s.status AS sub_status, s.trial_ends_at, s.current_period_end,
+            h.ht_user_id, h.connected_at
+     FROM users u
+     LEFT JOIN subscriptions s ON s.user_id = u.id
+     LEFT JOIN ht_connections h ON h.user_id = u.id
+     WHERE u.id = ?
+     LIMIT 1`,
     [userId],
   )
-  const ht = await query<RowDataPacket[]>(
-    'SELECT ht_user_id, connected_at FROM ht_connections WHERE user_id = ? LIMIT 1',
-    [userId],
-  )
-  const users = await query<UserRow[]>(
-    'SELECT auth_source FROM users WHERE id = ? LIMIT 1',
-    [userId],
-  )
-
-  const sub = subs[0]
-  const htRow = ht[0]
+  const row = rows[0]
   const authSource: AccountView['auth_source'] =
-    users[0]?.auth_source === 'hightribe' ? 'hightribe_native' : 'ewentcast_signup'
-  const status = (sub?.status as string) || 'trialing'
-  const trialEndsAt = sub?.trial_ends_at ? new Date(sub.trial_ends_at as Date) : null
-  const trialStillValid = status === 'trialing' && (!trialEndsAt || trialEndsAt > new Date())
+    row?.auth_source === 'hightribe' ? 'hightribe_native' : 'ewentcast_signup'
+
+  const subStatus = row?.sub_status as string | null | undefined
+  const hasSubscription = subStatus != null && String(subStatus).trim() !== ''
+  const status = hasSubscription ? String(subStatus) : 'inactive'
+
+  const trialEndsAt = row?.trial_ends_at ? new Date(row.trial_ends_at as Date) : null
+  const trialStillValid =
+    status === 'trialing'
+    && trialEndsAt != null
+    && trialEndsAt > new Date()
   const paidActive = status === 'active'
   const active =
     paidActive
     || trialStillValid
     || (isDevPaymentBypass() && authSource === 'ewentcast_signup')
-  const daysLeft = status === 'trialing' ? trialDaysRemaining(trialEndsAt) : null
+  const daysLeft =
+    status === 'trialing' && trialEndsAt ? trialDaysRemaining(trialEndsAt) : null
 
   return {
     auth_source: authSource,
-    subscription_plan: (sub?.plan as string) || 'pro_monthly_20',
+    subscription_plan: (row?.plan as string) || 'pro_monthly_20',
     subscription_status: status,
     subscription_active: active,
     subscription_amount_usd: 20,
     trial_ends_at: trialEndsAt ? trialEndsAt.toISOString() : null,
     trial_days_remaining: daysLeft,
-    ht_connected: !!htRow?.ht_user_id,
-    linked_ht_user_id: htRow?.ht_user_id ? Number(htRow.ht_user_id) : null,
-    ht_connected_at: htRow?.connected_at
-      ? new Date(htRow.connected_at as Date).toISOString()
+    ht_connected: !!row?.ht_user_id,
+    linked_ht_user_id: row?.ht_user_id ? Number(row.ht_user_id) : null,
+    ht_connected_at: row?.connected_at
+      ? new Date(row.connected_at as Date).toISOString()
       : null,
   }
 }

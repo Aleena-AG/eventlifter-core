@@ -19,8 +19,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, skipped: 'missing event or email' })
     }
 
-    const { master, synced } = await handleBookingWebhook('luma', eventId, { email, name })
-    return NextResponse.json({ ok: true, masterId: master?.id, synced })
+    const { master, synced, bookingSaved } = await handleBookingWebhook('luma', eventId, { email, name })
+    return NextResponse.json({ ok: true, masterId: master?.id, synced, bookingSaved })
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     return NextResponse.json({ ok: false, error: msg }, { status: 500 })

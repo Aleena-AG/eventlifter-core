@@ -10,6 +10,7 @@ import {
   registerAttendee,
   removeChannelFromMaster,
 } from '../../../../backend/src/services/registry'
+import { isErrorResponse, requireSession } from '@/lib/server/session'
 
 export const runtime = 'nodejs'
 
@@ -54,9 +55,12 @@ export async function POST(req: NextRequest) {
     }
 
     if (body.action === 'create') {
+      const session = await requireSession(req)
+      const userId = !isErrorResponse(session) ? session.user.id : null
       const master = await createMasterEvent({
         title: body.title || 'Untitled',
         capacity: body.capacity || 150,
+        userId,
       })
       return NextResponse.json(master)
     }

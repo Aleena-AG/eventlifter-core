@@ -132,9 +132,39 @@ export async function findMasterByChannelEvent(
   return master
 }
 
+export async function findMasterContextByChannelEvent(
+  channel: ChannelKey,
+  eventId: string,
+): Promise<{
+  masterId: string
+  title: string
+  userId: number | null
+  capacity: number
+  sold: number
+} | null> {
+  const rows = await query<(MasterRow & { user_id: number | null })[]>(
+    `SELECT m.id, m.title, m.user_id, m.capacity, m.sold, m.created_at, m.updated_at
+     FROM master_events m
+     INNER JOIN channel_refs c ON c.master_id = m.id
+     WHERE c.channel = ? AND c.event_id = ?
+     LIMIT 1`,
+    [channel, String(eventId)],
+  )
+  const row = rows[0]
+  if (!row) return null
+  return {
+    masterId: row.id,
+    title: row.title,
+    userId: row.user_id != null ? Number(row.user_id) : null,
+    capacity: row.capacity,
+    sold: row.sold,
+  }
+}
+
 export async function createMasterEvent(input: {
   title: string
   capacity: number
+  userId?: number | null
   channels?: Partial<Record<ChannelKey, ChannelRef>>
 }): Promise<MasterEventRecord> {
   const now = new Date()
@@ -142,9 +172,9 @@ export async function createMasterEvent(input: {
   const pool = getPool()
 
   await pool.query(
-    `INSERT INTO master_events (id, title, capacity, sold, created_at, updated_at)
-     VALUES (?, ?, ?, 0, ?, ?)`,
-    [id, input.title, input.capacity, now, now],
+    `INSERT INTO master_events (id, user_id, title, capacity, sold, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 0, ?, ?)`,
+    [id, input.userId ?? null, input.title, input.capacity, now, now],
   )
 
   for (const [channel, ref] of Object.entries(input.channels || {})) {
@@ -182,8 +212,11 @@ export async function registerAttendee(
   masterId: string,
   attendee: Omit<AttendeeRecord, 'registeredAt'> & { registeredAt?: string },
 ): Promise<MasterEventRecord | null> {
-  const master = await getMasterEvent(masterId)
-  if (!master) return null
+  const exists = await query<{ id: string }[]>(
+    'SELECT id FROM master_events WHERE id = ? LIMIT 1',
+    [masterId],
+  )
+  if (!exists[0]) return null
 
   const email = attendee.email.toLowerCase().trim()
   const registeredAt = attendee.registeredAt ? new Date(attendee.registeredAt) : new Date()
@@ -197,10 +230,8 @@ export async function registerAttendee(
 
   if (result.affectedRows > 0) {
     await pool.query(
-      `UPDATE master_events
-       SET sold = (SELECT COUNT(*) FROM attendees WHERE master_id = ?), updated_at = ?
-       WHERE id = ?`,
-      [masterId, new Date(), masterId],
+      'UPDATE master_events SET sold = sold + 1, updated_at = ? WHERE id = ?',
+      [new Date(), masterId],
     )
   }
 

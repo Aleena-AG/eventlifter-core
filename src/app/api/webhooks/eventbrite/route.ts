@@ -49,8 +49,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, skipped: 'could not parse eventbrite payload', action })
     }
 
-    const { master, synced } = await handleBookingWebhook('eventbrite', eventId, { email, name })
-    return NextResponse.json({ ok: true, masterId: master?.id, synced })
+    const { master, synced, bookingSaved } = await handleBookingWebhook('eventbrite', eventId, {
+      email,
+      name,
+      externalId: attendee?.id ? String(attendee.id) : undefined,
+    })
+    return NextResponse.json({ ok: true, masterId: master?.id, synced, bookingSaved })
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     return NextResponse.json({ ok: false, error: msg }, { status: 500 })

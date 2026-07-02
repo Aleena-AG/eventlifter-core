@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
+  getChannelEvent,
   listChannelEvents,
 } from '../../../../../backend/src/services/events'
 import { purgeChannelData } from '../../../../../backend/src/services/channel-data'
@@ -21,6 +22,12 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
   if (!channel) return NextResponse.json({ error: 'invalid channel' }, { status: 400 })
 
   try {
+    const externalId = req.nextUrl.searchParams.get('external_id')
+    if (externalId) {
+      const event = await getChannelEvent(channel, session.user.id, externalId)
+      return NextResponse.json({ event })
+    }
+
     const events = await listChannelEvents(channel, session.user.id)
     return NextResponse.json({ events })
   } catch (err) {

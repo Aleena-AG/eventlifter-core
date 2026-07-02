@@ -76,7 +76,10 @@ export async function syncChannelDataToDb(
     bookings = lumaEvents.length ? await fetchLumaBookingList(lumaEvents) : []
   } else {
     events = await fetchEventbriteEventRows()
-    const ebEvents = await fetchEbEventsForSync()
+    const ebEvents = events.map((e) => ({
+      id: String(e.id || ''),
+      name: (e.name as { text?: string } | undefined)?.text || String(e.name || ''),
+    })).filter((e) => e.id)
     bookings = ebEvents.length ? await fetchEbBookingList(ebEvents) : []
   }
 
@@ -84,12 +87,10 @@ export async function syncChannelDataToDb(
   let bookingCount = 0
 
   if (events.length > 0) {
-    const stored = await syncStoredEvents(ch, events)
-    eventCount = stored.length
+    eventCount = await syncStoredEvents(ch, events)
   }
   if (bookings.length > 0) {
-    const stored = await syncStoredBookings(ch, bookingsToPayload(bookings))
-    bookingCount = stored.length
+    bookingCount = await syncStoredBookings(ch, bookingsToPayload(bookings))
   }
 
   return { events: eventCount, bookings: bookingCount }
