@@ -34,6 +34,53 @@
   gap: 12px;
 }
 
+.settings-portal-urls {
+  background: #fbf7f0;
+  border: 1px solid #e8dfd0;
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 4px;
+}
+
+.settings-portal-urls__title {
+  margin: 0 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #5c5248;
+  line-height: 1.45;
+}
+
+.settings-portal-url-row + .settings-portal-url-row {
+  margin-top: 12px;
+}
+
+.settings-portal-url-hint {
+  margin: 2px 0 6px;
+  font-size: 11px;
+  color: #8c7f6d;
+  line-height: 1.4;
+}
+
+.settings-portal-url-row__inner {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings-portal-url-value {
+  flex: 1;
+  min-width: 0;
+  display: block;
+  padding: 8px 10px;
+  background: #fff;
+  border: 1px solid #e8dfd0;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #211b16;
+  word-break: break-all;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
 @media (max-width: 960px) {
   .settings-channel-layout {
     grid-template-columns: 1fr;

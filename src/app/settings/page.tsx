@@ -13,7 +13,7 @@ import { HIGHTRIBE_COLOR, LUMA_COLOR, EVENTBRITE_COLOR } from '@/lib/brand'
 import { ConnectHightribeSection } from '@/components/ConnectHightribeSection'
 import { getEwentcastAccount, isEwentcastSignupUser, fetchAuthMe } from '@/lib/ewentcast-session'
 import { disconnectChannelIntegration } from '@/lib/channel-disconnect'
-import { eventbriteRedirectUri } from '@/lib/app-url'
+import { eventbriteRedirectUri, getAppUrl } from '@/lib/app-url'
 import { useRouter } from 'next/navigation'
 import type { ChannelKey } from '@/lib/types'
 import { CHANNEL_META } from '@/lib/channels'
@@ -90,13 +90,48 @@ function CopyButton({ value }: { value: string }) {
     })
   }
   return (
-    <button onClick={copy} style={{
-      ...BTN_GHOST, padding: '4px 10px', fontSize: '11px',
+    <button type="button" onClick={copy} style={{
+      ...BTN_GHOST, padding: '4px 10px', fontSize: '11px', flexShrink: 0,
       color: copied ? '#4E7A4B' : '#8C7F6D',
       borderColor: copied ? 'rgba(63,185,80,0.35)' : '#E8DFD0',
     }}>
       {copied ? '✓ Copied' : 'Copy'}
     </button>
+  )
+}
+
+function PortalUrlRow({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="settings-portal-url-row">
+      <label style={LABEL}>{label}</label>
+      {hint ? <p className="settings-portal-url-hint">{hint}</p> : null}
+      <div className="settings-portal-url-row__inner">
+        <code className="settings-portal-url-value">{value}</code>
+        <CopyButton value={value} />
+      </div>
+    </div>
+  )
+}
+
+function EventbritePortalUrls() {
+  const appUrl = getAppUrl()
+  const redirectUri = eventbriteRedirectUri()
+  return (
+    <div className="settings-portal-urls">
+      <p className="settings-portal-urls__title">
+        Copy into Eventbrite → Account → Developer Links → API Keys → your app (Key Info)
+      </p>
+      <PortalUrlRow
+        label="Application URL"
+        value={appUrl}
+        hint="Replace api.hightribe.com with this URL in Eventbrite app settings."
+      />
+      <PortalUrlRow
+        label="OAuth Redirect URI"
+        value={redirectUri}
+        hint="Must match exactly in Eventbrite and in the Redirect URI field below."
+      />
+    </div>
   )
 }
 
@@ -277,8 +312,8 @@ const EVENTBRITE_STEPS: GuideStep[] = [
   },
   {
     num: 2, title: 'Fill App Details',
-    desc: 'Enter your app name and set the OAuth Redirect URI to your production URL. Click Create Key.',
-    path: 'Create API Key → Fill form', img: '/eventbrite-guide/step_2_eventbrite.png',
+    desc: 'Copy Application URL and OAuth Redirect URI from the box above (with Copy buttons). Paste them into Eventbrite Key Info, then create or save your API key.',
+    path: 'Key Info → Application URL + OAuth Redirect URI', img: '/eventbrite-guide/step_2_eventbrite.png',
   },
   {
     num: 3, title: 'Copy Credentials',
@@ -626,6 +661,7 @@ export default function SettingsPage() {
                 <StepGuide steps={EVENTBRITE_STEPS} color={EVENTBRITE_COLOR} title="How to connect Eventbrite" />
               </div>
               <div className="settings-channel-layout__form">
+                <EventbritePortalUrls />
                 <p className="settings-form-heading">Paste your credentials here</p>
                 <div className="settings-form-fields">
               <div className="settings-grid-2">
@@ -643,7 +679,7 @@ export default function SettingsPage() {
                 </div>
               </div>
               <div>
-                <label style={LABEL}>Redirect URI</label>
+                <label style={LABEL}>OAuth Redirect URI (saved in app)</label>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <input style={{ ...INPUT, flex: 1 }} type="text" placeholder={DEFAULT_REDIRECT}
                     value={eb.redirectUri || DEFAULT_REDIRECT}
