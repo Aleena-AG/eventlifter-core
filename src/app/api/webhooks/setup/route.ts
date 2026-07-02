@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { loadSettings } from '@/app/api/settings/route'
 import { proxyLumaPath } from '@/lib/luma-api'
+import { getAppUrl } from '@/lib/app-url'
 
 const EB_BASE = 'https://www.eventbriteapi.com/v3'
 
 function webhookBase(req: NextRequest): string {
-  const host = req.headers.get('x-forwarded-host') || req.headers.get('host') || 'localhost:3000'
-  const proto = req.headers.get('x-forwarded-proto') || (host.includes('localhost') ? 'http' : 'https')
-  return `${proto}://${host}`
+  const host = req.headers.get('x-forwarded-host') || req.headers.get('host')
+  if (host) {
+    const proto = req.headers.get('x-forwarded-proto') || (host.includes('localhost') ? 'http' : 'https')
+    return `${proto}://${host}`
+  }
+  return getAppUrl()
 }
 
 async function readJsonSafe(res: Response): Promise<Record<string, unknown>> {
