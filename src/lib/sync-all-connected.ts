@@ -12,20 +12,23 @@ import { syncChannelDataToDb } from '@/lib/channel-data-sync'
 export async function syncAllConnectedChannels(
   settings: ChannelSettingsView,
 ): Promise<Array<{ channel: ChannelKey; events: number; bookings: number }>> {
-  const out: Array<{ channel: ChannelKey; events: number; bookings: number }> = []
+  const tasks: Array<Promise<{ channel: ChannelKey; events: number; bookings: number }>> = []
 
   if (isHightribeChannelConnected()) {
-    const r = await syncChannelDataToDb('hightribe')
-    out.push({ channel: 'hightribe', ...r })
+    tasks.push(
+      syncChannelDataToDb('hightribe').then((r) => ({ channel: 'hightribe' as const, ...r })),
+    )
   }
   if (isLumaConnected(settings)) {
-    const r = await syncChannelDataToDb('luma')
-    out.push({ channel: 'luma', ...r })
+    tasks.push(
+      syncChannelDataToDb('luma').then((r) => ({ channel: 'luma' as const, ...r })),
+    )
   }
   if (isEventbriteConnected(settings)) {
-    const r = await syncChannelDataToDb('eventbrite')
-    out.push({ channel: 'eventbrite', ...r })
+    tasks.push(
+      syncChannelDataToDb('eventbrite').then((r) => ({ channel: 'eventbrite' as const, ...r })),
+    )
   }
 
-  return out
+  return Promise.all(tasks)
 }

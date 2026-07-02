@@ -55,15 +55,19 @@ export async function getStoredEvent(
   channel: ChannelName,
   externalId: string,
 ): Promise<StoredChannelEvent | null> {
-  const events = await listStoredEvents(channel)
-  const id = String(externalId)
-  return events.find((e) => e.external_id === id) || null
+  const res = await fetch(
+    `/api/events/${channel}?external_id=${encodeURIComponent(String(externalId))}`,
+    { headers: { Authorization: authHeader(), Accept: 'application/json' } },
+  )
+  if (!res.ok) return null
+  const data = await res.json() as { event?: StoredChannelEvent | null }
+  return data.event || null
 }
 
 export async function syncStoredBookings(
   channel: ChannelName,
   bookings: Array<Record<string, unknown>>,
-): Promise<unknown[]> {
+): Promise<number> {
   const res = await fetch(`/api/events/${channel}/sync-bookings`, {
     method: 'POST',
     headers: {
@@ -77,8 +81,8 @@ export async function syncStoredBookings(
     const err = await res.json() as { error?: string }
     throw new Error(err.error || `Booking sync failed (${res.status})`)
   }
-  const data = await res.json() as { bookings?: unknown[] }
-  return data.bookings || []
+  const data = await res.json() as { upserted?: number }
+  return data.upserted ?? 0
 }
 
 export async function purgeChannelDataFromDb(channel: ChannelName): Promise<void> {
@@ -97,7 +101,7 @@ export async function purgeChannelDataFromDb(channel: ChannelName): Promise<void
 export async function syncStoredEvents(
   channel: ChannelName,
   events: Array<Record<string, unknown>>,
-): Promise<StoredChannelEvent[]> {
+): Promise<number> {
   const res = await fetch(`/api/events/${channel}/sync`, {
     method: 'POST',
     headers: {
@@ -111,8 +115,8 @@ export async function syncStoredEvents(
     const err = await res.json() as { error?: string }
     throw new Error(err.error || `Sync failed (${res.status})`)
   }
-  const data = await res.json() as { events?: StoredChannelEvent[] }
-  return data.events || []
+  const data = await res.json() as { upserted?: number }
+  return data.upserted ?? 0
 }
 
 export function channelToTab(channel: ChannelKey): ChannelName {

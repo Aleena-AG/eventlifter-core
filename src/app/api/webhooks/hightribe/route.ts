@@ -36,10 +36,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, skipped: 'missing event_id or email' })
     }
 
-    const { master, synced } = await handleBookingWebhook('hightribe', eventId, {
+    const { master, synced, bookingSaved } = await handleBookingWebhook('hightribe', eventId, {
       email,
       name,
       registeredAt,
+      externalId: payload.booking_id || payload.id
+        ? String(payload.booking_id || payload.id)
+        : undefined,
     })
 
     if (!master) {
@@ -55,6 +58,7 @@ export async function POST(req: NextRequest) {
       ok: true,
       masterId: master.id,
       synced,
+      bookingSaved,
       attendee: { name, email, eventId },
     })
   } catch (e) {

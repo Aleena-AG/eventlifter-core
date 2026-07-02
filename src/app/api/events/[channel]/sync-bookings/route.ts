@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { listChannelBookings, upsertChannelBookings } from '../../../../../../backend/src/services/bookings'
+import { upsertChannelBookings } from '../../../../../../backend/src/services/bookings'
 import { parseChannel } from '@/lib/server/channels'
 import { isErrorResponse, requireSubscribedSession } from '@/lib/server/session'
 
@@ -24,8 +24,7 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
 
   try {
     const result = await upsertChannelBookings(channel, session.user.id, body.bookings)
-    const bookings = await listChannelBookings(channel, session.user.id)
-    return NextResponse.json({ ...result, bookings })
+    return NextResponse.json(result)
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'booking sync failed' },

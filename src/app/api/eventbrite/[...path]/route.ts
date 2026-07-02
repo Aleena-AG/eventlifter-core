@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveAppSettings } from '@/lib/channel-settings-server'
+import { effectiveEventbriteRedirectUri, eventbriteRedirectUriFromRequest } from '@/lib/app-url'
 import { loadSettings, saveSettings } from '@/lib/settings-store'
 
 const EB_BASE = 'https://www.eventbriteapi.com/v3'
@@ -14,6 +15,10 @@ async function handler(
   const pathStr = pathSegments.join('/')
   const settings = await resolveAppSettings(req.headers.get('authorization'))
   const s = settings.eventbrite
+  const redirectUri = effectiveEventbriteRedirectUri(
+    s.redirectUri,
+    eventbriteRedirectUriFromRequest(req),
+  )
 
   // OAuth connect redirect
   if (pathStr === 'connect') {
@@ -23,7 +28,7 @@ async function handler(
     const url = new URL(EB_AUTH_URL)
     url.searchParams.set('response_type', 'code')
     url.searchParams.set('client_id', s.clientId)
-    url.searchParams.set('redirect_uri', s.redirectUri)
+    url.searchParams.set('redirect_uri', redirectUri)
     url.searchParams.set('state', hostId)
     return NextResponse.redirect(url.toString())
   }
@@ -41,7 +46,7 @@ async function handler(
         client_id: s.clientId,
         client_secret: s.clientSecret,
         code,
-        redirect_uri: s.redirectUri,
+        redirect_uri: redirectUri,
       }),
     })
     const tokenData = (await tokenRes.json()) as Record<string, unknown>
@@ -60,7 +65,7 @@ async function handler(
       oauthConfigured: !!(s.clientId && s.clientSecret),
       hasPrivateToken: !!s.privateToken,
       connected: !!s.privateToken,
-      redirectUri: s.redirectUri,
+      redirectUri,
     })
   }
 

@@ -15,8 +15,10 @@ export function getPool(): mysql.Pool {
       password: config.db.password,
       database: config.db.database,
       waitForConnections: true,
-      connectionLimit: 10,
+      connectionLimit: Number(process.env.DB_POOL_SIZE || 20),
       connectTimeout: 15_000,
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 10_000,
     })
   }
   return pool

@@ -202,32 +202,36 @@ export async function fetchEbBookingList(
   events: Array<{ id: string; name?: { text?: string } | string }>,
 ): Promise<BookingListItem[]> {
   const list: BookingListItem[] = []
+  const concurrency = 5
 
-  await Promise.all(events.map(async (e) => {
-    const eventTitle = typeof e.name === 'string' ? e.name : (e.name?.text || 'Untitled')
-    try {
-      let page = 1
-      let hasMore = true
-      while (hasMore && page <= 5) {
-        const res = await channelFetch(
-          `/api/eventbrite/events/${e.id}/attendees?status=attending&page=${page}&page_size=50`,
-        )
-        if (!res.ok) break
-        const data = await res.json() as {
-          attendees?: Array<Record<string, unknown>>
-          pagination?: { has_more_items?: boolean }
+  for (let i = 0; i < events.length; i += concurrency) {
+    const chunk = events.slice(i, i + concurrency)
+    await Promise.all(chunk.map(async (e) => {
+      const eventTitle = typeof e.name === 'string' ? e.name : (e.name?.text || 'Untitled')
+      try {
+        let page = 1
+        let hasMore = true
+        while (hasMore && page <= 5) {
+          const res = await channelFetch(
+            `/api/eventbrite/events/${e.id}/attendees?status=attending&page=${page}&page_size=50`,
+          )
+          if (!res.ok) break
+          const data = await res.json() as {
+            attendees?: Array<Record<string, unknown>>
+            pagination?: { has_more_items?: boolean }
+          }
+          for (const raw of data.attendees || []) {
+            const item = normalizeEbAttendee(raw, eventTitle)
+            if (item) list.push(item)
+          }
+          hasMore = !!data.pagination?.has_more_items
+          page++
         }
-        for (const raw of data.attendees || []) {
-          const item = normalizeEbAttendee(raw, eventTitle)
-          if (item) list.push(item)
-        }
-        hasMore = !!data.pagination?.has_more_items
-        page++
+      } catch {
+        // skip event
       }
-    } catch {
-      // skip event
-    }
-  }))
+    }))
+  }
 
   return list
 }
@@ -309,7 +313,7 @@ export async function loadAllBookings(): Promise<BookingListItem[]> {
     registeredAt: b.registered_at,
     status: b.status || undefined,
     ticketCount: b.ticket_count ?? undefined,
-    source: 'api' as const,
+    source: b.external_id.startsWith('wh:') ? 'webhook' as const : 'api' as const,
   }))
 
   list.sort((a, b) => new Date(b.registeredAt).getTime() - new Date(a.registeredAt).getTime())

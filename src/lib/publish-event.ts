@@ -313,7 +313,10 @@ export async function publishToAllChannels(
 ): Promise<Partial<Record<ChannelKey, { status: 'synced' | 'error'; url?: string; message?: string }>>> {
   const masterRes = await fetch('/api/registry', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: authHeader(),
+    },
     body: JSON.stringify({
       action: 'create',
       title: String(ev.title),
@@ -329,7 +332,10 @@ export async function publishToAllChannels(
       const ref = await publishToChannel(ch, ev, files)
       await fetch('/api/registry', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: authHeader(),
+        },
         body: JSON.stringify({
           action: 'link',
           masterId: master.id,

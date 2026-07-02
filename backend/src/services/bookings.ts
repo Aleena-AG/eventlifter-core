@@ -23,6 +23,27 @@ function toIso(v: Date | string | null | undefined): string | null {
   return v instanceof Date ? v.toISOString() : new Date(v).toISOString()
 }
 
+const LIST_COLUMNS = `id, user_id, channel, external_id, event_external_id, event_title,
+  guest_name, guest_email, status, ticket_count, registered_at, synced_at`
+
+function mapRowLite(row: RowDataPacket): StoredBooking {
+  return {
+    id: Number(row.id),
+    user_id: Number(row.user_id),
+    channel: row.channel as ChannelName,
+    external_id: String(row.external_id),
+    event_external_id: row.event_external_id ? String(row.event_external_id) : null,
+    event_title: String(row.event_title || ''),
+    guest_name: String(row.guest_name || ''),
+    guest_email: String(row.guest_email || ''),
+    status: row.status ? String(row.status) : null,
+    ticket_count: row.ticket_count != null ? Number(row.ticket_count) : null,
+    registered_at: toIso(row.registered_at) || new Date().toISOString(),
+    payload: {},
+    synced_at: toIso(row.synced_at) || new Date().toISOString(),
+  }
+}
+
 function mapRow(row: RowDataPacket): StoredBooking {
   const payload = typeof row.payload_json === 'string'
     ? JSON.parse(row.payload_json)
@@ -40,7 +61,7 @@ function mapRow(row: RowDataPacket): StoredBooking {
     status: row.status ? String(row.status) : null,
     ticket_count: row.ticket_count != null ? Number(row.ticket_count) : null,
     registered_at: toIso(row.registered_at) || new Date().toISOString(),
-    payload: payload as Record<string, unknown>,
+    payload: (payload || {}) as Record<string, unknown>,
     synced_at: toIso(row.synced_at) || new Date().toISOString(),
   }
 }
@@ -84,12 +105,29 @@ function normalizeBooking(
   }
 }
 
+const UPSERT_SQL = `INSERT INTO channel_bookings (
+  user_id, channel, external_id, event_external_id, event_title,
+  guest_name, guest_email, status, ticket_count, registered_at,
+  payload_json, synced_at, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON DUPLICATE KEY UPDATE
+  event_external_id = VALUES(event_external_id),
+  event_title = VALUES(event_title),
+  guest_name = VALUES(guest_name),
+  guest_email = VALUES(guest_email),
+  status = VALUES(status),
+  ticket_count = VALUES(ticket_count),
+  registered_at = VALUES(registered_at),
+  payload_json = VALUES(payload_json),
+  synced_at = VALUES(synced_at),
+  updated_at = VALUES(updated_at)`
+
 export async function listAllUserBookings(userId: number): Promise<StoredBooking[]> {
   const rows = await query<RowDataPacket[]>(
-    `SELECT * FROM channel_bookings WHERE user_id = ? ORDER BY registered_at DESC`,
+    `SELECT ${LIST_COLUMNS} FROM channel_bookings WHERE user_id = ? ORDER BY registered_at DESC`,
     [userId],
   )
-  return rows.map(mapRow)
+  return rows.map(mapRowLite)
 }
 
 export async function listChannelBookings(
@@ -97,12 +135,53 @@ export async function listChannelBookings(
   userId: number,
 ): Promise<StoredBooking[]> {
   const rows = await query<RowDataPacket[]>(
-    `SELECT * FROM channel_bookings
+    `SELECT ${LIST_COLUMNS} FROM channel_bookings
      WHERE user_id = ? AND channel = ?
      ORDER BY registered_at DESC`,
     [userId, channel],
   )
-  return rows.map(mapRow)
+  return rows.map(mapRowLite)
+}
+
+export async function upsertWebhookBooking(input: {
+  userId: number
+  channel: ChannelName
+  externalId: string
+  eventExternalId: string
+  eventTitle: string
+  guestName: string
+  guestEmail: string
+  registeredAt: Date
+  status?: string
+}): Promise<boolean> {
+  const now = new Date()
+  const payload = {
+    _source: 'webhook',
+    channel: input.channel,
+    event_id: input.eventExternalId,
+    email: input.guestEmail,
+    name: input.guestName,
+    registered_at: input.registeredAt.toISOString(),
+  }
+
+  const [result] = await getPool().query<ResultSetHeader>(UPSERT_SQL, [
+    input.userId,
+    input.channel,
+    input.externalId.slice(0, 191),
+    input.eventExternalId.slice(0, 128),
+    input.eventTitle.slice(0, 500),
+    input.guestName.slice(0, 500),
+    input.guestEmail.toLowerCase().slice(0, 320),
+    (input.status || 'confirmed').slice(0, 64),
+    1,
+    input.registeredAt,
+    JSON.stringify(payload),
+    now,
+    now,
+    now,
+  ])
+
+  return result.affectedRows > 0
 }
 
 export async function upsertChannelBookings(
@@ -114,34 +193,26 @@ export async function upsertChannelBookings(
   const now = new Date()
   let upserted = 0
 
-  for (const raw of bookings) {
-    const n = normalizeBooking(channel, raw)
-    if (!n) continue
+  const conn = await pool.getConnection()
+  try {
+    await conn.beginTransaction()
+    for (const raw of bookings) {
+      const n = normalizeBooking(channel, raw)
+      if (!n) continue
 
-    await pool.query(
-      `INSERT INTO channel_bookings (
-        user_id, channel, external_id, event_external_id, event_title,
-        guest_name, guest_email, status, ticket_count, registered_at,
-        payload_json, synced_at, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON DUPLICATE KEY UPDATE
-        event_external_id = VALUES(event_external_id),
-        event_title = VALUES(event_title),
-        guest_name = VALUES(guest_name),
-        guest_email = VALUES(guest_email),
-        status = VALUES(status),
-        ticket_count = VALUES(ticket_count),
-        registered_at = VALUES(registered_at),
-        payload_json = VALUES(payload_json),
-        synced_at = VALUES(synced_at),
-        updated_at = VALUES(updated_at)`,
-      [
+      await conn.query(UPSERT_SQL, [
         userId, channel, n.external_id, n.event_external_id, n.event_title,
         n.guest_name, n.guest_email, n.status, n.ticket_count, n.registered_at,
         JSON.stringify(raw), now, now, now,
-      ],
-    )
-    upserted++
+      ])
+      upserted++
+    }
+    await conn.commit()
+  } catch (err) {
+    await conn.rollback()
+    throw err
+  } finally {
+    conn.release()
   }
 
   return { upserted }

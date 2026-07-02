@@ -9,6 +9,8 @@ const TABLE: Record<ChannelName, string> = {
   hightribe: 'hightribe_events',
 }
 
+const LIST_COLUMNS = `id, user_id, external_id, title, start_at, end_at, timezone, url, cover_url, status, synced_at`
+
 export interface StoredEvent {
   id: number
   user_id: number
@@ -27,6 +29,23 @@ export interface StoredEvent {
 function toIso(v: Date | string | null | undefined): string | null {
   if (!v) return null
   return v instanceof Date ? v.toISOString() : new Date(v).toISOString()
+}
+
+function mapRowLite(row: RowDataPacket): StoredEvent {
+  return {
+    id: Number(row.id),
+    user_id: Number(row.user_id),
+    external_id: String(row.external_id),
+    title: String(row.title || ''),
+    start_at: toIso(row.start_at),
+    end_at: toIso(row.end_at),
+    timezone: row.timezone ? String(row.timezone) : null,
+    url: row.url ? String(row.url) : null,
+    cover_url: row.cover_url ? String(row.cover_url) : null,
+    status: row.status ? String(row.status) : null,
+    payload: {},
+    synced_at: toIso(row.synced_at) || new Date().toISOString(),
+  }
 }
 
 function mapRow(row: RowDataPacket): StoredEvent {
@@ -56,10 +75,35 @@ export async function listChannelEvents(
 ): Promise<StoredEvent[]> {
   const table = TABLE[channel]
   const rows = await query<RowDataPacket[]>(
-    `SELECT * FROM ${table} WHERE user_id = ? ORDER BY start_at DESC, updated_at DESC`,
+    `SELECT ${LIST_COLUMNS} FROM ${table} WHERE user_id = ? ORDER BY start_at DESC, updated_at DESC`,
     [userId],
   )
-  return rows.map(mapRow)
+  return rows.map(mapRowLite)
+}
+
+export async function getChannelEvent(
+  channel: ChannelName,
+  userId: number,
+  externalId: string,
+): Promise<StoredEvent | null> {
+  const table = TABLE[channel]
+  const rows = await query<RowDataPacket[]>(
+    `SELECT * FROM ${table} WHERE user_id = ? AND external_id = ? LIMIT 1`,
+    [userId, String(externalId)],
+  )
+  return rows[0] ? mapRow(rows[0]) : null
+}
+
+export async function resolveUserIdFromChannelEvent(
+  channel: ChannelName,
+  eventId: string,
+): Promise<number | null> {
+  const table = TABLE[channel]
+  const rows = await query<RowDataPacket[]>(
+    `SELECT user_id FROM ${table} WHERE external_id = ? LIMIT 1`,
+    [String(eventId)],
+  )
+  return rows[0]?.user_id != null ? Number(rows[0].user_id) : null
 }
 
 export async function upsertChannelEvents(
@@ -71,62 +115,72 @@ export async function upsertChannelEvents(
   const now = new Date()
   let upserted = 0
 
-  for (const raw of events) {
-    const n = normalizeEvent(channel, raw)
-    if (!n.external_id) continue
+  const conn = await pool.getConnection()
+  try {
+    await conn.beginTransaction()
+    for (const raw of events) {
+      const n = normalizeEvent(channel, raw)
+      if (!n.external_id) continue
 
-    if (channel === 'luma') {
-      await pool.query(
-        `INSERT INTO luma_events (
-          user_id, external_id, title, start_at, end_at, timezone, url, cover_url,
-          location_json, meeting_url, status, payload_json, synced_at, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE
-          title = VALUES(title), start_at = VALUES(start_at), end_at = VALUES(end_at),
-          timezone = VALUES(timezone), url = VALUES(url), cover_url = VALUES(cover_url),
-          location_json = VALUES(location_json), meeting_url = VALUES(meeting_url),
-          status = VALUES(status), payload_json = VALUES(payload_json),
-          synced_at = VALUES(synced_at), updated_at = VALUES(updated_at)`,
-        [
-          userId, n.external_id, n.title, n.start_at, n.end_at, n.timezone, n.url, n.cover_url,
-          n.location_json, n.meeting_url, n.status, JSON.stringify(raw), now, now, now,
-        ],
-      )
-    } else if (channel === 'eventbrite') {
-      await pool.query(
-        `INSERT INTO eventbrite_events (
-          user_id, external_id, title, start_at, end_at, timezone, url, cover_url,
-          is_free, status, payload_json, synced_at, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE
-          title = VALUES(title), start_at = VALUES(start_at), end_at = VALUES(end_at),
-          timezone = VALUES(timezone), url = VALUES(url), cover_url = VALUES(cover_url),
-          is_free = VALUES(is_free), status = VALUES(status), payload_json = VALUES(payload_json),
-          synced_at = VALUES(synced_at), updated_at = VALUES(updated_at)`,
-        [
-          userId, n.external_id, n.title, n.start_at, n.end_at, n.timezone, n.url, n.cover_url,
-          n.is_free, n.status, JSON.stringify(raw), now, now, now,
-        ],
-      )
-    } else {
-      await pool.query(
-        `INSERT INTO hightribe_events (
-          user_id, external_id, title, start_at, end_at, timezone, url, cover_url,
-          location, status, payload_json, synced_at, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE
-          title = VALUES(title), start_at = VALUES(start_at), end_at = VALUES(end_at),
-          timezone = VALUES(timezone), url = VALUES(url), cover_url = VALUES(cover_url),
-          location = VALUES(location), status = VALUES(status), payload_json = VALUES(payload_json),
-          synced_at = VALUES(synced_at), updated_at = VALUES(updated_at)`,
-        [
-          userId, n.external_id, n.title, n.start_at, n.end_at, n.timezone, n.url, n.cover_url,
-          n.location, n.status, JSON.stringify(raw), now, now, now,
-        ],
-      )
+      if (channel === 'luma') {
+        await conn.query(
+          `INSERT INTO luma_events (
+            user_id, external_id, title, start_at, end_at, timezone, url, cover_url,
+            location_json, meeting_url, status, payload_json, synced_at, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON DUPLICATE KEY UPDATE
+            title = VALUES(title), start_at = VALUES(start_at), end_at = VALUES(end_at),
+            timezone = VALUES(timezone), url = VALUES(url), cover_url = VALUES(cover_url),
+            location_json = VALUES(location_json), meeting_url = VALUES(meeting_url),
+            status = VALUES(status), payload_json = VALUES(payload_json),
+            synced_at = VALUES(synced_at), updated_at = VALUES(updated_at)`,
+          [
+            userId, n.external_id, n.title, n.start_at, n.end_at, n.timezone, n.url, n.cover_url,
+            n.location_json, n.meeting_url, n.status, JSON.stringify(raw), now, now, now,
+          ],
+        )
+      } else if (channel === 'eventbrite') {
+        await conn.query(
+          `INSERT INTO eventbrite_events (
+            user_id, external_id, title, start_at, end_at, timezone, url, cover_url,
+            is_free, status, payload_json, synced_at, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON DUPLICATE KEY UPDATE
+            title = VALUES(title), start_at = VALUES(start_at), end_at = VALUES(end_at),
+            timezone = VALUES(timezone), url = VALUES(url), cover_url = VALUES(cover_url),
+            is_free = VALUES(is_free), status = VALUES(status), payload_json = VALUES(payload_json),
+            synced_at = VALUES(synced_at), updated_at = VALUES(updated_at)`,
+          [
+            userId, n.external_id, n.title, n.start_at, n.end_at, n.timezone, n.url, n.cover_url,
+            n.is_free, n.status, JSON.stringify(raw), now, now, now,
+          ],
+        )
+      } else {
+        await conn.query(
+          `INSERT INTO hightribe_events (
+            user_id, external_id, title, start_at, end_at, timezone, url, cover_url,
+            location, status, payload_json, synced_at, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON DUPLICATE KEY UPDATE
+            title = VALUES(title), start_at = VALUES(start_at), end_at = VALUES(end_at),
+            timezone = VALUES(timezone), url = VALUES(url), cover_url = VALUES(cover_url),
+            location = VALUES(location), status = VALUES(status), payload_json = VALUES(payload_json),
+            synced_at = VALUES(synced_at), updated_at = VALUES(updated_at)`,
+          [
+            userId, n.external_id, n.title, n.start_at, n.end_at, n.timezone, n.url, n.cover_url,
+            n.location, n.status, JSON.stringify(raw), now, now, now,
+          ],
+        )
+      }
+
+      upserted++
     }
-
-    upserted++
+    await conn.commit()
+  } catch (err) {
+    await conn.rollback()
+    throw err
+  } finally {
+    conn.release()
   }
 
   return { upserted }

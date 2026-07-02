@@ -13,7 +13,8 @@ import { HIGHTRIBE_COLOR, LUMA_COLOR, EVENTBRITE_COLOR } from '@/lib/brand'
 import { ConnectHightribeSection } from '@/components/ConnectHightribeSection'
 import { getEwentcastAccount, isEwentcastSignupUser, fetchAuthMe } from '@/lib/ewentcast-session'
 import { disconnectChannelIntegration } from '@/lib/channel-disconnect'
-import { eventbriteRedirectUri, getAppUrl } from '@/lib/app-url'
+import { effectiveEventbriteRedirectUri } from '@/lib/app-url'
+import { useAppUrl, useEventbriteRedirectUri } from '@/lib/use-app-url'
 import { useRouter } from 'next/navigation'
 import type { ChannelKey } from '@/lib/types'
 import { CHANNEL_META } from '@/lib/channels'
@@ -114,8 +115,8 @@ function PortalUrlRow({ label, value, hint }: { label: string; value: string; hi
 }
 
 function EventbritePortalUrls() {
-  const appUrl = getAppUrl()
-  const redirectUri = eventbriteRedirectUri()
+  const appUrl = useAppUrl()
+  const redirectUri = useEventbriteRedirectUri()
   return (
     <div className="settings-portal-urls">
       <p className="settings-portal-urls__title">
@@ -459,6 +460,8 @@ type SettingsShape = {
 export default function SettingsPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const appUrl = useAppUrl()
+  const eventbriteRedirect = useEventbriteRedirectUri()
   const channelParam = searchParams.get('channel')
   const focusChannel = FOCUS_CHANNELS.includes(channelParam as ChannelKey)
     ? (channelParam as ChannelKey)
@@ -525,7 +528,10 @@ export default function SettingsPage() {
                 eventbrite: {
                   clientId: settings.eventbrite?.clientId || '',
                   clientSecret: settings.eventbrite?.clientSecret || '',
-                  redirectUri: settings.eventbrite?.redirectUri || eventbriteRedirectUri(),
+                  redirectUri: effectiveEventbriteRedirectUri(
+                    settings.eventbrite?.redirectUri,
+                    eventbriteRedirect,
+                  ),
                   privateToken: settings.eventbrite?.privateToken || '',
                   publicToken: settings.eventbrite?.publicToken || '',
                 },
@@ -594,8 +600,9 @@ export default function SettingsPage() {
     }
   }
 
-  const DEFAULT_REDIRECT = eventbriteRedirectUri()
+  const DEFAULT_REDIRECT = eventbriteRedirect
   const eb = settings.eventbrite || {}
+  const ebRedirectDisplay = effectiveEventbriteRedirectUri(eb.redirectUri, eventbriteRedirect)
   const lu = settings.luma || {}
   const ebConnected = !!eb.privateToken
   const luConnected = !!lu.apiKey
@@ -682,9 +689,9 @@ export default function SettingsPage() {
                 <label style={LABEL}>OAuth Redirect URI (saved in app)</label>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <input style={{ ...INPUT, flex: 1 }} type="text" placeholder={DEFAULT_REDIRECT}
-                    value={eb.redirectUri || DEFAULT_REDIRECT}
+                    value={ebRedirectDisplay}
                     onChange={(e) => updateSection('eventbrite', 'redirectUri', e.target.value)} />
-                  <CopyButton value={eb.redirectUri || DEFAULT_REDIRECT} />
+                  <CopyButton value={ebRedirectDisplay} />
                 </div>
               </div>
               <div className="settings-grid-2">

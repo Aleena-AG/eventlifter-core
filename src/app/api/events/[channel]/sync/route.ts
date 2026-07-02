@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { listChannelEvents, upsertChannelEvents } from '../../../../../../backend/src/services/events'
+import { upsertChannelEvents } from '../../../../../../backend/src/services/events'
 import { parseChannel } from '@/lib/server/channels'
 import { isErrorResponse, requireSubscribedSession } from '@/lib/server/session'
 
@@ -24,8 +24,7 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
 
   try {
     const result = await upsertChannelEvents(channel, session.user.id, body.events)
-    const events = await listChannelEvents(channel, session.user.id)
-    return NextResponse.json({ ...result, events })
+    return NextResponse.json(result)
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'sync failed' },

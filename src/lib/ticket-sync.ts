@@ -1,7 +1,8 @@
 import { loadSettings } from '@/app/api/settings/route'
+import { handleWebhookBooking } from '../../../backend/src/services/webhook-booking'
 import type { MasterEventRecord } from '@/lib/event-registry'
 import type { ChannelKey } from '@/lib/types'
-import { LumaApiError, proxyLumaPath } from '@/lib/luma-api'
+import { proxyLumaPath } from '@/lib/luma-api'
 
 const EB_BASE = 'https://www.eventbriteapi.com/v3'
 
@@ -50,7 +51,6 @@ export async function syncCapacityAcrossChannels(
         }, loadSettings())
         results.push({ channel: ch, ok: true })
       } else if (ch === 'hightribe') {
-        // HT ticket updates require auth token — logged via registry; capacity tracked centrally
         results.push({ channel: ch, ok: true })
       } else {
         results.push({ channel: ch, ok: true })
@@ -63,24 +63,41 @@ export async function syncCapacityAcrossChannels(
   return results
 }
 
+function toMasterRecord(master: Awaited<ReturnType<typeof handleWebhookBooking>>['master']): MasterEventRecord | null {
+  if (!master) return null
+  return {
+    id: master.id,
+    title: master.title,
+    capacity: master.capacity,
+    sold: master.sold,
+    channels: master.channels,
+    attendees: master.attendees,
+    createdAt: master.createdAt,
+    updatedAt: master.updatedAt,
+  }
+}
+
 export async function handleBookingWebhook(
   sourceChannel: ChannelKey,
   channelEventId: string,
-  attendee: { email: string; name: string; registeredAt?: string },
-): Promise<{ master: MasterEventRecord | null; synced: { channel: ChannelKey; ok: boolean; error?: string }[] }> {
-  const { findMasterByChannelEvent, registerAttendee } = await import('@/lib/event-registry')
-
-  const master = await findMasterByChannelEvent(sourceChannel, channelEventId)
-  if (!master) return { master: null, synced: [] }
-
-  await registerAttendee(master.id, {
+  attendee: { email: string; name: string; registeredAt?: string; externalId?: string },
+): Promise<{
+  master: MasterEventRecord | null
+  synced: { channel: ChannelKey; ok: boolean; error?: string }[]
+  bookingSaved?: boolean
+}> {
+  const { master, bookingSaved } = await handleWebhookBooking({
+    sourceChannel,
+    channelEventId,
     email: attendee.email,
     name: attendee.name,
-    source: sourceChannel,
     registeredAt: attendee.registeredAt,
+    externalId: attendee.externalId,
   })
-  const updated = await findMasterByChannelEvent(sourceChannel, channelEventId)
-  if (!updated) return { master: null, synced: [] }
-  const synced = await syncCapacityAcrossChannels(updated, sourceChannel)
-  return { master: updated, synced }
+
+  const record = toMasterRecord(master)
+  if (!record) return { master: null, synced: [], bookingSaved: false }
+
+  const synced = await syncCapacityAcrossChannels(record, sourceChannel)
+  return { master: record, synced, bookingSaved }
 }
