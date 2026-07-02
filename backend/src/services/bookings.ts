@@ -1,6 +1,6 @@
 import type { ResultSetHeader, RowDataPacket } from 'mysql2'
-import { getPool, query } from '../db/pool.js'
-import type { ChannelName } from './events.js'
+import { getPool, query } from '../db/pool'
+import type { ChannelName } from './events'
 
 export interface StoredBooking {
   id: number

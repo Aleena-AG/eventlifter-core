@@ -1,62 +1,53 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getBackendUrl } from '@/lib/backend-client'
+import {
+  listChannelEvents,
+} from '../../../../../backend/src/services/events'
+import { purgeChannelData } from '../../../../../backend/src/services/channel-data'
+import { parseChannel } from '@/lib/server/channels'
+import { isErrorResponse, requireSession } from '@/lib/server/session'
 
 export const runtime = 'nodejs'
 
 type RouteContext = { params: Promise<{ channel: string }> }
 
-async function proxy(req: NextRequest, channel: string, suffix: string) {
-  const url = new URL(req.url)
-  const target = `${getBackendUrl()}/api/events/${channel}${suffix}${url.search}`
-
-  const headers: Record<string, string> = { Accept: 'application/json' }
-  const auth = req.headers.get('authorization')
-  if (auth) headers.Authorization = auth
-
-  const init: RequestInit = { method: req.method, headers, cache: 'no-store' }
-
-  if (req.method !== 'GET' && req.method !== 'HEAD') {
-    headers['Content-Type'] = 'application/json'
-    init.body = await req.text()
+export async function GET(req: NextRequest, ctx: RouteContext) {
+  const session = await requireSession(req)
+  if (isErrorResponse(session)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  let res: Response
-  try {
-    res = await fetch(target, init)
-  } catch (err) {
-    throw err
-  }
+  const { channel: raw } = await ctx.params
+  const channel = parseChannel(raw)
+  if (!channel) return NextResponse.json({ error: 'invalid channel' }, { status: 400 })
 
-  const text = await res.text()
-  let data: unknown = {}
   try {
-    data = text ? JSON.parse(text) : {}
-  } catch {
-    data = { error: text.slice(0, 200) || `HTTP ${res.status}` }
-  }
-  return NextResponse.json(data, { status: res.status })
-}
-
-export async function DELETE(req: NextRequest, ctx: RouteContext) {
-  try {
-    const { channel } = await ctx.params
-    return await proxy(req, channel, '')
+    const events = await listChannelEvents(channel, session.user.id)
+    return NextResponse.json({ events })
   } catch (err) {
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Backend unavailable' },
-      { status: 503 },
+      { error: err instanceof Error ? err.message : 'list failed' },
+      { status: 500 },
     )
   }
 }
 
-export async function GET(req: NextRequest, ctx: RouteContext) {
+export async function DELETE(req: NextRequest, ctx: RouteContext) {
+  const session = await requireSession(req)
+  if (isErrorResponse(session)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const { channel: raw } = await ctx.params
+  const channel = parseChannel(raw)
+  if (!channel) return NextResponse.json({ error: 'invalid channel' }, { status: 400 })
+
   try {
-    const { channel } = await ctx.params
-    return await proxy(req, channel, '')
+    const result = await purgeChannelData(session.user.id, channel)
+    return NextResponse.json({ ok: true, ...result })
   } catch (err) {
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Backend unavailable' },
-      { status: 503 },
+      { error: err instanceof Error ? err.message : 'purge failed' },
+      { status: 500 },
     )
   }
 }

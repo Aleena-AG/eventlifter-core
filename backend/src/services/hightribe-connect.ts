@@ -1,13 +1,13 @@
-import { getPool, query } from '../db/pool.js'
-import { config } from '../config.js'
+import { getPool, query } from '../db/pool'
+import { config } from '../config'
 import {
   createSession,
   getAccountView,
   type AccountView,
   type UserView,
-} from './auth.js'
-import { hashPassword, newToken } from '../lib/crypto.js'
-import { purgeChannelData } from './channel-data.js'
+} from './auth'
+import { hashPassword, newToken } from '../lib/crypto'
+import { purgeChannelData } from './channel-data'
 
 interface HtLoginResponse {
   status?: boolean

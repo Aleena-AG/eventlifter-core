@@ -1,14 +1,14 @@
 import { Router } from 'express'
-import type { AuthedRequest } from '../middleware/auth.js'
-import { requireAuth } from '../middleware/auth.js'
+import type { AuthedRequest } from '../middleware/auth'
+import { requireAuth } from '../middleware/auth'
 import {
   deleteChannelEvent,
   listChannelEvents,
   upsertChannelEvents,
   type ChannelName,
-} from '../services/events.js'
-import { listChannelBookings, listAllUserBookings, upsertChannelBookings } from '../services/bookings.js'
-import { purgeChannelData } from '../services/channel-data.js'
+} from '../services/events'
+import { listChannelBookings, listAllUserBookings, upsertChannelBookings } from '../services/bookings'
+import { purgeChannelData } from '../services/channel-data'
 
 export const eventsRouter = Router()
 

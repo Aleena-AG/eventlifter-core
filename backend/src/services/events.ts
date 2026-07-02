@@ -1,5 +1,5 @@
 import type { RowDataPacket } from 'mysql2'
-import { getPool, query } from '../db/pool.js'
+import { getPool, query } from '../db/pool'
 
 export type ChannelName = 'luma' | 'eventbrite' | 'hightribe'
 

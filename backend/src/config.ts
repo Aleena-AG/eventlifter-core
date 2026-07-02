@@ -1,7 +1,7 @@
 import dotenv from 'dotenv'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { resolveAppUrl } from './lib/app-url.js'
+import { resolveAppUrl } from './lib/app-url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 

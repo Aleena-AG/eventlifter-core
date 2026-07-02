@@ -1,5 +1,5 @@
 import nodemailer from 'nodemailer'
-import { config } from '../config.js'
+import { config } from '../config'
 
 function smtpConfigured(): boolean {
   return !!(config.smtp.host && config.smtp.user && config.smtp.pass)

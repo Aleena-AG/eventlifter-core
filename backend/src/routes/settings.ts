@@ -1,13 +1,13 @@
 import { Router } from 'express'
-import type { AuthedRequest } from '../middleware/auth.js'
-import { requireAuth } from '../middleware/auth.js'
-import type { AppSettings } from '../types/settings.js'
+import type { AuthedRequest } from '../middleware/auth'
+import { requireAuth } from '../middleware/auth'
+import type { AppSettings } from '../types/settings'
 import {
   clearChannelSettings,
   getUserSettings,
   toPublicSettingsView,
   updateUserSettings,
-} from '../services/user-settings.js'
+} from '../services/user-settings'
 
 export const settingsRouter = Router()
 

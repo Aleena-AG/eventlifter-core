@@ -1,8 +1,8 @@
 import type { RowDataPacket } from 'mysql2'
-import { config } from '../config.js'
-import { getPool, query } from '../db/pool.js'
-import { hashPassword, newToken, verifyPassword } from '../lib/crypto.js'
-import { isEmailConfigured, sendPasswordResetEmail } from './email.js'
+import { config } from '../config'
+import { getPool, query } from '../db/pool'
+import { hashPassword, newToken, verifyPassword } from '../lib/crypto'
+import { isEmailConfigured, sendPasswordResetEmail } from './email'
 
 export interface UserRow extends RowDataPacket {
   id: number

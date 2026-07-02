@@ -1,13 +1,13 @@
 import cors from 'cors'
 import express from 'express'
-import { config, dbConfigured } from './config.js'
-import { isEmailConfigured } from './services/email.js'
-import { runMigrations } from './db/migrate.js'
-import { healthRouter } from './routes/health.js'
-import { registryRouter } from './routes/registry.js'
-import { authRouter } from './routes/auth.js'
-import { eventsRouter } from './routes/events.js'
-import { settingsRouter } from './routes/settings.js'
+import { config, dbConfigured } from './config'
+import { isEmailConfigured } from './services/email'
+import { runMigrations } from './db/migrate'
+import { healthRouter } from './routes/health'
+import { registryRouter } from './routes/registry'
+import { authRouter } from './routes/auth'
+import { eventsRouter } from './routes/events'
+import { settingsRouter } from './routes/settings'
 
 const app = express()
 

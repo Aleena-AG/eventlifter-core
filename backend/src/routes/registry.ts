@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import type { ChannelKey } from '../types.js'
+import type { ChannelKey } from '../types'
 import {
   createMasterEvent,
   deleteMasterEvent,
@@ -9,7 +9,7 @@ import {
   listMasterEvents,
   registerAttendee,
   removeChannelFromMaster,
-} from '../services/registry.js'
+} from '../services/registry'
 
 export const registryRouter = Router()
 
