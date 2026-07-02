@@ -21,6 +21,7 @@ export interface AccountView {
   subscription_amount_usd: number
   trial_ends_at: string | null
   trial_days_remaining: number | null
+  current_period_end: string | null
   ht_connected: boolean
   linked_ht_user_id: number | null
   ht_connected_at: string | null
@@ -83,6 +84,9 @@ export async function getAccountView(userId: number): Promise<AccountView> {
     || (isDevPaymentBypass() && authSource === 'ewentcast_signup')
   const daysLeft =
     status === 'trialing' && trialEndsAt ? trialDaysRemaining(trialEndsAt) : null
+  const periodEnd = row?.current_period_end
+    ? new Date(row.current_period_end as Date)
+    : null
 
   return {
     auth_source: authSource,
@@ -92,6 +96,7 @@ export async function getAccountView(userId: number): Promise<AccountView> {
     subscription_amount_usd: 20,
     trial_ends_at: trialEndsAt ? trialEndsAt.toISOString() : null,
     trial_days_remaining: daysLeft,
+    current_period_end: periodEnd ? periodEnd.toISOString() : null,
     ht_connected: !!row?.ht_user_id,
     linked_ht_user_id: row?.ht_user_id ? Number(row.ht_user_id) : null,
     ht_connected_at: row?.connected_at

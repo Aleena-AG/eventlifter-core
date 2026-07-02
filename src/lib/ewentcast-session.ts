@@ -10,6 +10,7 @@ export interface EwentcastAccount {
   subscription_amount_usd: number
   trial_ends_at?: string | null
   trial_days_remaining?: number | null
+  current_period_end?: string | null
   ht_connected: boolean
   linked_ht_user_id?: number | null
   ht_connected_at?: string | null
@@ -259,6 +260,83 @@ export async function startSubscriptionCheckout(): Promise<string> {
     throw new Error('ALREADY_ACTIVE')
   }
   throw new Error(data.message || 'Could not start checkout')
+}
+
+export interface BillingTransaction {
+  id: string | number
+  type: string
+  amount: number
+  currency: string
+  status: string
+  description: string
+  invoiceUrl: string | null
+  createdAt: string
+}
+
+function parseBillingAmount(raw: Record<string, unknown>): { amount: number; currency: string } {
+  const currency = String(raw.currency || 'usd').toLowerCase()
+  if (typeof raw.amount === 'number') {
+    return { amount: raw.amount, currency }
+  }
+  if (typeof raw.amount_cents === 'number') {
+    return { amount: raw.amount_cents / 100, currency }
+  }
+  if (typeof raw.amount_usd === 'number') {
+    return { amount: raw.amount_usd, currency: 'usd' }
+  }
+  return { amount: 0, currency }
+}
+
+function normalizeBillingTransaction(raw: Record<string, unknown>): BillingTransaction | null {
+  const { amount, currency } = parseBillingAmount(raw)
+  const createdAt = String(
+    raw.created_at || raw.paid_at || raw.date || new Date().toISOString(),
+  )
+  const invoiceUrl = String(
+    raw.invoice_url || raw.hosted_invoice_url || raw.receipt_url || '',
+  ).trim() || null
+
+  return {
+    id: raw.id ?? raw.stripe_invoice_id ?? createdAt,
+    type: String(raw.type || 'payment'),
+    amount,
+    currency,
+    status: String(raw.status || 'paid'),
+    description: String(raw.description || raw.plan || 'Ewentcast Pro'),
+    invoiceUrl,
+    createdAt,
+  }
+}
+
+export async function fetchBillingTransactions(): Promise<BillingTransaction[]> {
+  const res = await fetch('/api/billing/transactions', {
+    headers: { Authorization: authHeader(), Accept: 'application/json' },
+    cache: 'no-store',
+  })
+  const data = await res.json().catch(() => ({})) as {
+    transactions?: Array<Record<string, unknown>>
+    data?: Array<Record<string, unknown>>
+  }
+  const rows = data.transactions || data.data || []
+  return rows
+    .map((row) => normalizeBillingTransaction(row))
+    .filter((row): row is BillingTransaction => row != null)
+}
+
+export async function openStripeBillingPortal(): Promise<string> {
+  const origin = typeof window !== 'undefined' ? window.location.origin : ''
+  const res = await fetch('/api/billing/portal', {
+    method: 'POST',
+    headers: {
+      Authorization: authHeader(),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ return_url: `${origin}/settings` }),
+  })
+  const data = await res.json() as { portal_url?: string; message?: string; status?: boolean }
+  if (data.portal_url) return data.portal_url
+  throw new Error(data.message || 'Could not open billing portal')
 }
 
 export async function connectHightribe(email: string, password: string): Promise<void> {

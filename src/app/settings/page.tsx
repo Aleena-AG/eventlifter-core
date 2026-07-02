@@ -11,7 +11,7 @@ import type { HtUser } from '@/lib/auth'
 import { ChannelLogo } from '@/components/ChannelLogo'
 import { HIGHTRIBE_COLOR, LUMA_COLOR, EVENTBRITE_COLOR } from '@/lib/brand'
 import { ConnectHightribeSection } from '@/components/ConnectHightribeSection'
-import { getEwentcastAccount, isEwentcastSignupUser, fetchAuthMe, type EwentcastAccount } from '@/lib/ewentcast-session'
+import { getEwentcastAccount, isEwentcastSignupUser, fetchAuthMe, type EwentcastAccount, fetchBillingTransactions, openStripeBillingPortal, type BillingTransaction } from '@/lib/ewentcast-session'
 import { disconnectChannelIntegration } from '@/lib/channel-disconnect'
 import { effectiveEventbriteRedirectUri } from '@/lib/app-url'
 import { useAppUrl, useEventbriteRedirectUri } from '@/lib/use-app-url'
@@ -150,6 +150,160 @@ function subscriptionStatusMeta(account: EwentcastAccount): {
   }
 }
 
+function formatMoney(amount: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: currency.toUpperCase(),
+    }).format(amount)
+  } catch {
+    return `$${amount.toFixed(2)}`
+  }
+}
+
+function SubscriptionBillingPanel({ account }: { account: EwentcastAccount }) {
+  const [transactions, setTransactions] = useState<BillingTransaction[]>([])
+  const [loading, setLoading] = useState(true)
+  const [portalLoading, setPortalLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const isPaid = account.subscription_status === 'active' && account.subscription_active
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError('')
+    fetchBillingTransactions()
+      .then((rows) => { if (!cancelled) setTransactions(rows) })
+      .catch((err) => {
+        if (!cancelled) {
+          setTransactions([])
+          setError(err instanceof Error ? err.message : 'Could not load invoices')
+        }
+      })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [account.subscription_status])
+
+  const openPortal = async () => {
+    setPortalLoading(true)
+    setError('')
+    try {
+      const url = await openStripeBillingPortal()
+      window.location.href = url
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Billing portal failed')
+    } finally {
+      setPortalLoading(false)
+    }
+  }
+
+  return (
+    <div className="settings-billing">
+      <div className="settings-billing__header">
+        <div>
+          <p className="settings-billing__title">Billing</p>
+          <p className="settings-billing__subtitle">
+            Recurring payments are managed securely through Stripe.
+          </p>
+        </div>
+        {isPaid && (
+          <button
+            type="button"
+            className="settings-billing__portal-btn"
+            onClick={openPortal}
+            disabled={portalLoading}
+          >
+            {portalLoading ? 'Opening…' : 'Manage billing'}
+          </button>
+        )}
+      </div>
+
+      <div className="settings-subscription__grid">
+        <div className="settings-subscription__item">
+          <span className="settings-subscription__item-label">Billing cycle</span>
+          <span className="settings-subscription__item-value">Monthly</span>
+        </div>
+        <div className="settings-subscription__item">
+          <span className="settings-subscription__item-label">Payment provider</span>
+          <span className="settings-subscription__item-value">Stripe</span>
+        </div>
+        {account.current_period_end && isPaid && (
+          <div className="settings-subscription__item">
+            <span className="settings-subscription__item-label">Next billing</span>
+            <span className="settings-subscription__item-value">
+              {new Date(account.current_period_end).toLocaleDateString(undefined, {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+              })}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {error && (
+        <p className="settings-billing__error">{error}</p>
+      )}
+
+      <div className="settings-billing__invoices">
+        <p className="settings-billing__invoices-title">Stripe invoices</p>
+        {loading ? (
+          <p className="settings-billing__empty">Loading invoices…</p>
+        ) : transactions.length === 0 ? (
+          <p className="settings-billing__empty">
+            {isPaid
+              ? 'No invoices yet. They will appear here after your first charge.'
+              : 'Subscribe to Pro to see Stripe invoices here.'}
+          </p>
+        ) : (
+          <div className="settings-billing__table-wrap">
+            <table className="settings-billing__table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Description</th>
+                  <th>Amount</th>
+                  <th>Status</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {transactions.map((tx) => (
+                  <tr key={String(tx.id)}>
+                    <td>{new Date(tx.createdAt).toLocaleDateString()}</td>
+                    <td>{tx.description}</td>
+                    <td>{formatMoney(tx.amount, tx.currency)}</td>
+                    <td>
+                      <span className={`settings-billing__status settings-billing__status--${tx.status}`}>
+                        {tx.status}
+                      </span>
+                    </td>
+                    <td>
+                      {tx.invoiceUrl ? (
+                        <a
+                          href={tx.invoiceUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="settings-billing__invoice-link"
+                        >
+                          View invoice
+                        </a>
+                      ) : (
+                        <span className="settings-billing__muted">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function SubscriptionStatusCard({ account }: { account: EwentcastAccount }) {
   const meta = subscriptionStatusMeta(account)
   const showUpgrade = account.auth_source === 'ewentcast_signup'
@@ -212,6 +366,8 @@ function SubscriptionStatusCard({ account }: { account: EwentcastAccount }) {
           {account.subscription_active ? 'Upgrade to Pro' : 'Subscribe to Pro'}
         </Link>
       )}
+
+      <SubscriptionBillingPanel account={account} />
     </div>
   )
 }
@@ -767,7 +923,7 @@ export default function SettingsPage() {
       {loading ? <PageLoader label="Loading settings…" /> : (
         <>
           {!focusChannel && account?.auth_source === 'ewentcast_signup' && (
-            <SectionCard title="Subscription" icon="◆">
+            <SectionCard title="Subscription & Billing" icon="◆">
               <SubscriptionStatusCard account={account} />
             </SectionCard>
           )}

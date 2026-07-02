@@ -200,6 +200,142 @@
   background: #c47d26;
 }
 
+.settings-billing {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid #f0e8dc;
+}
+
+.settings-billing__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.settings-billing__title {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #211b16;
+}
+
+.settings-billing__subtitle {
+  margin: 0;
+  font-size: 12px;
+  color: #8c7f6d;
+  line-height: 1.45;
+}
+
+.settings-billing__portal-btn {
+  background: #fff;
+  border: 1px solid #e8dfd0;
+  border-radius: 8px;
+  color: #211b16;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.settings-billing__portal-btn:hover:not(:disabled) {
+  border-color: #d98a2b;
+  color: #b8731f;
+}
+
+.settings-billing__portal-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.settings-billing__error {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: #c2502e;
+}
+
+.settings-billing__invoices-title {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #8c7f6d;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.settings-billing__empty {
+  margin: 0;
+  font-size: 13px;
+  color: #8c7f6d;
+  line-height: 1.5;
+}
+
+.settings-billing__table-wrap {
+  overflow-x: auto;
+  border: 1px solid #e8dfd0;
+  border-radius: 8px;
+}
+
+.settings-billing__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.settings-billing__table th,
+.settings-billing__table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid #f0e8dc;
+}
+
+.settings-billing__table th {
+  background: #fbf7f0;
+  color: #8c7f6d;
+  font-weight: 600;
+}
+
+.settings-billing__table tr:last-child td {
+  border-bottom: none;
+}
+
+.settings-billing__status {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.settings-billing__status--paid,
+.settings-billing__status--succeeded {
+  background: rgba(78, 122, 75, 0.12);
+  color: #4e7a4b;
+}
+
+.settings-billing__status--failed,
+.settings-billing__status--canceled {
+  background: rgba(194, 80, 46, 0.1);
+  color: #c2502e;
+}
+
+.settings-billing__invoice-link {
+  color: #d98a2b;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.settings-billing__invoice-link:hover {
+  text-decoration: underline;
+}
+
+.settings-billing__muted {
+  color: #8c7f6d;
+}
+
 @media (max-width: 960px) {
   .settings-channel-layout {
     grid-template-columns: 1fr;
