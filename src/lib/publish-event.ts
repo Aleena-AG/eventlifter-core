@@ -44,6 +44,7 @@ export async function publishToChannel(
   const cap = ebTicketQuantity(ev.capacity as string | number | undefined)
   const coverUrl = String(ev.coverUrl || '')
   const htCoverFile = ch === 'hightribe' ? await resolveCoverFileForHt(coverUrl, files?.cover) : undefined
+  const htCoverSquareFile = ch === 'hightribe' ? (files?.coverSquare ?? undefined) : undefined
   const publicCoverUrl = ch !== 'hightribe'
     ? await resolveCoverUrl(coverUrl, files?.cover)
     : undefined
@@ -84,14 +85,14 @@ export async function publishToChannel(
         currency: String(ev.currency || 'USD'),
         quantity: cap,
       }]
-      const res = await postHtEvent('/api/hightribe/events/with-tickets', body, 'POST', htCoverFile)
+      const res = await postHtEvent('/api/hightribe/events/with-tickets', body, 'POST', htCoverFile, htCoverSquareFile)
       const data = await res.json() as { data?: { id?: unknown; tickets?: Array<{ id?: unknown }> }; message?: string; errors?: Record<string, string[]> }
       if (!res.ok) throw new Error(data.message || (data.errors ? Object.values(data.errors).flat().join(', ') : `HTTP ${res.status}`))
       const id = String((data.data as Record<string, unknown>)?.id || '')
       const ticketId = String((data.data as { tickets?: Array<{ id?: unknown }> })?.tickets?.[0]?.id || '')
       return { eventId: id, ticketId }
     }
-    const res = await postHtEvent('/api/hightribe/events', body, 'POST', htCoverFile)
+    const res = await postHtEvent('/api/hightribe/events', body, 'POST', htCoverFile, htCoverSquareFile)
     const data = await res.json() as { data?: { id?: unknown }; message?: string; errors?: Record<string, string[]> }
     if (!res.ok) throw new Error(data.message || (data.errors ? Object.values(data.errors).flat().join(', ') : `HTTP ${res.status}`))
     return { eventId: String((data.data as Record<string, unknown>)?.id || '') }
@@ -217,6 +218,7 @@ export async function updateChannelEvent(
   const endUtc = toIso(String(ev.endDate || ev.date), String(ev.endTime || ev.time), tz)
   const coverUrl = String(ev.coverUrl || '')
   const htCoverFile = ch === 'hightribe' ? await resolveCoverFileForHt(coverUrl, files?.cover) : undefined
+  const htCoverSquareFile = ch === 'hightribe' ? (files?.coverSquare ?? undefined) : undefined
   const publicCoverUrl = ch !== 'hightribe'
     ? await resolveCoverUrl(coverUrl, files?.cover)
     : undefined
@@ -248,7 +250,7 @@ export async function updateChannelEvent(
         lng: ev.lng ? parseFloat(String(ev.lng)) : undefined,
       }
     }
-    const res = await postHtEvent(`/api/hightribe/events/${eventId}`, body, 'PUT', htCoverFile)
+    const res = await postHtEvent(`/api/hightribe/events/${eventId}`, body, 'PUT', htCoverFile, htCoverSquareFile)
     const data = await res.json() as { message?: string; errors?: Record<string, string[]> }
     if (!res.ok) throw new Error(data.message || (data.errors ? Object.values(data.errors).flat().join(', ') : `HTTP ${res.status}`))
     return

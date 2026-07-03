@@ -11,6 +11,14 @@ import { SyncModal, SyncSource } from '@/components/SyncModal'
 import { CreateEventWizardModal } from '@/components/ewentcast/CreateEventWizardModal'
 import { ChannelLogo } from '@/components/ChannelLogo'
 import { CHANNEL_META } from '@/lib/channels'
+import {
+  formatEventMoney,
+  formatRelativeBookingTime,
+  getDummyEventStats,
+  platformColor,
+  platformLabel,
+  type EventBookingStats,
+} from '@/lib/event-stats-dummy'
 import type { ChannelKey } from '@/lib/types'
 import './events.css'
 
@@ -146,6 +154,128 @@ function DeleteDialog({
   )
 }
 
+// ─── Event stats panel ────────────────────────────────────────────────────────
+function EventCardStats({ stats }: { stats: EventBookingStats }) {
+  const collected = stats.totalRevenue - stats.totalPendingRevenue
+
+  return (
+    <section className="event-card__stats" aria-label="Booking and payment statistics">
+      <div className="event-card__stats-head">
+        <div className="event-card__stats-title-wrap">
+          <span className="event-card__stats-icon" aria-hidden="true">📊</span>
+          <div>
+            <h4 className="event-card__stats-title">Bookings &amp; Payments</h4>
+            <p className="event-card__stats-sub">Across all 3 platforms · dummy preview</p>
+          </div>
+        </div>
+        <span className="event-card__stats-live">
+          {stats.activePlatforms}/3 platforms live
+        </span>
+      </div>
+
+      <div className="event-card__stats-summary">
+        <div className="event-card__stat-kpi">
+          <span className="event-card__stat-kpi-val">{stats.totalBookings}</span>
+          <span className="event-card__stat-kpi-label">Total bookings</span>
+        </div>
+        <div className="event-card__stat-kpi">
+          <span className="event-card__stat-kpi-val">{stats.totalTickets}</span>
+          <span className="event-card__stat-kpi-label">Tickets sold</span>
+        </div>
+        <div className="event-card__stat-kpi event-card__stat-kpi--money">
+          <span className="event-card__stat-kpi-val">{formatEventMoney(stats.totalRevenue, stats.currency)}</span>
+          <span className="event-card__stat-kpi-label">Gross revenue</span>
+        </div>
+        <div className="event-card__stat-kpi event-card__stat-kpi--money">
+          <span className="event-card__stat-kpi-val event-card__stat-kpi-val--green">
+            {formatEventMoney(collected, stats.currency)}
+          </span>
+          <span className="event-card__stat-kpi-label">Collected</span>
+        </div>
+        <div className="event-card__stat-kpi event-card__stat-kpi--money">
+          <span className="event-card__stat-kpi-val event-card__stat-kpi-val--amber">
+            {formatEventMoney(stats.totalPendingRevenue, stats.currency)}
+          </span>
+          <span className="event-card__stat-kpi-label">Pending</span>
+        </div>
+        {stats.totalRefunded > 0 && (
+          <div className="event-card__stat-kpi">
+            <span className="event-card__stat-kpi-val event-card__stat-kpi-val--muted">{stats.totalRefunded}</span>
+            <span className="event-card__stat-kpi-label">Refunded</span>
+          </div>
+        )}
+      </div>
+
+      <div className="event-card__stats-platforms">
+        {stats.platforms.map((p) => {
+          const pct = stats.totalBookings > 0
+            ? Math.round((p.bookings / stats.totalBookings) * 100)
+            : 0
+          const color = platformColor(p.channel)
+          return (
+            <div
+              key={p.channel}
+              className={`event-card__platform-stat${p.published ? '' : ' event-card__platform-stat--inactive'}`}
+              style={{ '--platform-color': color } as React.CSSProperties}
+            >
+              <div className="event-card__platform-stat-head">
+                <span className="event-card__platform-stat-label">
+                  <ChannelLogo channel={p.channel} size={18} />
+                  <span>{platformLabel(p.channel)}</span>
+                </span>
+                <span className={`event-card__platform-status${p.published ? ' event-card__platform-status--live' : ''}`}>
+                  {p.published ? 'Live' : 'Not published'}
+                </span>
+              </div>
+
+              <div className="event-card__platform-metrics">
+                <div className="event-card__platform-metric">
+                  <span className="event-card__platform-metric-val">{p.bookings}</span>
+                  <span className="event-card__platform-metric-label">Bookings</span>
+                </div>
+                <div className="event-card__platform-metric">
+                  <span className="event-card__platform-metric-val">{p.tickets}</span>
+                  <span className="event-card__platform-metric-label">Tickets</span>
+                </div>
+                <div className="event-card__platform-metric">
+                  <span className="event-card__platform-metric-val">
+                    {p.revenue > 0 ? formatEventMoney(p.revenue, stats.currency) : '—'}
+                  </span>
+                  <span className="event-card__platform-metric-label">Revenue</span>
+                </div>
+                <div className="event-card__platform-metric">
+                  <span className="event-card__platform-metric-val event-card__platform-metric-val--amber">
+                    {p.pendingRevenue > 0 ? formatEventMoney(p.pendingRevenue, stats.currency) : '—'}
+                  </span>
+                  <span className="event-card__platform-metric-label">Pending</span>
+                </div>
+              </div>
+
+              <div className="event-card__platform-share">
+                <div className="event-card__platform-share-top">
+                  <span>Share of bookings</span>
+                  <span className="event-card__platform-share-pct">{pct}%</span>
+                </div>
+                <div className="event-card__platform-bar" aria-hidden="true">
+                  <div
+                    className="event-card__platform-bar-fill"
+                    style={{ width: `${pct}%`, minWidth: pct > 0 ? 4 : 0 }}
+                  />
+                </div>
+              </div>
+
+              <div className="event-card__platform-foot">
+                <span>Last booking</span>
+                <span>{p.published ? formatRelativeBookingTime(p.lastBookingAt) : '—'}</span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
 // ─── EventCard ────────────────────────────────────────────────────────────────
 function EventCard({
   image, title, dateStr, channel, badgeColor, location, url, status,
@@ -157,39 +287,44 @@ function EventCard({
 }) {
   const channelName = CHANNEL_META[channel].name
   const isLive = status === 'published' || status === 'live'
+  const stats = getDummyEventStats(title, channel)
 
   return (
     <article className="event-card" style={{ '--card-accent': badgeColor } as React.CSSProperties}>
       <div className="event-card__accent" aria-hidden="true" />
 
-      <div className="event-card__inner">
-        <div className="event-card__media">
-          {image ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={image} alt="" />
-          ) : (
-            <span className="event-card__media-placeholder" aria-hidden="true">📅</span>
-          )}
-        </div>
-
-        <div className="event-card__body">
-          <h3 className="event-card__title">{title}</h3>
-          <div className="event-card__meta">
-            <span className="event-card__meta-item">📅 {dateStr}</span>
-            {location && <span className="event-card__meta-item">📍 {location}</span>}
-          </div>
-          <div className="event-card__badges">
-            <span className="event-card__channel-badge">
-              <ChannelLogo channel={channel} size={16} />
-              {channelName}
-            </span>
-            {status && (
-              <span className={`event-card__status-badge ${isLive ? 'event-card__status-badge--live' : 'event-card__status-badge--muted'}`}>
-                {status}
-              </span>
+      <div className="event-card__main">
+        <div className="event-card__inner">
+          <div className="event-card__media">
+            {image ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={image} alt="" />
+            ) : (
+              <span className="event-card__media-placeholder" aria-hidden="true">📅</span>
             )}
           </div>
+
+          <div className="event-card__body">
+            <h3 className="event-card__title">{title}</h3>
+            <div className="event-card__meta">
+              <span className="event-card__meta-item">📅 {dateStr}</span>
+              {location && <span className="event-card__meta-item">📍 {location}</span>}
+            </div>
+            <div className="event-card__badges">
+              <span className="event-card__channel-badge">
+                <ChannelLogo channel={channel} size={16} />
+                {channelName}
+              </span>
+              {status && (
+                <span className={`event-card__status-badge ${isLive ? 'event-card__status-badge--live' : 'event-card__status-badge--muted'}`}>
+                  {status}
+                </span>
+              )}
+            </div>
+          </div>
         </div>
+
+        <EventCardStats stats={stats} />
       </div>
 
       <div className="event-card__actions">

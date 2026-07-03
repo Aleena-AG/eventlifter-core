@@ -2,7 +2,12 @@
 
 import { authHeader } from '@/lib/auth'
 
-export type EventCoverFiles = { cover?: File | null }
+export type EventCoverFiles = {
+  /** Wide 3:1 cover (primary banner / cover_image) */
+  cover?: File | null
+  /** Square 1:1 cover (cover_image_square) */
+  coverSquare?: File | null
+}
 
 function isHttpUrl(v: string): boolean {
   return /^https?:\/\//i.test(v.trim())
@@ -90,12 +95,17 @@ function appendFormValue(form: FormData, key: string, value: unknown) {
   form.append(key, String(value))
 }
 
-export function buildHtFormData(body: Record<string, unknown>, coverFile?: File): FormData {
+export function buildHtFormData(
+  body: Record<string, unknown>,
+  coverFile?: File,
+  coverSquareFile?: File,
+): FormData {
   const form = new FormData()
   for (const [key, value] of Object.entries(body)) {
     appendFormValue(form, key, value)
   }
   if (coverFile) form.append('cover_image', coverFile)
+  if (coverSquareFile) form.append('cover_image_square', coverSquareFile)
   return form
 }
 
@@ -104,12 +114,13 @@ export async function postHtEvent(
   body: Record<string, unknown>,
   method: 'POST' | 'PUT',
   coverFile?: File,
+  coverSquareFile?: File,
 ): Promise<Response> {
-  if (coverFile) {
+  if (coverFile || coverSquareFile) {
     return fetch(url, {
       method,
       headers: { Authorization: authHeader() },
-      body: buildHtFormData(body, coverFile),
+      body: buildHtFormData(body, coverFile, coverSquareFile),
     })
   }
   return fetch(url, {

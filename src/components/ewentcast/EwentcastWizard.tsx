@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { getUser } from '@/lib/auth'
 import type { AttendeeRecord } from '@/lib/event-registry'
 import { publishToAllChannels, updateChannelEvent, type EventFormData } from '@/lib/publish-event'
 import type { EventCoverFiles } from '@/lib/cover-image'
+import { COVER_ACCEPTED_EXTENSIONS, validateCoverFile } from '@/lib/galleryUploadLimits'
 import { loadEventFormData } from '@/lib/event-form-data'
 import type { ChannelKey } from '@/lib/types'
 import {
@@ -14,6 +15,8 @@ import {
 import { getFormCompletion } from './form-completion'
 import { InlineLoader, PageLoader } from '@/components/Loader'
 import { EwentcastLogo } from '@/components/EwentcastLogo'
+import { EventCoverCropModal } from '@/components/host/events/form/EventCoverCropModal'
+import { Toast, useToast } from '@/components/Toast'
 
 function Swatch({ color, size = 10 }: { color: string; size?: number }) {
   return <span className="ew-swatch" style={{ width: size, height: size, background: color }} />
@@ -49,6 +52,12 @@ export function EwentcastWizard({
   const [section, setSection] = useState(0)
   const [ev, setEv] = useState<EventFormData>({ ...DEFAULT_EVENT })
   const [coverFile, setCoverFile] = useState<File | null>(null)
+  const [coverSquareFile, setCoverSquareFile] = useState<File | null>(null)
+  const [cropModalOpen, setCropModalOpen] = useState(false)
+  const [pendingImageSrc, setPendingImageSrc] = useState<string | null>(null)
+  const coverInputRef = useRef<HTMLInputElement>(null)
+  const previewBlobRef = useRef<string | null>(null)
+  const { toasts, toast, removeToast } = useToast()
   const [targets, setTargets] = useState<ChannelKey[]>(
     isEdit && editChannel ? [editChannel] : [...ALL_CHANNELS],
   )
@@ -70,7 +79,16 @@ export function EwentcastWizard({
     setLoadError(null)
     setTargets([editChannel])
     loadEventFormData(editChannel, editEventId)
-      .then(data => { setEv(data); setCoverFile(null); setLoadingEvent(false) })
+      .then(data => {
+        setEv(data)
+        setCoverFile(null)
+        setCoverSquareFile(null)
+        if (previewBlobRef.current) {
+          URL.revokeObjectURL(previewBlobRef.current)
+          previewBlobRef.current = null
+        }
+        setLoadingEvent(false)
+      })
       .catch(err => {
         setLoadError(err instanceof Error ? err.message : 'Failed to load event')
         setLoadingEvent(false)
@@ -115,7 +133,51 @@ export function EwentcastWizard({
     setTargets(prev => prev.includes(ch) ? prev.filter(x => x !== ch) : [...prev, ch])
   }
 
-  const coverFiles: EventCoverFiles = { cover: coverFile }
+  const coverFiles: EventCoverFiles = { cover: coverFile, coverSquare: coverSquareFile }
+
+  const revokePreviewBlob = useCallback(() => {
+    if (previewBlobRef.current) {
+      URL.revokeObjectURL(previewBlobRef.current)
+      previewBlobRef.current = null
+    }
+  }, [])
+
+  const applyCroppedPair = useCallback(({ square1x1, wide3x1 }: { square1x1: File; wide3x1: File }) => {
+    revokePreviewBlob()
+    const previewUrl = URL.createObjectURL(square1x1)
+    previewBlobRef.current = previewUrl
+    setCoverFile(wide3x1)
+    setCoverSquareFile(square1x1)
+    setField('coverUrl', previewUrl)
+    setPendingImageSrc(null)
+  }, [revokePreviewBlob])
+
+  const clearCover = useCallback(() => {
+    revokePreviewBlob()
+    setCoverFile(null)
+    setCoverSquareFile(null)
+    setField('coverUrl', '')
+  }, [revokePreviewBlob])
+
+  const handleCoverFilePick = async (file: File) => {
+    const err = validateCoverFile(file)
+    if (err) {
+      toast.error(err)
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      setPendingImageSrc(String(reader.result))
+      setCropModalOpen(true)
+    }
+    reader.onerror = () => toast.error('Could not read image file')
+    reader.readAsDataURL(file)
+  }
+
+  const closeCropModal = () => {
+    setCropModalOpen(false)
+    setPendingImageSrc(null)
+  }
 
   async function saveEdit() {
     if (!editChannel || editEventId == null) return
@@ -201,25 +263,29 @@ export function EwentcastWizard({
             <div className="ew-cover-placeholder">No cover selected</div>
           )}
           <div className="ew-cover-actions">
-            <label className="ew-btn ghost ew-cover-upload">
+            <button
+              type="button"
+              className="ew-btn ghost ew-cover-upload"
+              onClick={() => coverInputRef.current?.click()}
+            >
               Upload photo
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp,image/gif"
-                hidden
-                onChange={e => {
-                  const file = e.target.files?.[0]
-                  if (!file) return
-                  setCoverFile(file)
-                  setField(f.k, URL.createObjectURL(file))
-                }}
-              />
-            </label>
+            </button>
+            <input
+              ref={coverInputRef}
+              type="file"
+              accept={COVER_ACCEPTED_EXTENSIONS}
+              hidden
+              onChange={e => {
+                const file = e.target.files?.[0]
+                if (file) void handleCoverFilePick(file)
+                e.target.value = ''
+              }}
+            />
             {preview && (
               <button
                 type="button"
                 className="ew-btn ghost"
-                onClick={() => { setCoverFile(null); setField(f.k, '') }}
+                onClick={clearCover}
               >
                 Remove
               </button>
@@ -230,7 +296,9 @@ export function EwentcastWizard({
             placeholder="Or paste image URL (https://…)"
             value={preview.startsWith('blob:') ? '' : preview}
             onChange={e => {
+              revokePreviewBlob()
               setCoverFile(null)
+              setCoverSquareFile(null)
               setField(f.k, e.target.value)
             }}
           />
@@ -545,6 +613,19 @@ export function EwentcastWizard({
 
   return (
     <div className={`ew-root${modal ? ' ew-in-modal' : ''}`}>
+      <Toast toasts={toasts} onRemove={removeToast} />
+      <EventCoverCropModal
+        open={cropModalOpen}
+        onClose={closeCropModal}
+        onCroppedCoverPair={applyCroppedPair}
+        aspectRatio={1}
+        aspectRatioLabel="1:1"
+        nativeCropUI
+        nativeCropTheme="light"
+        initialImageSrc={pendingImageSrc}
+        title="Crop Event Cover"
+        onError={msg => toast.error(msg)}
+      />
       <div className="ew-wrap">
         <header className="ew-bar">
           <div className="ew-brand">
