@@ -6,7 +6,7 @@ import { useSearchParams } from 'next/navigation'
 import { api } from '@/lib/api'
 import { Toast, useToast } from '@/components/Toast'
 import { InlineLoader, PageLoader } from '@/components/Loader'
-import { getUser } from '@/lib/auth'
+import { getUser, getToken, authHeader } from '@/lib/auth'
 import type { HtUser } from '@/lib/auth'
 import { ChannelLogo } from '@/components/ChannelLogo'
 import { HIGHTRIBE_COLOR, LUMA_COLOR, EVENTBRITE_COLOR } from '@/lib/brand'
@@ -707,10 +707,38 @@ function WebhooksPanel({ only }: { only?: 'luma' | 'eventbrite' }) {
 
 // ─── Main settings shape ──────────────────────────────────────────────────────
 
+type LumaSettingsView = {
+  apiKey?: string
+  calendarId?: string
+  configured?: boolean
+  apiBaseUrl?: string
+  discoverBaseUrl?: string
+}
+
 type SettingsShape = {
   eventbrite?: Record<string, string>
-  luma?: Record<string, string>
+  luma?: LumaSettingsView
   hightribe?: Record<string, string>
+}
+
+function sanitizeLoadedSettings(data: SettingsShape): SettingsShape {
+  const luma = data.luma || {}
+  const apiKey = luma.apiKey || ''
+  return {
+    ...data,
+    luma: {
+      ...luma,
+      apiKey: apiKey.includes('*') ? '' : apiKey,
+    },
+  }
+}
+
+function extractLumaCalendarId(data?: { calendar?: Record<string, unknown> }): string {
+  const cal = data?.calendar
+  if (!cal) return ''
+  const inner = (cal as { calendar?: { api_id?: string } }).calendar
+  if (inner?.api_id) return inner.api_id
+  return (cal as { api_id?: string }).api_id || ''
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -748,11 +776,11 @@ export default function SettingsPage() {
     setChannelLoadError(null)
     try {
       const data = await api.getSettings() as SettingsShape
-      setSettings({
+      setSettings(sanitizeLoadedSettings({
         hightribe: data.hightribe || {},
         luma: data.luma || {},
         eventbrite: data.eventbrite || {},
-      })
+      }))
     } catch (e) {
       setSettings({})
       setChannelLoadError(e instanceof Error ? e.message : 'Could not load settings')
@@ -768,23 +796,54 @@ export default function SettingsPage() {
   }
 
   const saveSection = async (section: keyof SettingsShape) => {
-    if (!getUser()) {
-      toast.error('Sign in first')
+    if (!getToken()) {
+      toast.error('Sign in to Ewentcast first')
       return
     }
     setSaving(section)
     try {
+      if (section === 'luma') {
+        const key = settings.luma?.apiKey?.trim() || ''
+        const configured = !!settings.luma?.configured
+        if (!key && !configured) {
+          toast.error('Paste your Luma API key first')
+          return
+        }
+        let calendarId = settings.luma?.calendarId || ''
+        if (key) {
+          const res = await fetch('/api/luma/verify-key', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: authHeader(),
+            },
+            body: JSON.stringify({ apiKey: key }),
+          })
+          const json = await res.json() as {
+            status: string
+            message?: string
+            data?: { calendar?: Record<string, unknown> }
+          }
+          if (!res.ok || json.status === 'error') {
+            throw new Error(json.message || 'Invalid Luma API key')
+          }
+          calendarId = extractLumaCalendarId(json.data) || calendarId
+        }
+        await api.updateSettings({
+          luma: {
+            ...(key ? { apiKey: key } : {}),
+            calendarId,
+            apiBaseUrl: settings.luma?.apiBaseUrl || 'https://public-api.luma.com',
+            discoverBaseUrl: settings.luma?.discoverBaseUrl || 'https://api.lu.ma',
+          },
+        })
+        toast.success('luma settings saved')
+        await loadSettings()
+        return
+      }
+
       const patch =
-        section === 'luma'
-          ? {
-              luma: {
-                apiKey: settings.luma?.apiKey || '',
-                calendarId: settings.luma?.calendarId || '',
-                apiBaseUrl: settings.luma?.apiBaseUrl || 'https://public-api.luma.com',
-                discoverBaseUrl: settings.luma?.discoverBaseUrl || 'https://api.lu.ma',
-              },
-            }
-          : section === 'eventbrite'
+        section === 'eventbrite'
             ? {
                 eventbrite: {
                   clientId: settings.eventbrite?.clientId || '',
@@ -842,20 +901,32 @@ export default function SettingsPage() {
   }
 
   const testLuma = async () => {
-    const key = settings.luma?.apiKey
-    if (!key) { toast.error('Enter your Luma API key first'); return }
+    if (!getToken()) {
+      toast.error('Sign in to Ewentcast first')
+      return
+    }
+    const key = settings.luma?.apiKey?.trim() || ''
+    const configured = !!settings.luma?.configured
+    if (!key && !configured) {
+      toast.error('Enter your Luma API key first')
+      return
+    }
     setTesting('luma')
     try {
       const res = await fetch('/api/luma/verify-key', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey: key }),
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: authHeader(),
+        },
+        body: JSON.stringify(key ? { apiKey: key } : {}),
       })
       const json = await res.json() as { status: string; message?: string }
       if (!res.ok || json.status === 'error') throw new Error(json.message || 'Invalid API key')
       toast.success('Luma connection OK')
     } catch (err) {
-      toast.error(`Test failed: ${err instanceof Error ? err.message : String(err)}`)
+      const msg = err instanceof Error ? err.message : String(err)
+      toast.error(msg.startsWith('Test failed:') ? msg : `Test failed: ${msg}`)
     } finally {
       setTesting(null)
     }
@@ -866,7 +937,7 @@ export default function SettingsPage() {
   const ebRedirectDisplay = effectiveEventbriteRedirectUri(eb.redirectUri, eventbriteRedirect)
   const lu = settings.luma || {}
   const ebConnected = !!eb.privateToken
-  const luConnected = !!lu.apiKey
+  const luConnected = !!lu.configured || !!lu.apiKey
 
   const showEventbrite = !focusChannel || focusChannel === 'eventbrite'
   const showLuma = !focusChannel || focusChannel === 'luma'
@@ -1012,7 +1083,8 @@ export default function SettingsPage() {
               <div className="settings-grid-2">
                 <div>
                   <label style={LABEL}>API Key</label>
-                  <input style={INPUT} type="password" placeholder="Luma Plus API Key"
+                  <input style={INPUT} type="password"
+                    placeholder={luConnected && !lu.apiKey ? '•••••••••••• (saved — paste to replace)' : 'Luma Plus API Key'}
                     value={lu.apiKey || ''}
                     onChange={(e) => updateSection('luma', 'apiKey', e.target.value)} />
                 </div>

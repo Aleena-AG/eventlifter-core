@@ -5,6 +5,7 @@ import {
 } from '../../../../../backend/src/services/events'
 import { purgeChannelData } from '../../../../../backend/src/services/channel-data'
 import { parseChannel } from '@/lib/server/channels'
+import { maybeSyncChannelEvents } from '@/lib/server/channel-events-sync'
 import { isErrorResponse, requireSubscribedSession } from '@/lib/server/session'
 
 export const runtime = 'nodejs'
@@ -28,7 +29,22 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
       return NextResponse.json({ event })
     }
 
-    const events = await listChannelEvents(channel, session.user.id)
+    const forceSync = req.nextUrl.searchParams.get('refresh') === '1'
+      || req.nextUrl.searchParams.get('sync') === '1'
+    let events = await listChannelEvents(channel, session.user.id)
+
+    if (channel === 'luma' && (forceSync || events.length === 0)) {
+      try {
+        await maybeSyncChannelEvents(channel, session.user.id, req.headers.get('authorization') || '', {
+          force: forceSync,
+          existingCount: events.length,
+        })
+        events = await listChannelEvents(channel, session.user.id)
+      } catch (err) {
+        console.warn('[GET /api/events/luma] auto-sync failed:', err instanceof Error ? err.message : err)
+      }
+    }
+
     return NextResponse.json({ events })
   } catch (err) {
     return NextResponse.json(

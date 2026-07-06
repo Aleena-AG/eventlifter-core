@@ -21,6 +21,7 @@ export interface BookingListItem {
   phone?: string
   channel: ChannelKey
   eventTitle: string
+  eventExternalId?: string
   registeredAt: string
   eventStart?: string
   eventEnd?: string
@@ -147,6 +148,7 @@ function normalizeEbAttendee(
 function normalizeLumaGuest(
   raw: Record<string, unknown>,
   eventTitle: string,
+  eventExternalId: string,
 ): BookingListItem | null {
   const guest = (raw.guest || raw.user) as Record<string, unknown> | undefined
   const email = optStr(guest?.email) || optStr(raw.email) || optStr(raw.user_email)
@@ -161,6 +163,7 @@ function normalizeLumaGuest(
     email,
     channel: 'luma',
     eventTitle,
+    eventExternalId,
     registeredAt,
     status: optStr(raw.approval_status) || optStr(raw.registration_status),
     source: 'api',
@@ -236,6 +239,32 @@ export async function fetchEbBookingList(
   return list
 }
 
+export async function fetchLumaGuestsForEvent(
+  eventId: string,
+  eventTitle: string,
+): Promise<BookingListItem[]> {
+  try {
+    const res = await channelFetch(`/api/luma/guests?event_id=${encodeURIComponent(eventId)}`)
+    if (!res.ok) return []
+    const raw = await res.json() as {
+      data?: { entries?: Array<Record<string, unknown>> }
+      entries?: Array<Record<string, unknown>>
+      status?: string
+    }
+    if (raw.status === 'error') return []
+    const d = raw.data || raw
+    const entries = d.entries || raw.entries || []
+    const list: BookingListItem[] = []
+    for (const entry of entries) {
+      const item = normalizeLumaGuest(entry, eventTitle, eventId)
+      if (item) list.push(item)
+    }
+    return list
+  } catch {
+    return []
+  }
+}
+
 export async function fetchLumaBookingList(
   events: Array<{ api_id: string; name: string }>,
 ): Promise<BookingListItem[]> {
@@ -252,7 +281,7 @@ export async function fetchLumaBookingList(
       const d = raw.data || raw
       const entries = d.entries || raw.entries || []
       for (const entry of entries) {
-        const item = normalizeLumaGuest(entry, e.name)
+        const item = normalizeLumaGuest(entry, e.name, e.api_id)
         if (item) list.push(item)
       }
     } catch {

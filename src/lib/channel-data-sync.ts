@@ -25,6 +25,7 @@ function bookingsToPayload(items: BookingListItem[]): Array<Record<string, unkno
     email: b.email,
     name: b.name,
     event_title: b.eventTitle,
+    event_external_id: b.eventExternalId,
     registered_at: b.registeredAt,
     status: b.status,
     ticket_count: b.ticketCount,
