@@ -1,5 +1,5 @@
 import { loadSettings } from '@/app/api/settings/route'
-import { handleWebhookBooking } from '../../../backend/src/services/webhook-booking'
+import { handleWebhookBooking } from '../../backend/src/services/webhook-booking'
 import type { MasterEventRecord } from '@/lib/event-registry'
 import type { ChannelKey } from '@/lib/types'
 import { proxyLumaPath } from '@/lib/luma-api'

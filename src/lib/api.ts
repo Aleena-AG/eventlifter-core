@@ -19,10 +19,13 @@ async function get<T = unknown>(path: string, opts?: { auth?: boolean }): Promis
   return r.json() as Promise<T>
 }
 
-async function post<T = unknown>(path: string, body: unknown = {}): Promise<T> {
+async function post<T = unknown>(path: string, body: unknown = {}, opts?: { auth?: boolean }): Promise<T> {
   const r = await fetch(path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(opts?.auth === false ? {} : withAuth()),
+    },
     body: JSON.stringify(body),
   })
     if (!r.ok) {
@@ -87,7 +90,7 @@ export const api = {
   getHtStatus: () => get('/api/hightribe/status'),
 
   // Convenience aliases used by settings page tests
-  testLuma: () => get('/api/luma/users/self'),
+  testLuma: () => post('/api/luma/verify-key', {}),
   testEventbrite: () => get('/api/eventbrite/status'),
 }
 

@@ -56,7 +56,7 @@ function readJsonFile(file: string): Partial<AppSettings> | null {
   }
 }
 
-function loadFromEnv(): Partial<AppSettings> {
+export function loadFromEnv(): Partial<AppSettings> {
   const pick = (key: string) => process.env[key]?.trim() || ''
   return {
     eventbrite: {
@@ -89,7 +89,7 @@ function mergeSettings(base: AppSettings, patch?: Partial<AppSettings> | null): 
   }
 }
 
-function applyEnvOverrides(settings: AppSettings, env: Partial<AppSettings>): AppSettings {
+export function applyEnvOverrides(settings: AppSettings, env: Partial<AppSettings>): AppSettings {
   const out = { ...settings, eventbrite: { ...settings.eventbrite }, luma: { ...settings.luma }, hightribe: { ...settings.hightribe } }
   for (const [key, value] of Object.entries(env.eventbrite || {})) {
     if (value) (out.eventbrite as Record<string, string>)[key] = value
@@ -133,7 +133,12 @@ export function mergeSettingsPatch(current: AppSettings, patch: Partial<AppSetti
     updated.eventbrite.privateToken = current.eventbrite.privateToken
   if (patch.eventbrite?.publicToken?.includes('*'))
     updated.eventbrite.publicToken = current.eventbrite.publicToken
-  if (patch.luma?.apiKey?.includes('*')) updated.luma.apiKey = current.luma.apiKey
+  if (patch.luma?.apiKey?.includes('*')) {
+    if (!current.luma.apiKey) {
+      throw new Error('Enter your full Luma API key — paste it from lu.ma/settings, not the masked display value')
+    }
+    updated.luma.apiKey = current.luma.apiKey
+  }
   if (patch.hightribe?.apiKey?.includes('*')) updated.hightribe.apiKey = current.hightribe.apiKey
   if (patch.hightribe?.webhookSecret?.includes('*'))
     updated.hightribe.webhookSecret = current.hightribe.webhookSecret
@@ -142,6 +147,10 @@ export function mergeSettingsPatch(current: AppSettings, patch: Partial<AppSetti
 
 export function maskSecret(s: string): string {
   return s ? `${s.slice(0, 4)}${'*'.repeat(Math.max(0, s.length - 4))}` : ''
+}
+
+export function isMaskedSecret(s: string): boolean {
+  return !!s && s.includes('*')
 }
 
 export function toPublicSettingsView(d: AppSettings) {
@@ -161,7 +170,7 @@ export function toPublicSettingsView(d: AppSettings) {
       calendarId: d.luma.calendarId,
       apiBaseUrl: d.luma.apiBaseUrl,
       discoverBaseUrl: d.luma.discoverBaseUrl,
-      configured: !!d.luma.apiKey,
+      configured: !!d.luma.apiKey && !isMaskedSecret(d.luma.apiKey),
     },
     hightribe: {
       serviceUrl: d.hightribe.serviceUrl,

@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { authHeader } from '@/lib/auth'
 import {
@@ -100,6 +101,44 @@ function fmtUtc(utc?: string): string {
   } catch { return utc }
 }
 
+function matchesEventSearch(query: string, ...fields: (string | undefined | null)[]): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  return fields.some(f => f && String(f).toLowerCase().includes(q))
+}
+
+function filterHtEvents(events: HtEvent[], query: string): HtEvent[] {
+  if (!query.trim()) return events
+  return events.filter(evt => {
+    const loc = evt.location
+      ? [evt.location.venue_name, evt.location.city, evt.location.country].filter(Boolean).join(' ')
+      : ''
+    return matchesEventSearch(
+      query,
+      evt.title,
+      loc,
+      evt.publish_status,
+      evt.status,
+      evt.slug,
+    )
+  })
+}
+
+function filterLumaEvents(events: LumaEvent[], query: string): LumaEvent[] {
+  if (!query.trim()) return events
+  return events.filter(evt => matchesEventSearch(
+    query,
+    evt.name,
+    evt.geo_address_json?.full_address,
+    evt.geo_address_json?.city,
+  ))
+}
+
+function filterEbEvents(events: EbEvent[], query: string): EbEvent[] {
+  if (!query.trim()) return events
+  return events.filter(evt => matchesEventSearch(query, evt.name?.text, evt.status))
+}
+
 // ─── Delete confirm dialog ────────────────────────────────────────────────────
 function DeleteDialog({
   title, sourceChannel, linked, alsoDelete, onToggle, onConfirm, onCancel,
@@ -157,48 +196,58 @@ function DeleteDialog({
 // ─── EventCard ────────────────────────────────────────────────────────────────
 function EventCard({
   image, title, dateStr, channel, badgeColor, location, url, status,
-  onEdit, onDelete, onSync,
+  detailHref, onEdit, onDelete, onSync,
 }: {
   image?: string; title: string; dateStr: string; channel: ChannelKey; badgeColor: string
-  location?: string; url?: string; status?: string
+  location?: string; url?: string; status?: string; detailHref?: string
   onEdit?: () => void; onDelete?: () => void; onSync?: () => void
 }) {
   const channelName = CHANNEL_META[channel].name
   const isLive = status === 'published' || status === 'live'
 
+  const cardBody = (
+    <>
+      <div className="event-card__media">
+        {image ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={image} alt="" />
+        ) : (
+          <span className="event-card__media-placeholder" aria-hidden="true">📅</span>
+        )}
+      </div>
+
+      <div className="event-card__body">
+        <h3 className="event-card__title">{title}</h3>
+        <div className="event-card__meta">
+          <span className="event-card__meta-item">📅 {dateStr}</span>
+          {location && <span className="event-card__meta-item">📍 {location}</span>}
+        </div>
+        <div className="event-card__badges">
+          <span className="event-card__channel-badge">
+            <ChannelLogo channel={channel} size={16} />
+            {channelName}
+          </span>
+          {status && (
+            <span className={`event-card__status-badge ${isLive ? 'event-card__status-badge--live' : 'event-card__status-badge--muted'}`}>
+              {status}
+            </span>
+          )}
+        </div>
+      </div>
+    </>
+  )
+
   return (
     <article className="event-card" style={{ '--card-accent': badgeColor } as React.CSSProperties}>
       <div className="event-card__accent" aria-hidden="true" />
 
-      <div className="event-card__inner">
-        <div className="event-card__media">
-          {image ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={image} alt="" />
-          ) : (
-            <span className="event-card__media-placeholder" aria-hidden="true">📅</span>
-          )}
-        </div>
-
-        <div className="event-card__body">
-          <h3 className="event-card__title">{title}</h3>
-          <div className="event-card__meta">
-            <span className="event-card__meta-item">📅 {dateStr}</span>
-            {location && <span className="event-card__meta-item">📍 {location}</span>}
-          </div>
-          <div className="event-card__badges">
-            <span className="event-card__channel-badge">
-              <ChannelLogo channel={channel} size={16} />
-              {channelName}
-            </span>
-            {status && (
-              <span className={`event-card__status-badge ${isLive ? 'event-card__status-badge--live' : 'event-card__status-badge--muted'}`}>
-                {status}
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
+      {detailHref ? (
+        <Link href={detailHref} className="event-card__inner event-card__inner--clickable">
+          {cardBody}
+        </Link>
+      ) : (
+        <div className="event-card__inner">{cardBody}</div>
+      )}
 
       <div className="event-card__actions">
         <div className="event-card__action-row">
@@ -233,12 +282,16 @@ function EventCard({
   )
 }
 
-function EmptyState({ channel }: { channel: string }) {
+function EmptyState({ channel, searchQuery }: { channel: string; searchQuery?: string }) {
   return (
     <div className="events-empty">
       <div className="events-empty-icon" aria-hidden="true">📭</div>
-      <h3>No {channel} events found</h3>
-      <p>Make sure your {channel} credentials are configured in Settings.</p>
+      <h3>{searchQuery?.trim() ? 'No matching events' : `No ${channel} events found`}</h3>
+      <p>
+        {searchQuery?.trim()
+          ? `Nothing matches "${searchQuery.trim()}". Try a different title or location.`
+          : `Make sure your ${channel} credentials are configured in Settings.`}
+      </p>
     </div>
   )
 }
@@ -248,6 +301,7 @@ export default function EventsPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [tab, setTab] = useState<Tab>('hightribe')
+  const [searchQuery, setSearchQuery] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
   const [editModal, setEditModal] = useState<{
     open: boolean; channel: ChannelKey; eventId: string | number
@@ -384,6 +438,28 @@ export default function EventsPage() {
   const loadEbEvents = useCallback(async () => {
     await loadEbEventsFromDb()
   }, [loadEbEventsFromDb])
+
+  const htFiltered = useMemo(() => filterHtEvents(htAllEvents, searchQuery), [htAllEvents, searchQuery])
+  const lumaFiltered = useMemo(() => filterLumaEvents(lumaEvents, searchQuery), [lumaEvents, searchQuery])
+  const ebFiltered = useMemo(() => filterEbEvents(ebEvents, searchQuery), [ebEvents, searchQuery])
+
+  useEffect(() => {
+    setSearchQuery('')
+    setHtPage(1)
+  }, [tab])
+
+  useEffect(() => {
+    const perPage = 12
+    const lastPage = Math.max(1, Math.ceil(htFiltered.length / perPage))
+    const safePage = Math.min(Math.max(1, htPage), lastPage)
+    setHtEvents(htFiltered.slice((safePage - 1) * perPage, safePage * perPage))
+    setHtLastPage(lastPage)
+    if (safePage !== htPage) setHtPage(safePage)
+  }, [htFiltered, htPage])
+
+  useEffect(() => {
+    setHtPage(1)
+  }, [searchQuery])
 
   // Load linked copies when delete dialog opens
   useEffect(() => {
@@ -608,10 +684,24 @@ export default function EventsPage() {
             onClick={() => setTab(key)}
           >
             <span className="events-tab-dot" style={{ background: tab === key ? color : 'var(--line)' }} />
-            <ChannelLogo channel={key} size={20} />
+            <ChannelLogo channel={key} size={18} />
             <span className="events-tab-label">{name}</span>
           </button>
         ))}
+      </div>
+
+      <div className="events-search-row">
+        <div className="events-search-wrap">
+          <span className="events-search-icon" aria-hidden="true">⌕</span>
+          <input
+            type="search"
+            className="events-search"
+            placeholder="Search events by title, location, or status…"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            aria-label="Search events"
+          />
+        </div>
       </div>
 
       {/* ── Hightribe tab ───────────────────────────────────────────────────── */}
@@ -627,7 +717,9 @@ export default function EventsPage() {
           <>
           <div className="events-toolbar">
             <span className="events-toolbar-count">
-              {htTotal !== null ? (
+              {searchQuery.trim() ? (
+                <><strong>{htFiltered.length}</strong> of <strong>{htAllEvents.length}</strong> events</>
+              ) : htTotal !== null ? (
                 <><strong>{htTotal}</strong> events hosted by you</>
               ) : (
                 'Your hosted events'
@@ -654,8 +746,10 @@ export default function EventsPage() {
           </div>
           {htLoading ? (
             <PageLoader label="Loading Hightribe events…" />
-          ) : htEvents.length === 0 ? (
+          ) : htAllEvents.length === 0 ? (
             <EmptyState channel="Hightribe" />
+          ) : htFiltered.length === 0 ? (
+            <EmptyState channel="Hightribe" searchQuery={searchQuery} />
           ) : (
             <>
               <div className="events-list">
@@ -672,6 +766,7 @@ export default function EventsPage() {
                       image={image} title={evt.title} dateStr={dateStr}
                       channel="hightribe" badgeColor={CHANNEL_META.hightribe.color}
                       location={loc} url={url} status={displayStatus}
+                      detailHref={`/events/hightribe/${encodeURIComponent(String(evt.id))}`}
                       onEdit={() => openEdit('hightribe', evt.id)}
                       onDelete={() => setDeleteTarget({ channel:'hightribe', id:evt.id, title:evt.title })}
                       onSync={() => setSyncEvent({ id:evt.id, title:evt.title, source:'hightribe' })}
@@ -681,12 +776,12 @@ export default function EventsPage() {
               </div>
               {htLastPage > 1 && (
                 <div className="events-pagination">
-                  <button type="button" className="events-page-btn" onClick={() => applyHtPage(htAllEvents, htPage - 1)} disabled={htPage <= 1 || htLoading}>← Prev</button>
+                  <button type="button" className="events-page-btn" onClick={() => setHtPage(p => Math.max(1, p - 1))} disabled={htPage <= 1 || htLoading}>← Prev</button>
                   <span className="events-page-info">
                     Page {htPage} / {htLastPage}
-                    {htTotal !== null && <span style={{ marginLeft:'6px' }}>· {htTotal} events</span>}
+                    {htFiltered.length > 0 && <span style={{ marginLeft:'6px' }}>· {htFiltered.length} events</span>}
                   </span>
-                  <button type="button" className="events-page-btn" onClick={() => applyHtPage(htAllEvents, htPage + 1)} disabled={htPage >= htLastPage || htLoading}>Next →</button>
+                  <button type="button" className="events-page-btn" onClick={() => setHtPage(p => Math.min(htLastPage, p + 1))} disabled={htPage >= htLastPage || htLoading}>Next →</button>
                 </div>
               )}
             </>
@@ -701,7 +796,11 @@ export default function EventsPage() {
         <div>
           <div className="events-toolbar">
             <span className="events-toolbar-count">
-              <strong>{lumaEvents.length}</strong> {lumaEvents.length === 1 ? 'event' : 'events'}
+              {searchQuery.trim() ? (
+                <><strong>{lumaFiltered.length}</strong> of <strong>{lumaEvents.length}</strong> events</>
+              ) : (
+                <><strong>{lumaEvents.length}</strong> {lumaEvents.length === 1 ? 'event' : 'events'}</>
+              )}
             </span>
             <div className="events-toolbar-actions">
               <button
@@ -726,15 +825,18 @@ export default function EventsPage() {
             <PageLoader label="Loading Luma events…" />
           ) : lumaEvents.length === 0 ? (
             <EmptyState channel="Luma" />
+          ) : lumaFiltered.length === 0 ? (
+            <EmptyState channel="Luma" searchQuery={searchQuery} />
           ) : (
             <div className="events-list">
-              {lumaEvents.map((evt) => (
+              {lumaFiltered.map((evt) => (
                 <EventCard
                   key={evt.api_id}
                   image={evt.cover_url} title={evt.name} dateStr={fmtUtc(evt.start_at)}
                   channel="luma" badgeColor={CHANNEL_META.luma.color}
                   location={evt.geo_address_json?.full_address || evt.geo_address_json?.city}
                   url={evt.url}
+                  detailHref={`/events/luma/${encodeURIComponent(evt.api_id)}`}
                   onEdit={() => openEdit('luma', evt.api_id)}
                   onDelete={() => setDeleteTarget({ channel:'luma', id:evt.api_id, title:evt.name })}
                   onSync={() => setSyncEvent({ id:evt.api_id, title:evt.name, source:'luma' })}
@@ -750,7 +852,11 @@ export default function EventsPage() {
         <div>
           <div className="events-toolbar">
             <span className="events-toolbar-count">
-              <strong>{ebEvents.length}</strong> {ebEvents.length === 1 ? 'event' : 'events'}
+              {searchQuery.trim() ? (
+                <><strong>{ebFiltered.length}</strong> of <strong>{ebEvents.length}</strong> events</>
+              ) : (
+                <><strong>{ebEvents.length}</strong> {ebEvents.length === 1 ? 'event' : 'events'}</>
+              )}
             </span>
             <div className="events-toolbar-actions">
               <button
@@ -775,9 +881,11 @@ export default function EventsPage() {
             <PageLoader label="Loading Eventbrite events…" />
           ) : ebEvents.length === 0 ? (
             <EmptyState channel="Eventbrite" />
+          ) : ebFiltered.length === 0 ? (
+            <EmptyState channel="Eventbrite" searchQuery={searchQuery} />
           ) : (
             <div className="events-list">
-              {ebEvents.map((evt) => {
+              {ebFiltered.map((evt) => {
                 const title = evt.name?.text || 'Untitled'
                 return (
                   <EventCard
@@ -787,6 +895,7 @@ export default function EventsPage() {
                     dateStr={fmtUtc(evt.start?.utc)}
                     channel="eventbrite" badgeColor={CHANNEL_META.eventbrite.color}
                     url={evt.url} status={evt.status}
+                    detailHref={`/events/eventbrite/${encodeURIComponent(evt.id)}`}
                     onEdit={() => openEdit('eventbrite', evt.id)}
                     onDelete={() => setDeleteTarget({ channel:'eventbrite', id:evt.id, title })}
                     onSync={() => setSyncEvent({ id:evt.id, title, source:'eventbrite' })}

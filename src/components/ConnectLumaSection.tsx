@@ -38,12 +38,14 @@ function extractCalendarId(data?: LumaVerifyData): string {
 export function ConnectLumaSection({
   apiKey,
   calendarId,
+  configured,
   saving,
   onSave,
   onDisconnect,
 }: {
   apiKey: string
   calendarId: string
+  configured?: boolean
   saving: boolean
   onSave: (apiKey: string, calendarId: string) => Promise<void>
   onDisconnect: () => Promise<void>
@@ -52,7 +54,7 @@ export function ConnectLumaSection({
   const [inputKey, setInputKey] = useState('')
   const [verifying, setVerifying] = useState(false)
   const [error, setError] = useState('')
-  const isConnected = !!apiKey
+  const isConnected = !!configured || (!!apiKey && !apiKey.includes('*'))
   const showForm = !isConnected || reconnecting
 
   const handleConnect = async () => {

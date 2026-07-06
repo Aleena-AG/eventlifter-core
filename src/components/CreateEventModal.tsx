@@ -194,7 +194,7 @@ export function CreateEventModal({ open, onClose, onCreated }: Props) {
         }
         const res = await fetch('/api/luma/events/create', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', Authorization: authHeader() },
           body: JSON.stringify(body),
         })
         const data = await res.json() as { error?: string; message?: string }

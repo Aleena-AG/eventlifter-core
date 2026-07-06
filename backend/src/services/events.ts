@@ -190,7 +190,7 @@ function normalizeEvent(channel: ChannelName, raw: Record<string, unknown>) {
   if (channel === 'luma') {
     const event = (raw.event as Record<string, unknown>) || raw
     return {
-      external_id: String(event.api_id || raw.api_id || ''),
+      external_id: String(event.api_id || event.id || raw.api_id || raw.id || ''),
       title: String(event.name || raw.name || ''),
       start_at: parseDate(event.start_at || raw.start_at),
       end_at: parseDate(event.end_at || raw.end_at),

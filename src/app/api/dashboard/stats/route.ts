@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDashboardStatsForUser } from '../../../../backend/src/services/dashboard'
+import { getDashboardStatsForUser } from '../../../../../backend/src/services/dashboard'
 import { isErrorResponse, requireSubscribedSession } from '@/lib/server/session'
 
 export const runtime = 'nodejs'

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { resolveAppSettings } from '@/lib/channel-settings-server'
+import { SessionRequiredError, resolveAppSettings } from '@/lib/channel-settings-server'
 import { LumaApiError, proxyLumaPath } from '@/lib/luma-api'
 
 async function handler(
@@ -23,6 +23,9 @@ async function handler(
     const { data, status } = await proxyLumaPath(path, req.method, query, body, settings)
     return NextResponse.json({ status: 'success', data }, { status })
   } catch (e) {
+    if (e instanceof SessionRequiredError) {
+      return NextResponse.json({ status: 'error', message: e.message }, { status: 401 })
+    }
     if (e instanceof LumaApiError) {
       return NextResponse.json(
         { status: 'error', message: e.message, error: e.errorCode },

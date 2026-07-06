@@ -12,10 +12,16 @@ export class LumaApiError extends Error {
   }
 }
 
+function isMaskedSecret(s: string): boolean {
+  return !!s && s.includes('*')
+}
+
 function getConfig(settings: AppSettings) {
-  const apiKey = settings.luma.apiKey
+  const apiKey = settings.luma.apiKey?.trim() || ''
   const base = (settings.luma.apiBaseUrl || 'https://public-api.luma.com').replace(/\/$/, '')
-  if (!apiKey) throw new LumaApiError('Luma API key not configured. Go to Settings → Luma.', 400)
+  if (!apiKey || isMaskedSecret(apiKey)) {
+    throw new LumaApiError('Luma API key not configured. Go to Settings → Luma.', 400)
+  }
   return { apiKey, base }
 }
 

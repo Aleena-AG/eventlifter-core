@@ -36,6 +36,7 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
 
   const mobileTitle = (() => {
     if (pathname.includes('create=1')) return 'Create Event'
+    if (/^\/events\/[^/]+\/[^/]+$/.test(pathname)) return 'Event Dashboard'
     const base = pathname.split('?')[0]
     return PAGE_TITLES[base] ?? 'Ewentcast'
   })()
