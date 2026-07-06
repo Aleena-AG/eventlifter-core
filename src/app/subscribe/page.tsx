@@ -287,7 +287,7 @@ function SubscribeContent() {
                     : `Subscribe — $${price}/mo`}
               </button>
               <p style={{ textAlign: 'center', margin: '12px 0 0', fontSize: '11px', color: '#8C7F6D', lineHeight: 1.5 }}>
-                Secure payment via Stripe · Same as Hightribe billing
+                Secure payment via Stripe
                 <br />
                 Not satisfied? Full refund within 14 days — contact support.
               </p>

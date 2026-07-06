@@ -241,7 +241,7 @@ export async function loginWithHightribe(email: string, password: string): Promi
 
 export async function startSubscriptionCheckout(): Promise<string> {
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
-  const res = await fetch('/api/hightribe/ewentcast/subscribe', {
+  const res = await fetch('/api/billing/checkout', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

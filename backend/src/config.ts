@@ -35,6 +35,17 @@ export const config = {
     pass: process.env.SMTP_PASS || '',
     from: process.env.SMTP_FROM || 'Ewentcast <noreply@ewentcast.com>',
   },
+  stripe: {
+    secretKey: process.env.STRIPE_SECRET_KEY || '',
+    publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || '',
+    webhookSecret: process.env.STRIPE_WEBHOOK_SECRET || '',
+    priceId: process.env.STRIPE_PRICE_ID || '',
+    amountUsd: Number(process.env.STRIPE_AMOUNT_USD || 20),
+  },
+}
+
+export function stripeConfigured(): boolean {
+  return !!(config.stripe.secretKey && config.stripe.priceId)
 }
 
 export function dbConfigured(): boolean {

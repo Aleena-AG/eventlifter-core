@@ -93,7 +93,7 @@ export async function getAccountView(userId: number): Promise<AccountView> {
     subscription_plan: (row?.plan as string) || 'pro_monthly_20',
     subscription_status: status,
     subscription_active: active,
-    subscription_amount_usd: 20,
+    subscription_amount_usd: config.stripe.amountUsd || 20,
     trial_ends_at: trialEndsAt ? trialEndsAt.toISOString() : null,
     trial_days_remaining: daysLeft,
     current_period_end: periodEnd ? periodEnd.toISOString() : null,
