@@ -187,13 +187,37 @@ export async function runFreshMigrations(opts?: { seed?: boolean }): Promise<{
 }
 
 async function runOptionalAlters() {
-  const cols = await query<{ COLUMN_NAME: string }[]>(
+  const pool = getPool()
+
+  const masterCols = await query<{ COLUMN_NAME: string }[]>(
     `SELECT COLUMN_NAME FROM information_schema.COLUMNS
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'master_events' AND COLUMN_NAME = 'user_id'`,
   )
-  if (cols.length === 0) {
-    await getPool().query(
+  if (masterCols.length === 0) {
+    await pool.query(
       'ALTER TABLE master_events ADD COLUMN user_id BIGINT NULL, ADD INDEX idx_master_events_user (user_id)',
+    )
+  }
+
+  const subCols = await query<{ COLUMN_NAME: string }[]>(
+    `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'subscriptions'
+       AND COLUMN_NAME IN ('stripe_customer_id', 'stripe_subscription_id', 'money_back_refunded_at')`,
+  )
+  const existing = new Set(subCols.map((c) => c.COLUMN_NAME))
+  if (!existing.has('stripe_customer_id')) {
+    await pool.query(
+      'ALTER TABLE subscriptions ADD COLUMN stripe_customer_id VARCHAR(255) NULL AFTER current_period_end',
+    )
+  }
+  if (!existing.has('stripe_subscription_id')) {
+    await pool.query(
+      'ALTER TABLE subscriptions ADD COLUMN stripe_subscription_id VARCHAR(255) NULL AFTER stripe_customer_id',
+    )
+  }
+  if (!existing.has('money_back_refunded_at')) {
+    await pool.query(
+      'ALTER TABLE subscriptions ADD COLUMN money_back_refunded_at DATETIME(3) NULL AFTER stripe_subscription_id',
     )
   }
 }

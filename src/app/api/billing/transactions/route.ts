@@ -23,11 +23,22 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const [transactions, billing, account] = await Promise.all([
+    const [transactions, account] = await Promise.all([
       listBillingInvoices(session.user.id),
-      getBillingSummary(session.user.id),
       getAccountView(session.user.id),
     ])
+
+    let billing = {
+      current_period_end: null as string | null,
+      amount_usd: 20,
+      currency: 'usd',
+    }
+    try {
+      billing = await getBillingSummary(session.user.id)
+    } catch (summaryErr) {
+      console.error('[billing/transactions] summary failed:', summaryErr)
+    }
+
     return NextResponse.json({
       status: true,
       transactions,
