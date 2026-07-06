@@ -164,6 +164,35 @@ export async function createCheckoutSession(
   return session.url
 }
 
+/** Activate subscription immediately after Stripe redirect (do not wait for webhook). */
+export async function confirmCheckoutSession(
+  userId: number,
+  sessionId: string,
+): Promise<boolean> {
+  const stripe = getStripe()
+  const session = await stripe.checkout.sessions.retrieve(sessionId)
+
+  const ownerId = Number(session.metadata?.user_id || session.client_reference_id)
+  if (!ownerId || ownerId !== userId) {
+    throw new Error('Invalid checkout session')
+  }
+
+  const paid =
+    session.payment_status === 'paid'
+    || session.payment_status === 'no_payment_required'
+    || session.status === 'complete'
+
+  if (!paid || !session.subscription) return false
+
+  const subscription = await stripe.subscriptions.retrieve(String(session.subscription))
+  const customerId = typeof session.customer === 'string'
+    ? session.customer
+    : session.customer?.id
+
+  await syncSubscriptionFromStripe(userId, subscription, customerId)
+  return mapStripeStatus(subscription.status) === 'active'
+}
+
 export async function createBillingPortalSession(
   userId: number,
   returnUrl: string,

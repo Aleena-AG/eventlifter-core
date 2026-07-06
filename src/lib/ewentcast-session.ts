@@ -277,7 +277,7 @@ export async function startSubscriptionCheckout(): Promise<string> {
       Authorization: authHeader(),
     },
     body: JSON.stringify({
-      success_url: `${origin}/subscribe?success=1`,
+      success_url: `${origin}/subscribe?success=1&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/subscribe?canceled=1`,
     }),
   })
@@ -297,6 +297,32 @@ export async function startSubscriptionCheckout(): Promise<string> {
     throw new Error('SESSION_EXPIRED')
   }
   throw new Error(message)
+}
+
+export async function confirmSubscriptionPayment(sessionId: string): Promise<EwentcastAccount | null> {
+  const res = await fetch('/api/billing/confirm', {
+    method: 'POST',
+    headers: {
+      Authorization: authHeader(),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ session_id: sessionId }),
+  })
+  if (res.status === 401) {
+    clearAuth()
+    throw new Error('SESSION_EXPIRED')
+  }
+  const data = await res.json() as {
+    status?: boolean
+    ewentcast?: EwentcastAccount
+    message?: string
+  }
+  if (!res.ok || !data.status || !data.ewentcast) {
+    throw new Error(data.message || 'Could not confirm payment')
+  }
+  setEwentcastAccount(data.ewentcast)
+  return data.ewentcast
 }
 
 export interface BillingTransaction {
