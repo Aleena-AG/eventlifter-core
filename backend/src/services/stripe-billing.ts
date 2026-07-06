@@ -91,15 +91,31 @@ function mapStripeStatus(status: Stripe.Subscription.Status): string {
   }
 }
 
+/** Stripe Basil moved billing period fields onto subscription items. */
+function subscriptionPeriodEndUnix(subscription: Stripe.Subscription): number | null {
+  const itemEnd = subscription.items?.data?.[0]?.current_period_end
+  if (typeof itemEnd === 'number' && itemEnd > 0) return itemEnd
+
+  const legacy = (subscription as Stripe.Subscription & { current_period_end?: number }).current_period_end
+  if (typeof legacy === 'number' && legacy > 0) return legacy
+
+  return null
+}
+
+function subscriptionPeriodEndDate(subscription: Stripe.Subscription): Date | null {
+  const unix = subscriptionPeriodEndUnix(subscription)
+  if (!unix) return null
+  const date = new Date(unix * 1000)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
 export async function syncSubscriptionFromStripe(
   userId: number,
   subscription: Stripe.Subscription,
   customerId?: string,
 ): Promise<void> {
   const status = mapStripeStatus(subscription.status)
-  const periodEnd = subscription.current_period_end
-    ? new Date(subscription.current_period_end * 1000)
-    : null
+  const periodEnd = subscriptionPeriodEndDate(subscription)
   const trialEnd = subscription.trial_end
     ? new Date(subscription.trial_end * 1000)
     : null
@@ -292,8 +308,9 @@ export async function getBillingSummary(userId: number): Promise<BillingSummary>
     const amountUsd = price?.unit_amount
       ? price.unit_amount / 100
       : config.stripe.amountUsd
+    const periodEnd = subscriptionPeriodEndDate(primary)
     return {
-      current_period_end: new Date(primary.current_period_end * 1000).toISOString(),
+      current_period_end: periodEnd ? periodEnd.toISOString() : null,
       amount_usd: amountUsd,
       currency: (price?.currency || 'usd').toLowerCase(),
     }

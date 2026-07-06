@@ -225,7 +225,7 @@ function SubscriptionBillingPanel({
 
   const openPortal = async () => {
     setPortalLoading(true)
-    setError('')
+    onError('')
     try {
       const url = await openStripeBillingPortal()
       window.location.href = url
