@@ -9,13 +9,13 @@ import { InlineLoader } from '@/components/Loader'
 import { EwentcastLogo } from '@/components/EwentcastLogo'
 import { SidebarNavIcon } from '@/components/SidebarNavIcon'
 
-const BASE_NAV_LINKS = [
+const NAV_LINKS = [
   { href: '/dashboard', label: 'Dashboard', icon: 'dashboard' as const },
   { href: '/events?create=1', label: 'Create Event', icon: 'create' as const },
   { href: '/channels', label: 'Channels', icon: 'channels' as const },
   { href: '/events', label: 'Events', icon: 'events' as const },
   { href: '/bookings', label: 'Bookings', icon: 'bookings' as const },
-  { href: '/billing', label: 'Billing', icon: 'billing' as const, ewentcastOnly: true },
+  { href: '/billing', label: 'Billing', icon: 'billing' as const, ewentcastOnly: true as const },
   { href: '/settings', label: 'Settings', icon: 'settings' as const },
 ]
 
@@ -78,7 +78,7 @@ export function Sidebar({ mobileOpen = false, onNavigate, onClose }: SidebarProp
       </div>
 
       <nav className="app-sidebar-nav">
-        {BASE_NAV_LINKS.filter((link) => !link.ewentcastOnly || showBilling).map(({ href, label, icon }) => {
+        {NAV_LINKS.filter((link) => !('ewentcastOnly' in link) || showBilling).map(({ href, label, icon }) => {
           const active = isNavActive(pathname, href)
           return (
             <Link
