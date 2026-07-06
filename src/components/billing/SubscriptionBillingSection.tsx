@@ -1,0 +1,312 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import Link from 'next/link'
+import {
+  fetchBillingTransactions,
+  openStripeBillingPortal,
+  type BillingTransaction,
+  type EwentcastAccount,
+} from '@/lib/ewentcast-session'
+import './billing.css'
+
+function subscriptionStatusMeta(account: EwentcastAccount): {
+  label: string
+  tone: 'active' | 'trial' | 'inactive' | 'expired'
+  detail: string
+} {
+  const price = account.subscription_amount_usd ?? 20
+  if (account.subscription_status === 'active' && account.subscription_active) {
+    return {
+      label: 'Pro — Active',
+      tone: 'active',
+      detail: `$${price}/month · Full access`,
+    }
+  }
+  if (account.subscription_status === 'trialing' && account.subscription_active) {
+    const days = account.trial_days_remaining
+    const detail = days != null
+      ? `${days} day${days === 1 ? '' : 's'} left in free trial`
+      : account.trial_ends_at
+        ? `Trial ends ${new Date(account.trial_ends_at).toLocaleDateString()}`
+        : 'Free trial active'
+    return { label: 'Free trial', tone: 'trial', detail }
+  }
+  if (account.subscription_status === 'inactive' || !account.subscription_active) {
+    return {
+      label: 'Inactive',
+      tone: 'inactive',
+      detail: 'Subscribe to Pro to use Ewentcast',
+    }
+  }
+  return {
+    label: account.subscription_status,
+    tone: 'expired',
+    detail: 'Upgrade required',
+  }
+}
+
+function formatMoney(amount: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: currency.toUpperCase(),
+    }).format(amount)
+  } catch {
+    return `$${amount.toFixed(2)}`
+  }
+}
+
+function TrialHero({ account }: { account: EwentcastAccount }) {
+  if (account.subscription_status !== 'trialing' || !account.subscription_active) return null
+
+  const days = account.trial_days_remaining ?? null
+  const urgent = days != null && days <= 3
+
+  return (
+    <div className={`billing-trial-hero${urgent ? ' billing-trial-hero--urgent' : ''}`}>
+      <div className="billing-trial-hero__content">
+        <p className="billing-trial-hero__eyebrow">Free trial</p>
+        <p className="billing-trial-hero__days">
+          {days != null ? (
+            <>
+              <strong>{days}</strong>
+              <span>day{days === 1 ? '' : 's'} left</span>
+            </>
+          ) : (
+            <span>Active trial</span>
+          )}
+        </p>
+        {account.trial_ends_at && (
+          <p className="billing-trial-hero__ends">
+            Ends {new Date(account.trial_ends_at).toLocaleDateString(undefined, {
+              weekday: 'short',
+              month: 'short',
+              day: 'numeric',
+              year: 'numeric',
+            })}
+          </p>
+        )}
+      </div>
+      <Link href="/subscribe" className="billing-trial-hero__cta">
+        Upgrade to Pro
+      </Link>
+    </div>
+  )
+}
+
+function SubscriptionBillingPanel({ account }: { account: EwentcastAccount }) {
+  const [transactions, setTransactions] = useState<BillingTransaction[]>([])
+  const [loading, setLoading] = useState(true)
+  const [portalLoading, setPortalLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const isPaid = account.subscription_status === 'active' && account.subscription_active
+  const hasStripeCustomer = isPaid || transactions.length > 0
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError('')
+    fetchBillingTransactions()
+      .then((rows) => { if (!cancelled) setTransactions(rows) })
+      .catch((err) => {
+        if (!cancelled) {
+          setTransactions([])
+          setError(err instanceof Error ? err.message : 'Could not load invoices')
+        }
+      })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [account.subscription_status])
+
+  const openPortal = async () => {
+    setPortalLoading(true)
+    setError('')
+    try {
+      const url = await openStripeBillingPortal()
+      window.location.href = url
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Billing portal failed')
+    } finally {
+      setPortalLoading(false)
+    }
+  }
+
+  return (
+    <div className="settings-billing">
+      <div className="settings-billing__header">
+        <div>
+          <p className="settings-billing__title">Stripe billing</p>
+          <p className="settings-billing__subtitle">
+            Invoices and payment method are managed through Stripe.
+          </p>
+        </div>
+        {(isPaid || hasStripeCustomer) && (
+          <button
+            type="button"
+            className="settings-billing__portal-btn"
+            onClick={openPortal}
+            disabled={portalLoading}
+          >
+            {portalLoading ? 'Opening…' : 'Manage billing'}
+          </button>
+        )}
+      </div>
+
+      <div className="settings-subscription__grid">
+        <div className="settings-subscription__item">
+          <span className="settings-subscription__item-label">Billing cycle</span>
+          <span className="settings-subscription__item-value">Monthly</span>
+        </div>
+        <div className="settings-subscription__item">
+          <span className="settings-subscription__item-label">Payment provider</span>
+          <span className="settings-subscription__item-value">Stripe</span>
+        </div>
+        {account.current_period_end && isPaid && (
+          <div className="settings-subscription__item">
+            <span className="settings-subscription__item-label">Next billing</span>
+            <span className="settings-subscription__item-value">
+              {new Date(account.current_period_end).toLocaleDateString(undefined, {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+              })}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {error && (
+        <p className="settings-billing__error">{error}</p>
+      )}
+
+      <div className="settings-billing__invoices">
+        <p className="settings-billing__invoices-title">Invoices from Stripe</p>
+        {loading ? (
+          <p className="settings-billing__empty">Loading invoices…</p>
+        ) : transactions.length === 0 ? (
+          <p className="settings-billing__empty">
+            {isPaid
+              ? 'No invoices yet. They will appear here after your first charge.'
+              : 'Subscribe to Pro — your Stripe invoices will show up here.'}
+          </p>
+        ) : (
+          <div className="settings-billing__table-wrap">
+            <table className="settings-billing__table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Description</th>
+                  <th>Amount</th>
+                  <th>Status</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {transactions.map((tx) => (
+                  <tr key={String(tx.id)}>
+                    <td>{new Date(tx.createdAt).toLocaleDateString()}</td>
+                    <td>{tx.description}</td>
+                    <td>{formatMoney(tx.amount, tx.currency)}</td>
+                    <td>
+                      <span className={`settings-billing__status settings-billing__status--${tx.status}`}>
+                        {tx.status}
+                      </span>
+                    </td>
+                    <td>
+                      {tx.invoiceUrl ? (
+                        <a
+                          href={tx.invoiceUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="settings-billing__invoice-link"
+                        >
+                          View invoice
+                        </a>
+                      ) : (
+                        <span className="settings-billing__muted">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+export function SubscriptionBillingSection({ account }: { account: EwentcastAccount }) {
+  const meta = subscriptionStatusMeta(account)
+  const showUpgrade = account.auth_source === 'ewentcast_signup'
+    && account.subscription_status !== 'active'
+
+  return (
+    <div className="settings-subscription">
+      <TrialHero account={account} />
+
+      <div className="settings-subscription__main">
+        <div>
+          <p className="settings-subscription__eyebrow">Ewentcast plan</p>
+          <p className="settings-subscription__plan">
+            {account.subscription_plan === 'pro_monthly_20' ? 'Pro' : account.subscription_plan}
+            <span className="settings-subscription__price">
+              ${account.subscription_amount_usd ?? 20}/mo
+            </span>
+          </p>
+        </div>
+        <span className={`settings-subscription__badge settings-subscription__badge--${meta.tone}`}>
+          {meta.label}
+        </span>
+      </div>
+
+      <div className="settings-subscription__grid">
+        <div className="settings-subscription__item">
+          <span className="settings-subscription__item-label">Status</span>
+          <span className="settings-subscription__item-value">{account.subscription_status}</span>
+        </div>
+        <div className="settings-subscription__item">
+          <span className="settings-subscription__item-label">Access</span>
+          <span className="settings-subscription__item-value">
+            {account.subscription_active ? 'Active' : 'Blocked'}
+          </span>
+        </div>
+        {account.subscription_status === 'trialing' && (
+          <div className="settings-subscription__item settings-subscription__item--highlight">
+            <span className="settings-subscription__item-label">Trial left</span>
+            <span className="settings-subscription__item-value">
+              {account.trial_days_remaining != null
+                ? `${account.trial_days_remaining} day${account.trial_days_remaining === 1 ? '' : 's'}`
+                : '—'}
+            </span>
+          </div>
+        )}
+        {account.trial_ends_at && account.subscription_status === 'trialing' && (
+          <div className="settings-subscription__item">
+            <span className="settings-subscription__item-label">Trial ends</span>
+            <span className="settings-subscription__item-value">
+              {new Date(account.trial_ends_at).toLocaleDateString(undefined, {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+              })}
+            </span>
+          </div>
+        )}
+      </div>
+
+      <p className="settings-subscription__detail">{meta.detail}</p>
+
+      {showUpgrade && (
+        <Link href="/subscribe" className="settings-subscription__cta">
+          {account.subscription_active ? 'Upgrade to Pro' : 'Subscribe to Pro'}
+        </Link>
+      )}
+
+      <SubscriptionBillingPanel account={account} />
+    </div>
+  )
+}
