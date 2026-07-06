@@ -1,5 +1,5 @@
 import type { RowDataPacket } from 'mysql2'
-import { config, isDevPaymentBypass } from '../config'
+import { config } from '../config'
 import { getPool, query } from '../db/pool'
 import { hashPassword, newToken, verifyPassword } from '../lib/crypto'
 import { isEmailConfigured, sendPasswordResetEmail } from './email'
@@ -21,6 +21,7 @@ export interface AccountView {
   subscription_amount_usd: number
   trial_ends_at: string | null
   trial_days_remaining: number | null
+  current_period_end: string | null
   ht_connected: boolean
   linked_ht_user_id: number | null
   ht_connected_at: string | null
@@ -76,22 +77,28 @@ export async function getAccountView(userId: number): Promise<AccountView> {
     status === 'trialing'
     && trialEndsAt != null
     && trialEndsAt > new Date()
+  const trialExpired =
+    status === 'trialing'
+    && trialEndsAt != null
+    && trialEndsAt <= new Date()
   const paidActive = status === 'active'
-  const active =
-    paidActive
-    || trialStillValid
-    || (isDevPaymentBypass() && authSource === 'ewentcast_signup')
+  const active = paidActive || trialStillValid
+  const displayStatus = trialExpired ? 'expired' : status
   const daysLeft =
     status === 'trialing' && trialEndsAt ? trialDaysRemaining(trialEndsAt) : null
+  const periodEnd = row?.current_period_end
+    ? new Date(row.current_period_end as Date)
+    : null
 
   return {
     auth_source: authSource,
     subscription_plan: (row?.plan as string) || 'pro_monthly_20',
-    subscription_status: status,
+    subscription_status: displayStatus,
     subscription_active: active,
-    subscription_amount_usd: 20,
+    subscription_amount_usd: config.stripe.amountUsd || 20,
     trial_ends_at: trialEndsAt ? trialEndsAt.toISOString() : null,
     trial_days_remaining: daysLeft,
+    current_period_end: periodEnd ? periodEnd.toISOString() : null,
     ht_connected: !!row?.ht_user_id,
     linked_ht_user_id: row?.ht_user_id ? Number(row.ht_user_id) : null,
     ht_connected_at: row?.connected_at

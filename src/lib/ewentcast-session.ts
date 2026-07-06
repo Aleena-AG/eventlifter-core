@@ -1,6 +1,6 @@
 'use client'
 
-import { authHeader, getToken, setToken, setUser, type HtUser } from '@/lib/auth'
+import { authHeader, clearAuth, getToken, setToken, setUser, isAuthErrorMessage, type HtUser } from '@/lib/auth'
 
 export interface EwentcastAccount {
   auth_source: 'ewentcast_signup' | 'hightribe_native'
@@ -10,6 +10,7 @@ export interface EwentcastAccount {
   subscription_amount_usd: number
   trial_ends_at?: string | null
   trial_days_remaining?: number | null
+  current_period_end?: string | null
   ht_connected: boolean
   linked_ht_user_id?: number | null
   ht_connected_at?: string | null
@@ -73,7 +74,17 @@ export function canLoadHtChannelKeys(): boolean {
 
 export function needsSubscription(): boolean {
   const account = getEwentcastAccount()
-  return account?.auth_source === 'ewentcast_signup' && !account.subscription_active
+  if (account?.auth_source !== 'ewentcast_signup') return false
+  if (!account.subscription_active) return true
+  if (account.subscription_status === 'expired') return true
+  if (
+    account.subscription_status === 'trialing'
+    && account.trial_days_remaining != null
+    && account.trial_days_remaining <= 0
+  ) {
+    return true
+  }
+  return false
 }
 
 export function isOnFreeTrial(): boolean {
@@ -81,6 +92,7 @@ export function isOnFreeTrial(): boolean {
   return account?.auth_source === 'ewentcast_signup'
     && account.subscription_status === 'trialing'
     && account.subscription_active
+    && (account.trial_days_remaining == null || account.trial_days_remaining > 0)
 }
 
 export function getTrialDaysRemaining(): number | null {
@@ -104,7 +116,12 @@ export async function fetchAuthMe(): Promise<{
 
   const res = await fetch('/api/auth/me', {
     headers: { Authorization: authHeader(), Accept: 'application/json' },
+    cache: 'no-store',
   })
+  if (res.status === 401) {
+    clearAuth()
+    return null
+  }
   if (!res.ok) return null
 
   const data = await res.json() as {
@@ -118,6 +135,16 @@ export async function fetchAuthMe(): Promise<{
   setEwentcastAccount(data.ewentcast)
   if (data.ht_link_token) setHtLinkToken(data.ht_link_token)
   return { user: data.user, ewentcast: data.ewentcast }
+}
+
+/** Refresh session from server; throws SESSION_EXPIRED when login is required again. */
+export async function requireAuthSession(): Promise<{
+  user: HtUser
+  ewentcast: EwentcastAccount
+}> {
+  const me = await fetchAuthMe()
+  if (!me) throw new Error('SESSION_EXPIRED')
+  return me
 }
 
 /** @deprecated use fetchAuthMe */
@@ -239,8 +266,10 @@ export async function loginWithHightribe(email: string, password: string): Promi
 }
 
 export async function startSubscriptionCheckout(): Promise<string> {
+  await requireAuthSession()
+
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
-  const res = await fetch('/api/hightribe/ewentcast/subscribe', {
+  const res = await fetch('/api/billing/checkout', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -253,12 +282,113 @@ export async function startSubscriptionCheckout(): Promise<string> {
     }),
   })
   const data = await res.json() as { checkout_url?: string; message?: string; status?: boolean }
+  if (res.status === 401) {
+    clearAuth()
+    throw new Error('SESSION_EXPIRED')
+  }
   if (data.checkout_url) return data.checkout_url
   if (data.status && data.message?.includes('already active')) {
     await fetchAuthMe()
     throw new Error('ALREADY_ACTIVE')
   }
-  throw new Error(data.message || 'Could not start checkout')
+  const message = data.message || 'Could not start checkout'
+  if (isAuthErrorMessage(message)) {
+    clearAuth()
+    throw new Error('SESSION_EXPIRED')
+  }
+  throw new Error(message)
+}
+
+export interface BillingTransaction {
+  id: string | number
+  type: string
+  amount: number
+  currency: string
+  status: string
+  description: string
+  invoiceUrl: string | null
+  createdAt: string
+}
+
+function parseBillingAmount(raw: Record<string, unknown>): { amount: number; currency: string } {
+  const currency = String(raw.currency || 'usd').toLowerCase()
+  if (typeof raw.amount === 'number') {
+    return { amount: raw.amount, currency }
+  }
+  if (typeof raw.amount_cents === 'number') {
+    return { amount: raw.amount_cents / 100, currency }
+  }
+  if (typeof raw.amount_usd === 'number') {
+    return { amount: raw.amount_usd, currency: 'usd' }
+  }
+  return { amount: 0, currency }
+}
+
+function normalizeBillingTransaction(raw: Record<string, unknown>): BillingTransaction | null {
+  const { amount, currency } = parseBillingAmount(raw)
+  const createdAt = String(
+    raw.created_at || raw.paid_at || raw.date || new Date().toISOString(),
+  )
+  const invoiceUrl = String(
+    raw.invoice_url || raw.hosted_invoice_url || raw.receipt_url || '',
+  ).trim() || null
+
+  return {
+    id: raw.id ?? raw.stripe_invoice_id ?? createdAt,
+    type: String(raw.type || 'payment'),
+    amount,
+    currency,
+    status: String(raw.status || 'paid'),
+    description: String(raw.description || raw.plan || 'Ewentcast Pro'),
+    invoiceUrl,
+    createdAt,
+  }
+}
+
+export async function fetchBillingTransactions(): Promise<BillingTransaction[]> {
+  const res = await fetch('/api/billing/transactions', {
+    headers: { Authorization: authHeader(), Accept: 'application/json' },
+    cache: 'no-store',
+  })
+  if (res.status === 401) {
+    clearAuth()
+    throw new Error('SESSION_EXPIRED')
+  }
+  const data = await res.json().catch(() => ({})) as {
+    transactions?: Array<Record<string, unknown>>
+    data?: Array<Record<string, unknown>>
+  }
+  const rows = data.transactions || data.data || []
+  return rows
+    .map((row) => normalizeBillingTransaction(row))
+    .filter((row): row is BillingTransaction => row != null)
+}
+
+export async function openStripeBillingPortal(): Promise<string> {
+  await requireAuthSession()
+
+  const origin = typeof window !== 'undefined' ? window.location.origin : ''
+  const res = await fetch('/api/billing/portal', {
+    method: 'POST',
+    headers: {
+      Authorization: authHeader(),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ return_url: `${origin}/settings` }),
+  })
+  if (res.status === 401) {
+    clearAuth()
+    throw new Error('SESSION_EXPIRED')
+  }
+  const data = await res.json() as { portal_url?: string; message?: string; status?: boolean }
+  if (data.portal_url) return data.portal_url
+  const message = data.message || 'Could not open billing portal'
+  if (isAuthErrorMessage(message)) {
+    clearAuth()
+    throw new Error('SESSION_EXPIRED')
+  }
+  throw new Error(message)
 }
 
 export async function connectHightribe(email: string, password: string): Promise<void> {

@@ -53,3 +53,8 @@ export function authHeader(): string {
   const token = getToken()
   return token ? `Bearer ${token}` : ''
 }
+
+/** True when an API error indicates the Ewentcast session token is missing or invalid. */
+export function isAuthErrorMessage(message: string): boolean {
+  return /unauthenticated|unauthorized|session expired/i.test(message.trim())
+}

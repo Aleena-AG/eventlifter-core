@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { getToken, getUser, clearAuth, authHeader, type HtUser } from '@/lib/auth'
 import { logoutLocal } from '@/lib/ewentcast-session'
 import {
-  fetchEwentcastMe,
+  fetchAuthMe,
   getEwentcastAccount,
   needsSubscription,
   startSubscriptionCheckout,
@@ -37,9 +37,14 @@ function SubscribeContent() {
   const [loggingOut, setLoggingOut] = useState(false)
 
   const refresh = async () => {
-    const data = await fetchEwentcastMe()
-    if (data?.ewentcast) setAccount(data.ewentcast)
-    else setAccount(getEwentcastAccount())
+    const data = await fetchAuthMe()
+    if (!data) {
+      router.replace('/login?reason=session')
+      return false
+    }
+    setAccount(data.ewentcast)
+    setUser(data.user)
+    return true
   }
 
   useEffect(() => {
@@ -47,10 +52,7 @@ function SubscribeContent() {
       router.replace('/login')
       return
     }
-    refresh().finally(() => {
-      setUser(getUser())
-      setLoading(false)
-    })
+    refresh().finally(() => setLoading(false))
   }, [router])
 
   useEffect(() => {
@@ -68,6 +70,10 @@ function SubscribeContent() {
       const url = await startSubscriptionCheckout()
       window.location.href = url
     } catch (err) {
+      if (err instanceof Error && err.message === 'SESSION_EXPIRED') {
+        router.replace('/login?reason=session')
+        return
+      }
       if (err instanceof Error && err.message === 'ALREADY_ACTIVE') {
         router.replace('/dashboard')
         return
@@ -287,7 +293,7 @@ function SubscribeContent() {
                     : `Subscribe — $${price}/mo`}
               </button>
               <p style={{ textAlign: 'center', margin: '12px 0 0', fontSize: '11px', color: '#8C7F6D', lineHeight: 1.5 }}>
-                Secure payment via Stripe · Same as Hightribe billing
+                Secure payment via Stripe
                 <br />
                 Not satisfied? Full refund within 14 days — contact support.
               </p>

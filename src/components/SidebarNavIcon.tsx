@@ -1,4 +1,4 @@
-type NavIconName = 'dashboard' | 'create' | 'channels' | 'events' | 'bookings' | 'settings'
+type NavIconName = 'dashboard' | 'create' | 'channels' | 'events' | 'bookings' | 'billing' | 'settings'
 
 export function SidebarNavIcon({ name }: { name: NavIconName }) {
   const props = {
@@ -50,6 +50,13 @@ export function SidebarNavIcon({ name }: { name: NavIconName }) {
           <circle cx="5" cy="6" r="1.2" fill="currentColor" stroke="none" />
           <circle cx="5" cy="12" r="1.2" fill="currentColor" stroke="none" />
           <circle cx="5" cy="18" r="1.2" fill="currentColor" stroke="none" />
+        </svg>
+      )
+    case 'billing':
+      return (
+        <svg {...props}>
+          <rect x="3" y="6" width="18" height="14" rx="2" />
+          <path d="M3 10h18M7 15h4" />
         </svg>
       )
     case 'settings':

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { isAuthenticated } from '@/lib/auth'
 import { fetchAuthMe, loginLocal } from '@/lib/ewentcast-session'
 import { InlineLoader } from '@/components/Loader'
@@ -20,12 +20,20 @@ const PLATFORMS = [
 
 export default function LoginPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const sessionReason = searchParams.get('reason')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [rememberEmail, setRememberEmail] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (sessionReason === 'session') {
+      setError('Your session expired. Please sign in again.')
+    }
+  }, [sessionReason])
 
   useEffect(() => {
     if (isAuthenticated()) router.replace('/dashboard')

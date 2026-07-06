@@ -11,7 +11,8 @@ import type { HtUser } from '@/lib/auth'
 import { ChannelLogo } from '@/components/ChannelLogo'
 import { HIGHTRIBE_COLOR, LUMA_COLOR, EVENTBRITE_COLOR } from '@/lib/brand'
 import { ConnectHightribeSection } from '@/components/ConnectHightribeSection'
-import { getEwentcastAccount, isEwentcastSignupUser, fetchAuthMe } from '@/lib/ewentcast-session'
+import { getEwentcastAccount, isEwentcastSignupUser, fetchAuthMe, type EwentcastAccount } from '@/lib/ewentcast-session'
+import { SubscriptionBillingSection } from '@/components/billing/SubscriptionBillingSection'
 import { disconnectChannelIntegration } from '@/lib/channel-disconnect'
 import { effectiveEventbriteRedirectUri } from '@/lib/app-url'
 import { useAppUrl, useEventbriteRedirectUri } from '@/lib/use-app-url'
@@ -501,13 +502,16 @@ export default function SettingsPage() {
   const [disconnecting, setDisconnecting] = useState<string | null>(null)
   const [testing, setTesting] = useState<string | null>(null)
   const [htUser, setHtUser] = useState<HtUser | null>(null)
+  const [account, setAccount] = useState<EwentcastAccount | null>(null)
   const [channelLoadError, setChannelLoadError] = useState<string | null>(null)
   const { toasts, toast, removeToast } = useToast()
 
   useEffect(() => { setHtUser(getUser()) }, [])
 
   useEffect(() => {
-    fetchAuthMe().catch(() => {})
+    fetchAuthMe()
+      .then((data) => setAccount(data?.ewentcast ?? getEwentcastAccount()))
+      .catch(() => setAccount(getEwentcastAccount()))
   }, [])
 
   const loadSettings = useCallback(async () => {
@@ -732,6 +736,18 @@ export default function SettingsPage() {
 
       {loading ? <PageLoader label="Loading settings…" /> : (
         <>
+          {!focusChannel && account?.auth_source === 'ewentcast_signup' && (
+            <SectionCard title="Subscription & Billing" icon="◆">
+              <p style={{ margin: '0 0 14px', fontSize: '12px', color: '#8C7F6D' }}>
+                Full billing page:{' '}
+                <Link href="/billing" style={{ color: '#D98A2B', textDecoration: 'none', fontWeight: 600 }}>
+                  Open Billing →
+                </Link>
+              </p>
+              <SubscriptionBillingSection account={account} />
+            </SectionCard>
+          )}
+
           {showEventbrite && (
           <SectionCard title="Eventbrite" channel="eventbrite">
             <div className="settings-channel-layout">

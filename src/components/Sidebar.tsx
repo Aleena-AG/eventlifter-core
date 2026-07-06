@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
 import { getUser, clearAuth, authHeader, type HtUser } from '@/lib/auth'
-import { logoutLocal } from '@/lib/ewentcast-session'
+import { logoutLocal, isEwentcastSignupUser } from '@/lib/ewentcast-session'
 import { InlineLoader } from '@/components/Loader'
 import { EwentcastLogo } from '@/components/EwentcastLogo'
 import { SidebarNavIcon } from '@/components/SidebarNavIcon'
@@ -15,6 +15,7 @@ const NAV_LINKS = [
   { href: '/channels', label: 'Channels', icon: 'channels' as const },
   { href: '/events', label: 'Events', icon: 'events' as const },
   { href: '/bookings', label: 'Bookings', icon: 'bookings' as const },
+  { href: '/billing', label: 'Billing', icon: 'billing' as const, ewentcastOnly: true as const },
   { href: '/settings', label: 'Settings', icon: 'settings' as const },
 ]
 
@@ -36,10 +37,12 @@ export function Sidebar({ mobileOpen = false, onNavigate, onClose }: SidebarProp
   const pathname = usePathname()
   const [user, setUser] = useState<HtUser | null>(null)
   const [loggingOut, setLoggingOut] = useState(false)
+  const [showBilling, setShowBilling] = useState(false)
 
   useEffect(() => {
     setUser(getUser())
-  }, [])
+    setShowBilling(isEwentcastSignupUser())
+  }, [pathname])
 
   const handleLogout = async () => {
     setLoggingOut(true)
@@ -75,7 +78,7 @@ export function Sidebar({ mobileOpen = false, onNavigate, onClose }: SidebarProp
       </div>
 
       <nav className="app-sidebar-nav">
-        {NAV_LINKS.map(({ href, label, icon }) => {
+        {NAV_LINKS.filter((link) => !('ewentcastOnly' in link) || showBilling).map(({ href, label, icon }) => {
           const active = isNavActive(pathname, href)
           return (
             <Link

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
 import { getToken } from '@/lib/auth'
-import { fetchAuthMe, needsSubscription } from '@/lib/ewentcast-session'
+import { fetchAuthMe, isEwentcastSignupUser, needsSubscription } from '@/lib/ewentcast-session'
 import { Sidebar } from './Sidebar'
 import { TrialWarningBanner } from './TrialWarningBanner'
 import { PageLoader } from './Loader'
@@ -16,29 +16,38 @@ const PAGE_TITLES: Record<string, string> = {
   '/channels': 'Channels',
   '/events': 'Events',
   '/bookings': 'Bookings',
+  '/billing': 'Billing',
   '/settings': 'Settings',
   '/create': 'Create Event',
+}
+
+const BARE_PATHS = new Set([
+  '/',
+  '/login',
+  '/signup',
+  '/subscribe',
+  '/create',
+  '/forgot-password',
+  '/reset-password',
+])
+
+function isBarePath(pathname: string): boolean {
+  return BARE_PATHS.has(pathname.split('?')[0])
 }
 
 export function ClientLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
-  const isLandingPage = pathname === '/'
-  const isLoginPage = pathname === '/login'
-  const isSignupPage = pathname === '/signup'
-  const isSubscribePage = pathname === '/subscribe'
-  const isCreatePage = pathname === '/create'
-  const isForgotPage = pathname === '/forgot-password'
-  const isResetPage = pathname === '/reset-password'
-  const barePage = isLandingPage || isLoginPage || isSignupPage || isSubscribePage || isCreatePage || isForgotPage || isResetPage
+  const pathBase = pathname.split('?')[0]
+  const isSubscribePage = pathBase === '/subscribe'
+  const barePage = isBarePath(pathname)
   const [ready, setReady] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   const mobileTitle = (() => {
     if (pathname.includes('create=1')) return 'Create Event'
     if (/^\/events\/[^/]+\/[^/]+$/.test(pathname)) return 'Event Dashboard'
-    const base = pathname.split('?')[0]
-    return PAGE_TITLES[base] ?? 'Ewentcast'
+    return PAGE_TITLES[pathBase] ?? 'Ewentcast'
   })()
 
   useEffect(() => {
@@ -55,25 +64,37 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
   }, [sidebarOpen])
 
   useEffect(() => {
-    if (isLandingPage || isLoginPage || isSignupPage || isForgotPage || isResetPage) {
+    if (barePage) {
       setReady(true)
       return
     }
 
+    let cancelled = false
+
     const checkAuth = async () => {
+      setReady(false)
+
       if (!getToken()) {
         router.replace('/login')
         return
       }
 
       if (isSubscribePage) {
-        setReady(true)
+        await fetchAuthMe()
+        if (!cancelled) setReady(true)
         return
       }
 
       await fetchAuthMe()
 
-      if (needsSubscription() && !isSubscribePage) {
+      if (cancelled) return
+
+      if (!getToken()) {
+        router.replace('/login?reason=session')
+        return
+      }
+
+      if (isEwentcastSignupUser() && needsSubscription()) {
         router.replace('/subscribe')
         return
       }
@@ -81,14 +102,18 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
       setReady(true)
     }
 
-    if (isCreatePage) {
-      checkAuth()
-      return
-    }
+    void checkAuth()
 
-    checkAuth()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLandingPage, isLoginPage, isSignupPage, isSubscribePage, isCreatePage, isForgotPage, isResetPage])
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void checkAuth()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+
+    return () => {
+      cancelled = true
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [pathname, barePage, isSubscribePage, router])
 
   if (!ready) {
     return (
