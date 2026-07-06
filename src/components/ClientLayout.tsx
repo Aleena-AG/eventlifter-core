@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
 import { getToken } from '@/lib/auth'
@@ -43,6 +43,7 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
   const barePage = isBarePath(pathname)
   const [ready, setReady] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const authChecked = useRef(false)
 
   const mobileTitle = (() => {
     if (pathname.includes('create=1')) return 'Create Event'
@@ -66,35 +67,31 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (barePage) {
       setReady(true)
+      authChecked.current = false
       return
     }
 
     let cancelled = false
 
     const checkAuth = async () => {
-      setReady(false)
-
       if (!getToken()) {
         router.replace('/login')
         return
       }
 
-      if (isSubscribePage) {
+      if (!authChecked.current) {
+        setReady(false)
         await fetchAuthMe()
-        if (!cancelled) setReady(true)
-        return
+        authChecked.current = true
+        if (cancelled) return
+
+        if (!getToken()) {
+          router.replace('/login?reason=session')
+          return
+        }
       }
 
-      await fetchAuthMe()
-
-      if (cancelled) return
-
-      if (!getToken()) {
-        router.replace('/login?reason=session')
-        return
-      }
-
-      if (isEwentcastSignupUser() && needsSubscription()) {
+      if (!isSubscribePage && isEwentcastSignupUser() && needsSubscription()) {
         router.replace('/subscribe')
         return
       }
@@ -104,14 +101,8 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
 
     void checkAuth()
 
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') void checkAuth()
-    }
-    document.addEventListener('visibilitychange', onVisible)
-
     return () => {
       cancelled = true
-      document.removeEventListener('visibilitychange', onVisible)
     }
   }, [pathname, barePage, isSubscribePage, router])
 
