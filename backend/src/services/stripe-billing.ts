@@ -26,13 +26,15 @@ interface UserBillingRow extends RowDataPacket {
   sub_status: string | null
   stripe_customer_id: string | null
   stripe_subscription_id: string | null
+  money_back_refunded_at: Date | null
 }
 
 async function getUserBillingRow(userId: number): Promise<UserBillingRow | null> {
   const rows = await query<UserBillingRow[]>(
     `SELECT u.email, u.name,
             s.plan, s.status AS sub_status,
-            s.stripe_customer_id, s.stripe_subscription_id
+            s.stripe_customer_id, s.stripe_subscription_id,
+            s.money_back_refunded_at
      FROM users u
      LEFT JOIN subscriptions s ON s.user_id = u.id
      WHERE u.id = ?
@@ -133,6 +135,17 @@ async function findUserIdByStripeCustomer(customerId: string): Promise<number | 
   return rows[0]?.user_id ?? null
 }
 
+async function listActiveStripeSubscriptions(customerId: string): Promise<Stripe.Subscription[]> {
+  const stripe = getStripe()
+  const statuses: Stripe.SubscriptionListParams['status'][] = ['active', 'trialing', 'past_due']
+  const all: Stripe.Subscription[] = []
+  for (const status of statuses) {
+    const page = await stripe.subscriptions.list({ customer: customerId, status, limit: 20 })
+    all.push(...page.data)
+  }
+  return all.sort((a, b) => a.created - b.created)
+}
+
 export async function createCheckoutSession(
   userId: number,
   successUrl: string,
@@ -146,6 +159,13 @@ export async function createCheckoutSession(
   }
 
   const customerId = await ensureStripeCustomer(userId)
+  const existingSubs = await listActiveStripeSubscriptions(customerId)
+  if (existingSubs.length > 0) {
+    const primary = existingSubs[0]
+    await syncSubscriptionFromStripe(userId, primary, customerId)
+    throw new Error('Subscription is already active')
+  }
+
   const session = await getStripe().checkout.sessions.create({
     mode: 'subscription',
     customer: customerId,
@@ -235,6 +255,153 @@ export async function listBillingInvoices(userId: number): Promise<BillingInvoic
     invoice_url: inv.hosted_invoice_url || inv.invoice_pdf || null,
     created_at: new Date((inv.created || 0) * 1000).toISOString(),
   }))
+}
+
+export interface MoneyBackRefundStatus {
+  eligible: boolean
+  already_refunded: boolean
+  days_remaining: number | null
+  refund_days: number
+  first_payment_at: string | null
+  refund_deadline: string | null
+  reason: string | null
+}
+
+async function listPaidInvoices(customerId: string): Promise<Stripe.Invoice[]> {
+  const invoices = await getStripe().invoices.list({
+    customer: customerId,
+    limit: 24,
+  })
+  return invoices.data
+    .filter((inv) => (inv.amount_paid ?? 0) > 0 && inv.status === 'paid')
+    .sort((a, b) => a.created - b.created)
+}
+
+export async function getMoneyBackRefundStatus(userId: number): Promise<MoneyBackRefundStatus> {
+  const refundDays = config.refundDays
+  const row = await getUserBillingRow(userId)
+  const base: MoneyBackRefundStatus = {
+    eligible: false,
+    already_refunded: false,
+    days_remaining: null,
+    refund_days: refundDays,
+    first_payment_at: null,
+    refund_deadline: null,
+    reason: null,
+  }
+
+  if (!row?.stripe_customer_id) {
+    return { ...base, reason: 'No billing account found' }
+  }
+
+  if (row.money_back_refunded_at) {
+    return {
+      ...base,
+      already_refunded: true,
+      reason: 'Money-back refund already processed',
+    }
+  }
+
+  const paid = await listPaidInvoices(row.stripe_customer_id)
+  if (paid.length === 0) {
+    return { ...base, reason: 'No paid subscription yet' }
+  }
+
+  const firstPaidAt = new Date(paid[0].created * 1000)
+  const deadline = new Date(firstPaidAt)
+  deadline.setDate(deadline.getDate() + refundDays)
+  const now = new Date()
+
+  if (now > deadline) {
+    return {
+      ...base,
+      first_payment_at: firstPaidAt.toISOString(),
+      refund_deadline: deadline.toISOString(),
+      days_remaining: 0,
+      reason: `${refundDays}-day money-back window has ended`,
+    }
+  }
+
+  const daysRemaining = Math.max(
+    0,
+    Math.ceil((deadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)),
+  )
+
+  return {
+    eligible: true,
+    already_refunded: false,
+    days_remaining: daysRemaining,
+    refund_days: refundDays,
+    first_payment_at: firstPaidAt.toISOString(),
+    refund_deadline: deadline.toISOString(),
+    reason: null,
+  }
+}
+
+export interface MoneyBackRefundResult {
+  refunded_amount: number
+  currency: string
+  refunds_count: number
+}
+
+export async function processMoneyBackRefund(userId: number): Promise<MoneyBackRefundResult> {
+  const status = await getMoneyBackRefundStatus(userId)
+  if (status.already_refunded) {
+    throw new Error('Refund already processed')
+  }
+  if (!status.eligible) {
+    throw new Error(status.reason || 'Not eligible for money-back refund')
+  }
+
+  const row = await getUserBillingRow(userId)
+  if (!row?.stripe_customer_id) throw new Error('No billing account')
+
+  const stripe = getStripe()
+  const paid = await listPaidInvoices(row.stripe_customer_id)
+  let refundedAmount = 0
+  let refundsCount = 0
+  let currency = 'usd'
+
+  for (const inv of paid) {
+    if (!inv.payment_intent) continue
+    const paymentIntentId = typeof inv.payment_intent === 'string'
+      ? inv.payment_intent
+      : inv.payment_intent.id
+
+    try {
+      const refund = await stripe.refunds.create({ payment_intent: paymentIntentId })
+      refundedAmount += (refund.amount || 0) / 100
+      currency = refund.currency || currency
+      refundsCount += 1
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      if (!message.toLowerCase().includes('already been refunded')) {
+        throw err
+      }
+    }
+  }
+
+  const activeSubs = await listActiveStripeSubscriptions(row.stripe_customer_id)
+  for (const sub of activeSubs) {
+    await stripe.subscriptions.cancel(sub.id)
+  }
+
+  const now = new Date()
+  await getPool().query(
+    `UPDATE subscriptions
+     SET status = 'canceled',
+         stripe_subscription_id = NULL,
+         money_back_refunded_at = ?,
+         updated_at = ?
+     WHERE user_id = ?`,
+    [now, now, userId],
+  )
+
+  return {
+    refunded_amount: refundedAmount,
+    currency,
+    refunds_count: refundsCount,
+  }
 }
 
 export async function handleStripeWebhook(

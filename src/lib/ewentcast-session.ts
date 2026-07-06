@@ -325,6 +325,69 @@ export async function confirmSubscriptionPayment(sessionId: string): Promise<Ewe
   return data.ewentcast
 }
 
+export interface MoneyBackRefundStatus {
+  eligible: boolean
+  already_refunded: boolean
+  days_remaining: number | null
+  refund_days: number
+  first_payment_at: string | null
+  refund_deadline: string | null
+  reason: string | null
+}
+
+export async function fetchMoneyBackRefundStatus(): Promise<MoneyBackRefundStatus> {
+  const res = await fetch('/api/billing/refund', {
+    headers: { Authorization: authHeader(), Accept: 'application/json' },
+    cache: 'no-store',
+  })
+  if (res.status === 401) {
+    clearAuth()
+    throw new Error('SESSION_EXPIRED')
+  }
+  const data = await res.json() as { status?: boolean; refund?: MoneyBackRefundStatus; message?: string }
+  if (!res.ok || !data.refund) {
+    throw new Error(data.message || 'Could not load refund status')
+  }
+  return data.refund
+}
+
+export async function requestMoneyBackRefund(): Promise<{
+  message: string
+  account: EwentcastAccount
+  refunded_amount: number
+  currency: string
+}> {
+  await requireAuthSession()
+  const res = await fetch('/api/billing/refund', {
+    method: 'POST',
+    headers: {
+      Authorization: authHeader(),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+  })
+  if (res.status === 401) {
+    clearAuth()
+    throw new Error('SESSION_EXPIRED')
+  }
+  const data = await res.json() as {
+    status?: boolean
+    message?: string
+    ewentcast?: EwentcastAccount
+    result?: { refunded_amount: number; currency: string }
+  }
+  if (!res.ok || !data.status || !data.ewentcast) {
+    throw new Error(data.message || 'Refund request failed')
+  }
+  setEwentcastAccount(data.ewentcast)
+  return {
+    message: data.message || 'Refund processed',
+    account: data.ewentcast,
+    refunded_amount: data.result?.refunded_amount ?? 0,
+    currency: data.result?.currency ?? 'usd',
+  }
+}
+
 export interface BillingTransaction {
   id: string | number
   type: string

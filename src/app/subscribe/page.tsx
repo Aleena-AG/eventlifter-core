@@ -331,7 +331,7 @@ function SubscribeContent() {
               <p style={{ textAlign: 'center', margin: '12px 0 0', fontSize: '11px', color: '#8C7F6D', lineHeight: 1.5 }}>
                 Secure payment via Stripe
                 <br />
-                Not satisfied? Full refund within 14 days — contact support.
+                Not satisfied? Request a full refund within 14 days from Billing.
               </p>
               {isTrialing ? (
                 <Link
