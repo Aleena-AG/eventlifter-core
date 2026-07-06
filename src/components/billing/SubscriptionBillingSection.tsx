@@ -7,6 +7,7 @@ import {
   fetchMoneyBackRefundStatus,
   openStripeBillingPortal,
   requestMoneyBackRefund,
+  type BillingSummary,
   type BillingTransaction,
   type EwentcastAccount,
   type MoneyBackRefundStatus,
@@ -192,30 +193,35 @@ function MoneyBackRefundPanel({ account }: { account: EwentcastAccount }) {
   )
 }
 
-function SubscriptionBillingPanel({ account }: { account: EwentcastAccount }) {
-  const [transactions, setTransactions] = useState<BillingTransaction[]>([])
-  const [loading, setLoading] = useState(true)
+function formatBillingDate(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
+}
+
+function SubscriptionBillingPanel({
+  account,
+  transactions,
+  billing,
+  loading,
+  error,
+  onError,
+}: {
+  account: EwentcastAccount
+  transactions: BillingTransaction[]
+  billing: BillingSummary | null
+  loading: boolean
+  error: string
+  onError: (message: string) => void
+}) {
   const [portalLoading, setPortalLoading] = useState(false)
-  const [error, setError] = useState('')
 
   const isPaid = account.subscription_status === 'active' && account.subscription_active
   const hasStripeCustomer = isPaid || transactions.length > 0
-
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    setError('')
-    fetchBillingTransactions()
-      .then((rows) => { if (!cancelled) setTransactions(rows) })
-      .catch((err) => {
-        if (!cancelled) {
-          setTransactions([])
-          setError(err instanceof Error ? err.message : 'Could not load invoices')
-        }
-      })
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
-  }, [account.subscription_status])
+  const nextBillingDate = billing?.current_period_end || account.current_period_end || null
 
   const openPortal = async () => {
     setPortalLoading(true)
@@ -224,7 +230,7 @@ function SubscriptionBillingPanel({ account }: { account: EwentcastAccount }) {
       const url = await openStripeBillingPortal()
       window.location.href = url
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Billing portal failed')
+      onError(err instanceof Error ? err.message : 'Billing portal failed')
     } finally {
       setPortalLoading(false)
     }
@@ -260,15 +266,11 @@ function SubscriptionBillingPanel({ account }: { account: EwentcastAccount }) {
           <span className="settings-subscription__item-label">Payment provider</span>
           <span className="settings-subscription__item-value">Stripe</span>
         </div>
-        {account.current_period_end && isPaid && (
-          <div className="settings-subscription__item">
+        {nextBillingDate && isPaid && (
+          <div className="settings-subscription__item settings-subscription__item--highlight">
             <span className="settings-subscription__item-label">Next billing</span>
             <span className="settings-subscription__item-value">
-              {new Date(account.current_period_end).toLocaleDateString(undefined, {
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric',
-              })}
+              {formatBillingDate(nextBillingDate)}
             </span>
           </div>
         )}
@@ -343,6 +345,34 @@ export function SubscriptionBillingSection({ account }: { account: EwentcastAcco
   const showUpgrade = account.auth_source === 'ewentcast_signup'
     && account.subscription_status !== 'active'
 
+  const isPaid = account.subscription_status === 'active' && account.subscription_active
+  const [transactions, setTransactions] = useState<BillingTransaction[]>([])
+  const [billing, setBilling] = useState<BillingSummary | null>(null)
+  const [billingLoading, setBillingLoading] = useState(true)
+  const [billingError, setBillingError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    setBillingLoading(true)
+    setBillingError('')
+    fetchBillingTransactions()
+      .then((data) => {
+        if (cancelled) return
+        setTransactions(data.transactions)
+        setBilling(data.billing)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        setTransactions([])
+        setBilling(null)
+        setBillingError(err instanceof Error ? err.message : 'Could not load billing')
+      })
+      .finally(() => { if (!cancelled) setBillingLoading(false) })
+    return () => { cancelled = true }
+  }, [account.subscription_status, account.subscription_active])
+
+  const nextBillingDate = billing?.current_period_end || account.current_period_end || null
+
   return (
     <div className="settings-subscription">
       <TrialHero account={account} />
@@ -387,11 +417,23 @@ export function SubscriptionBillingSection({ account }: { account: EwentcastAcco
           <div className="settings-subscription__item">
             <span className="settings-subscription__item-label">Trial ends</span>
             <span className="settings-subscription__item-value">
-              {new Date(account.trial_ends_at).toLocaleDateString(undefined, {
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric',
-              })}
+              {formatBillingDate(account.trial_ends_at)}
+            </span>
+          </div>
+        )}
+        {isPaid && nextBillingDate && (
+          <div className="settings-subscription__item settings-subscription__item--highlight">
+            <span className="settings-subscription__item-label">Next billing</span>
+            <span className="settings-subscription__item-value">
+              {billingLoading ? '…' : formatBillingDate(nextBillingDate)}
+            </span>
+          </div>
+        )}
+        {isPaid && billing?.amount_usd != null && (
+          <div className="settings-subscription__item">
+            <span className="settings-subscription__item-label">Next charge</span>
+            <span className="settings-subscription__item-value">
+              {formatMoney(billing.amount_usd, billing.currency || 'usd')}
             </span>
           </div>
         )}
@@ -405,7 +447,14 @@ export function SubscriptionBillingSection({ account }: { account: EwentcastAcco
         </Link>
       )}
 
-      <SubscriptionBillingPanel account={account} />
+      <SubscriptionBillingPanel
+        account={account}
+        transactions={transactions}
+        billing={billing}
+        loading={billingLoading}
+        error={billingError}
+        onError={setBillingError}
+      />
     </div>
   )
 }
