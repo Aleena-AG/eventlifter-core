@@ -1,7 +1,7 @@
 // All requests go to Next.js App Router API routes (relative paths).
 // No Express backend needed.
 
-import { authHeader } from './auth'
+import { authHeader, clearAuth, isAuthErrorMessage } from './auth'
 
 function withAuth(headers: Record<string, string> = {}): Record<string, string> {
   const auth = authHeader()
@@ -9,13 +9,20 @@ function withAuth(headers: Record<string, string> = {}): Record<string, string> 
   return headers
 }
 
+async function parseApiError(r: Response): Promise<never> {
+  const d = await r.json().catch(() => ({})) as { error?: string; message?: string }
+  const message = d.error || d.message || `HTTP ${r.status}`
+  if (r.status === 401 || isAuthErrorMessage(message)) {
+    clearAuth()
+    throw new Error('SESSION_EXPIRED')
+  }
+  throw new Error(message)
+}
+
 async function get<T = unknown>(path: string, opts?: { auth?: boolean }): Promise<T> {
   const headers = opts?.auth === false ? undefined : withAuth()
   const r = await fetch(path, headers ? { headers } : undefined)
-    if (!r.ok) {
-    const d = await r.json().catch(() => ({})) as { error?: string; message?: string }
-    throw new Error(d.error || d.message || `HTTP ${r.status}`)
-  }
+    if (!r.ok) return parseApiError(r)
   return r.json() as Promise<T>
 }
 
@@ -28,10 +35,7 @@ async function post<T = unknown>(path: string, body: unknown = {}, opts?: { auth
     },
     body: JSON.stringify(body),
   })
-    if (!r.ok) {
-    const d = await r.json().catch(() => ({})) as { error?: string; message?: string }
-    throw new Error(d.error || d.message || `HTTP ${r.status}`)
-  }
+    if (!r.ok) return parseApiError(r)
   return r.json() as Promise<T>
 }
 
@@ -44,19 +48,13 @@ async function put<T = unknown>(path: string, body: unknown = {}, opts?: { auth?
     },
     body: JSON.stringify(body),
   })
-    if (!r.ok) {
-    const d = await r.json().catch(() => ({})) as { error?: string; message?: string }
-    throw new Error(d.error || d.message || `HTTP ${r.status}`)
-  }
+    if (!r.ok) return parseApiError(r)
   return r.json() as Promise<T>
 }
 
 async function del<T = unknown>(path: string): Promise<T> {
-  const r = await fetch(path, { method: 'DELETE' })
-    if (!r.ok) {
-    const d = await r.json().catch(() => ({})) as { error?: string; message?: string }
-    throw new Error(d.error || d.message || `HTTP ${r.status}`)
-  }
+  const r = await fetch(path, { method: 'DELETE', headers: withAuth() })
+    if (!r.ok) return parseApiError(r)
   return r.json() as Promise<T>
 }
 

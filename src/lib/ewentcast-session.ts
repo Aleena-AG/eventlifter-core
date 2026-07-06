@@ -1,6 +1,6 @@
 'use client'
 
-import { authHeader, getToken, setToken, setUser, type HtUser } from '@/lib/auth'
+import { authHeader, clearAuth, getToken, setToken, setUser, isAuthErrorMessage, type HtUser } from '@/lib/auth'
 
 export interface EwentcastAccount {
   auth_source: 'ewentcast_signup' | 'hightribe_native'
@@ -74,7 +74,17 @@ export function canLoadHtChannelKeys(): boolean {
 
 export function needsSubscription(): boolean {
   const account = getEwentcastAccount()
-  return account?.auth_source === 'ewentcast_signup' && !account.subscription_active
+  if (account?.auth_source !== 'ewentcast_signup') return false
+  if (!account.subscription_active) return true
+  if (account.subscription_status === 'expired') return true
+  if (
+    account.subscription_status === 'trialing'
+    && account.trial_days_remaining != null
+    && account.trial_days_remaining <= 0
+  ) {
+    return true
+  }
+  return false
 }
 
 export function isOnFreeTrial(): boolean {
@@ -82,6 +92,7 @@ export function isOnFreeTrial(): boolean {
   return account?.auth_source === 'ewentcast_signup'
     && account.subscription_status === 'trialing'
     && account.subscription_active
+    && (account.trial_days_remaining == null || account.trial_days_remaining > 0)
 }
 
 export function getTrialDaysRemaining(): number | null {
@@ -105,7 +116,12 @@ export async function fetchAuthMe(): Promise<{
 
   const res = await fetch('/api/auth/me', {
     headers: { Authorization: authHeader(), Accept: 'application/json' },
+    cache: 'no-store',
   })
+  if (res.status === 401) {
+    clearAuth()
+    return null
+  }
   if (!res.ok) return null
 
   const data = await res.json() as {
@@ -119,6 +135,16 @@ export async function fetchAuthMe(): Promise<{
   setEwentcastAccount(data.ewentcast)
   if (data.ht_link_token) setHtLinkToken(data.ht_link_token)
   return { user: data.user, ewentcast: data.ewentcast }
+}
+
+/** Refresh session from server; throws SESSION_EXPIRED when login is required again. */
+export async function requireAuthSession(): Promise<{
+  user: HtUser
+  ewentcast: EwentcastAccount
+}> {
+  const me = await fetchAuthMe()
+  if (!me) throw new Error('SESSION_EXPIRED')
+  return me
 }
 
 /** @deprecated use fetchAuthMe */
@@ -240,6 +266,8 @@ export async function loginWithHightribe(email: string, password: string): Promi
 }
 
 export async function startSubscriptionCheckout(): Promise<string> {
+  await requireAuthSession()
+
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
   const res = await fetch('/api/billing/checkout', {
     method: 'POST',
@@ -254,12 +282,21 @@ export async function startSubscriptionCheckout(): Promise<string> {
     }),
   })
   const data = await res.json() as { checkout_url?: string; message?: string; status?: boolean }
+  if (res.status === 401) {
+    clearAuth()
+    throw new Error('SESSION_EXPIRED')
+  }
   if (data.checkout_url) return data.checkout_url
   if (data.status && data.message?.includes('already active')) {
     await fetchAuthMe()
     throw new Error('ALREADY_ACTIVE')
   }
-  throw new Error(data.message || 'Could not start checkout')
+  const message = data.message || 'Could not start checkout'
+  if (isAuthErrorMessage(message)) {
+    clearAuth()
+    throw new Error('SESSION_EXPIRED')
+  }
+  throw new Error(message)
 }
 
 export interface BillingTransaction {
@@ -313,6 +350,10 @@ export async function fetchBillingTransactions(): Promise<BillingTransaction[]> 
     headers: { Authorization: authHeader(), Accept: 'application/json' },
     cache: 'no-store',
   })
+  if (res.status === 401) {
+    clearAuth()
+    throw new Error('SESSION_EXPIRED')
+  }
   const data = await res.json().catch(() => ({})) as {
     transactions?: Array<Record<string, unknown>>
     data?: Array<Record<string, unknown>>
@@ -324,6 +365,8 @@ export async function fetchBillingTransactions(): Promise<BillingTransaction[]> 
 }
 
 export async function openStripeBillingPortal(): Promise<string> {
+  await requireAuthSession()
+
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
   const res = await fetch('/api/billing/portal', {
     method: 'POST',
@@ -334,9 +377,18 @@ export async function openStripeBillingPortal(): Promise<string> {
     },
     body: JSON.stringify({ return_url: `${origin}/settings` }),
   })
+  if (res.status === 401) {
+    clearAuth()
+    throw new Error('SESSION_EXPIRED')
+  }
   const data = await res.json() as { portal_url?: string; message?: string; status?: boolean }
   if (data.portal_url) return data.portal_url
-  throw new Error(data.message || 'Could not open billing portal')
+  const message = data.message || 'Could not open billing portal'
+  if (isAuthErrorMessage(message)) {
+    clearAuth()
+    throw new Error('SESSION_EXPIRED')
+  }
+  throw new Error(message)
 }
 
 export async function connectHightribe(email: string, password: string): Promise<void> {

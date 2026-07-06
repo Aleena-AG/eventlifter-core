@@ -1,5 +1,5 @@
 import type { RowDataPacket } from 'mysql2'
-import { config, isDevPaymentBypass } from '../config'
+import { config } from '../config'
 import { getPool, query } from '../db/pool'
 import { hashPassword, newToken, verifyPassword } from '../lib/crypto'
 import { isEmailConfigured, sendPasswordResetEmail } from './email'
@@ -77,11 +77,13 @@ export async function getAccountView(userId: number): Promise<AccountView> {
     status === 'trialing'
     && trialEndsAt != null
     && trialEndsAt > new Date()
+  const trialExpired =
+    status === 'trialing'
+    && trialEndsAt != null
+    && trialEndsAt <= new Date()
   const paidActive = status === 'active'
-  const active =
-    paidActive
-    || trialStillValid
-    || (isDevPaymentBypass() && authSource === 'ewentcast_signup')
+  const active = paidActive || trialStillValid
+  const displayStatus = trialExpired ? 'expired' : status
   const daysLeft =
     status === 'trialing' && trialEndsAt ? trialDaysRemaining(trialEndsAt) : null
   const periodEnd = row?.current_period_end
@@ -91,7 +93,7 @@ export async function getAccountView(userId: number): Promise<AccountView> {
   return {
     auth_source: authSource,
     subscription_plan: (row?.plan as string) || 'pro_monthly_20',
-    subscription_status: status,
+    subscription_status: displayStatus,
     subscription_active: active,
     subscription_amount_usd: config.stripe.amountUsd || 20,
     trial_ends_at: trialEndsAt ? trialEndsAt.toISOString() : null,
