@@ -4,9 +4,12 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import {
   fetchBillingTransactions,
+  fetchMoneyBackRefundStatus,
   openStripeBillingPortal,
+  requestMoneyBackRefund,
   type BillingTransaction,
   type EwentcastAccount,
+  type MoneyBackRefundStatus,
 } from '@/lib/ewentcast-session'
 import './billing.css'
 
@@ -91,6 +94,100 @@ function TrialHero({ account }: { account: EwentcastAccount }) {
       <Link href="/subscribe" className="billing-trial-hero__cta">
         Upgrade to Pro
       </Link>
+    </div>
+  )
+}
+
+function MoneyBackRefundPanel({ account }: { account: EwentcastAccount }) {
+  const [refundStatus, setRefundStatus] = useState<MoneyBackRefundStatus | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+
+  const isPaid = account.subscription_status === 'active' && account.subscription_active
+
+  useEffect(() => {
+    if (!isPaid) {
+      setLoading(false)
+      return
+    }
+    let cancelled = false
+    fetchMoneyBackRefundStatus()
+      .then((status) => { if (!cancelled) setRefundStatus(status) })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load refund info')
+      })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [isPaid, account.subscription_status])
+
+  const handleRefund = async () => {
+    if (!window.confirm(
+      'Request a full money-back refund? Your Pro subscription will be canceled immediately and access will end.',
+    )) return
+
+    setSubmitting(true)
+    setError('')
+    setMessage('')
+    try {
+      const result = await requestMoneyBackRefund()
+      setMessage(
+        `${result.message} Refunded ${formatMoney(result.refunded_amount, result.currency)}.`,
+      )
+      setRefundStatus((prev) => prev ? { ...prev, eligible: false, already_refunded: true } : prev)
+      window.location.href = '/subscribe'
+    } catch (err) {
+      if (err instanceof Error && err.message === 'SESSION_EXPIRED') {
+        window.location.href = '/login?reason=session'
+        return
+      }
+      setError(err instanceof Error ? err.message : 'Refund failed')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (!isPaid && !refundStatus?.already_refunded) return null
+
+  return (
+    <div className="billing-refund">
+      <p className="billing-refund__title">14-day money-back guarantee</p>
+      {loading ? (
+        <p className="settings-billing__empty">Checking eligibility…</p>
+      ) : refundStatus?.already_refunded ? (
+        <p className="settings-billing__empty">A money-back refund was already processed for this account.</p>
+      ) : refundStatus?.eligible ? (
+        <>
+          <p className="billing-refund__detail">
+            Not satisfied? Full refund within {refundStatus.refund_days} days of your first payment.
+            {refundStatus.days_remaining != null && (
+              <> <strong>{refundStatus.days_remaining} day{refundStatus.days_remaining === 1 ? '' : 's'} left</strong> to request.</>
+            )}
+          </p>
+          {refundStatus.refund_deadline && (
+            <p className="billing-refund__deadline">
+              Refund deadline: {new Date(refundStatus.refund_deadline).toLocaleDateString(undefined, {
+                month: 'short', day: 'numeric', year: 'numeric',
+              })}
+            </p>
+          )}
+          <button
+            type="button"
+            className="billing-refund__btn"
+            onClick={handleRefund}
+            disabled={submitting}
+          >
+            {submitting ? 'Processing refund…' : 'Request full refund'}
+          </button>
+        </>
+      ) : (
+        <p className="settings-billing__empty">
+          {refundStatus?.reason || 'Money-back refund is not available for this account.'}
+        </p>
+      )}
+      {error && <p className="settings-billing__error">{error}</p>}
+      {message && <p className="billing-refund__success">{message}</p>}
     </div>
   )
 }
@@ -180,6 +277,8 @@ function SubscriptionBillingPanel({ account }: { account: EwentcastAccount }) {
       {error && (
         <p className="settings-billing__error">{error}</p>
       )}
+
+      <MoneyBackRefundPanel account={account} />
 
       <div className="settings-billing__invoices">
         <p className="settings-billing__invoices-title">Invoices from Stripe</p>

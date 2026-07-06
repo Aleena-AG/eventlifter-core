@@ -117,3 +117,58 @@
 .billing-page__settings-link:hover {
   text-decoration: underline;
 }
+
+.billing-refund {
+  margin-top: 20px;
+  padding: 16px 18px;
+  border-radius: 10px;
+  border: 1px solid rgba(78, 122, 75, 0.28);
+  background: rgba(78, 122, 75, 0.06);
+}
+
+.billing-refund__title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #4e7a4b;
+}
+
+.billing-refund__detail {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #211b16;
+  line-height: 1.5;
+}
+
+.billing-refund__deadline {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: #8c7f6d;
+}
+
+.billing-refund__btn {
+  background: #fff;
+  border: 1px solid rgba(194, 80, 46, 0.35);
+  border-radius: 8px;
+  color: #c2502e;
+  padding: 9px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.billing-refund__btn:hover:not(:disabled) {
+  background: rgba(194, 80, 46, 0.06);
+}
+
+.billing-refund__btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.billing-refund__success {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: #4e7a4b;
+  line-height: 1.45;
+}

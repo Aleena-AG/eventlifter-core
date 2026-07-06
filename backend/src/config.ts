@@ -42,6 +42,7 @@ export const config = {
     priceId: process.env.STRIPE_PRICE_ID || '',
     amountUsd: Number(process.env.STRIPE_AMOUNT_USD || 20),
   },
+  refundDays: Number(process.env.EWENTCAST_REFUND_DAYS || 14),
 }
 
 export function stripeConfigured(): boolean {
