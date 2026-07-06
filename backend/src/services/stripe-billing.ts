@@ -267,6 +267,51 @@ export interface MoneyBackRefundStatus {
   reason: string | null
 }
 
+export interface BillingSummary {
+  current_period_end: string | null
+  amount_usd: number
+  currency: string
+}
+
+/** Pull next billing date from Stripe and sync to DB. */
+export async function getBillingSummary(userId: number): Promise<BillingSummary> {
+  const row = await getUserBillingRow(userId)
+  if (!row?.stripe_customer_id) {
+    return {
+      current_period_end: null,
+      amount_usd: config.stripe.amountUsd,
+      currency: 'usd',
+    }
+  }
+
+  const activeSubs = await listActiveStripeSubscriptions(row.stripe_customer_id)
+  if (activeSubs.length > 0) {
+    const primary = activeSubs[0]
+    await syncSubscriptionFromStripe(userId, primary, row.stripe_customer_id)
+    const price = primary.items.data[0]?.price
+    const amountUsd = price?.unit_amount
+      ? price.unit_amount / 100
+      : config.stripe.amountUsd
+    return {
+      current_period_end: new Date(primary.current_period_end * 1000).toISOString(),
+      amount_usd: amountUsd,
+      currency: (price?.currency || 'usd').toLowerCase(),
+    }
+  }
+
+  const periodRows = await query<{ current_period_end: Date | null }[]>(
+    'SELECT current_period_end FROM subscriptions WHERE user_id = ? LIMIT 1',
+    [userId],
+  )
+  const periodEnd = periodRows[0]?.current_period_end
+
+  return {
+    current_period_end: periodEnd ? new Date(periodEnd).toISOString() : null,
+    amount_usd: config.stripe.amountUsd,
+    currency: 'usd',
+  }
+}
+
 async function listPaidInvoices(customerId: string): Promise<Stripe.Invoice[]> {
   const invoices = await getStripe().invoices.list({
     customer: customerId,

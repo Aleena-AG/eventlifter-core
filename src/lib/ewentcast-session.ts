@@ -399,6 +399,17 @@ export interface BillingTransaction {
   createdAt: string
 }
 
+export interface BillingSummary {
+  current_period_end: string | null
+  amount_usd: number
+  currency: string
+}
+
+export interface BillingData {
+  transactions: BillingTransaction[]
+  billing: BillingSummary | null
+}
+
 function parseBillingAmount(raw: Record<string, unknown>): { amount: number; currency: string } {
   const currency = String(raw.currency || 'usd').toLowerCase()
   if (typeof raw.amount === 'number') {
@@ -434,7 +445,7 @@ function normalizeBillingTransaction(raw: Record<string, unknown>): BillingTrans
   }
 }
 
-export async function fetchBillingTransactions(): Promise<BillingTransaction[]> {
+export async function fetchBillingTransactions(): Promise<BillingData> {
   const res = await fetch('/api/billing/transactions', {
     headers: { Authorization: authHeader(), Accept: 'application/json' },
     cache: 'no-store',
@@ -446,11 +457,19 @@ export async function fetchBillingTransactions(): Promise<BillingTransaction[]> 
   const data = await res.json().catch(() => ({})) as {
     transactions?: Array<Record<string, unknown>>
     data?: Array<Record<string, unknown>>
+    billing?: BillingSummary
+    ewentcast?: EwentcastAccount
+  }
+  if (data.ewentcast) {
+    setEwentcastAccount(data.ewentcast)
   }
   const rows = data.transactions || data.data || []
-  return rows
-    .map((row) => normalizeBillingTransaction(row))
-    .filter((row): row is BillingTransaction => row != null)
+  return {
+    transactions: rows
+      .map((row) => normalizeBillingTransaction(row))
+      .filter((row): row is BillingTransaction => row != null),
+    billing: data.billing ?? null,
+  }
 }
 
 export async function openStripeBillingPortal(): Promise<string> {
