@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
+  getBillingSummary,
   isStripeConfigured,
   listBillingInvoices,
 } from '@/lib/server/stripe-billing'
+import { getAccountView } from '../../../../../backend/src/services/auth'
 import { isErrorResponse, requireSession } from '@/lib/server/session'
 
 export const runtime = 'nodejs'
@@ -21,8 +23,17 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const transactions = await listBillingInvoices(session.user.id)
-    return NextResponse.json({ status: true, transactions })
+    const [transactions, billing, account] = await Promise.all([
+      listBillingInvoices(session.user.id),
+      getBillingSummary(session.user.id),
+      getAccountView(session.user.id),
+    ])
+    return NextResponse.json({
+      status: true,
+      transactions,
+      billing,
+      ewentcast: account,
+    })
   } catch (err) {
     return NextResponse.json(
       {
