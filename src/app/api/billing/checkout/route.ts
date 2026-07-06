@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
     cancel_url?: string
   }
   const origin = appUrlFromRequest(req)
-  const successUrl = body.success_url || `${origin}/subscribe?success=1`
+  const successUrl = body.success_url || `${origin}/subscribe?success=1&session_id={CHECKOUT_SESSION_ID}`
   const cancelUrl = body.cancel_url || `${origin}/subscribe?canceled=1`
 
   try {

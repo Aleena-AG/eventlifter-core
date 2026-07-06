@@ -9,6 +9,7 @@ import {
   fetchAuthMe,
   getEwentcastAccount,
   needsSubscription,
+  confirmSubscriptionPayment,
   startSubscriptionCheckout,
   type EwentcastAccount,
 } from '@/lib/ewentcast-session'
@@ -29,7 +30,9 @@ function SubscribeContent() {
   const params = useSearchParams()
   const success = params.get('success')
   const canceled = params.get('canceled')
+  const sessionId = params.get('session_id')
   const [loading, setLoading] = useState(true)
+  const [activating, setActivating] = useState(false)
   const [checkoutLoading, setCheckoutLoading] = useState(false)
   const [error, setError] = useState('')
   const [account, setAccount] = useState<EwentcastAccount | null>(null)
@@ -56,12 +59,45 @@ function SubscribeContent() {
   }, [router])
 
   useEffect(() => {
-    if (success === '1') {
-      refresh().then(() => {
-        if (!needsSubscription()) router.replace('/dashboard')
-      })
+    if (success !== '1') return
+
+    let cancelled = false
+
+    const finishPayment = async () => {
+      setActivating(true)
+      setError('')
+
+      try {
+        if (sessionId) {
+          await confirmSubscriptionPayment(sessionId)
+        }
+      } catch (err) {
+        if (err instanceof Error && err.message === 'SESSION_EXPIRED') {
+          router.replace('/login?reason=session')
+          return
+        }
+      }
+
+      for (let attempt = 0; attempt < 12; attempt++) {
+        if (cancelled) return
+        const ok = await refresh()
+        if (!ok) return
+        if (!needsSubscription()) {
+          router.replace('/dashboard')
+          return
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1500))
+      }
+
+      if (!cancelled) {
+        setError('Payment received. Activation is taking longer than usual — refresh in a moment or contact support.')
+        setActivating(false)
+      }
     }
-  }, [success, router])
+
+    void finishPayment()
+    return () => { cancelled = true }
+  }, [success, sessionId, router])
 
   const startCheckout = async () => {
     setCheckoutLoading(true)
@@ -100,11 +136,11 @@ function SubscribeContent() {
   const isTrialing = account?.subscription_status === 'trialing' && account?.subscription_active
   const needsPay = needsSubscription()
 
-  if (loading) {
+  if (loading || (success === '1' && activating && needsSubscription())) {
     return (
       <div style={{ position: 'fixed', inset: 0, width: '100%', overflowY: 'auto', background: '#FBF7F0' }}>
         <div style={{ minHeight: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 24px', boxSizing: 'border-box' }}>
-          <PageLoader label="Loading subscription…" />
+          <PageLoader label={success === '1' ? 'Activating your Pro plan…' : 'Loading subscription…'} />
         </div>
       </div>
     )
