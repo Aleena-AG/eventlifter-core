@@ -1,7 +1,6 @@
 'use client'
 
 import { channelFetch } from '@/lib/channel-fetch'
-import { htApiAuthHeader } from '@/lib/ewentcast-session'
 
 export type EventCoverFiles = { cover?: File | null }
 
@@ -107,15 +106,14 @@ export async function postHtEvent(
   coverFile?: File,
 ): Promise<Response> {
   if (coverFile) {
-    return fetch(url, {
+    return channelFetch(url, {
       method,
-      headers: { Authorization: htApiAuthHeader() },
       body: buildHtFormData(body, coverFile),
     })
   }
-  return fetch(url, {
+  return channelFetch(url, {
     method,
-    headers: { 'Content-Type': 'application/json', Authorization: htApiAuthHeader() },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
 }

@@ -51,12 +51,35 @@ export function clearEwentcastSession(): void {
 }
 
 export function htApiAuthHeader(): string {
+  const link = getHtLinkToken()
+  if (link) return `Bearer ${link}`
+
+  const account = getEwentcastAccount()
+  if (account?.auth_source === 'hightribe_native') {
+    const browser = readHightribeBrowserToken()
+    if (browser) {
+      const clean = browser.startsWith('Bearer ') ? browser.slice(7) : browser
+      return `Bearer ${clean}`
+    }
+  }
+
+  // Ewentcast session JWT is not valid on Hightribe API routes — never send it.
+  return ''
+}
+
+/** Resolve HT API bearer token, refreshing from /api/auth/me when local storage is empty. */
+export async function resolveHtApiAuthHeader(): Promise<string> {
+  const cached = htApiAuthHeader()
+  if (cached) return cached
+
   const account = getEwentcastAccount()
   if (account?.ht_connected || account?.auth_source === 'hightribe_native') {
-    const link = getHtLinkToken()
-    if (link) return `Bearer ${link}`
+    await fetchAuthMe()
+    const refreshed = htApiAuthHeader()
+    if (refreshed) return refreshed
   }
-  return authHeader()
+
+  return ''
 }
 
 export function isEwentcastSignupUser(): boolean {
