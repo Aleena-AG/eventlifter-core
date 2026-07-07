@@ -1,6 +1,7 @@
 'use client'
 
 import { authHeader, clearAuth, getToken, setToken, setUser, isAuthErrorMessage, type HtUser } from '@/lib/auth'
+import { clearHightribeSsoParams, readHightribeBrowserToken } from '@/lib/hightribe-sso'
 
 export interface EwentcastAccount {
   auth_source: 'ewentcast_signup' | 'hightribe_native'
@@ -263,6 +264,36 @@ export async function loginWithHightribe(email: string, password: string): Promi
   setUser(data.user)
   setEwentcastAccount(data.ewentcast)
   if (data.ht_link_token) setHtLinkToken(data.ht_link_token)
+}
+
+/** Sign in using HighTribe token from browser storage or SSO callback. */
+export async function loginWithHightribeToken(htToken?: string): Promise<void> {
+  const token = htToken || readHightribeBrowserToken()
+  if (!token) {
+    throw new Error('HIGHTRIBE_NOT_LOGGED_IN')
+  }
+
+  const res = await fetch('/api/auth/login-hightribe-token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ ht_token: token }),
+  })
+  const data = await res.json() as {
+    status?: boolean
+    message?: string
+    token?: string
+    user?: HtUser
+    ewentcast?: EwentcastAccount
+    ht_link_token?: string
+  }
+  if (!res.ok || !data.status || !data.token || !data.user || !data.ewentcast) {
+    throw new Error(data.message || 'HighTribe sign-in failed')
+  }
+  setToken(data.token)
+  setUser(data.user)
+  setEwentcastAccount(data.ewentcast)
+  if (data.ht_link_token) setHtLinkToken(data.ht_link_token)
+  clearHightribeSsoParams()
 }
 
 export async function startSubscriptionCheckout(): Promise<string> {

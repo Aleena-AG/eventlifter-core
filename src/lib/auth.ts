@@ -48,6 +48,12 @@ export function isAuthenticated(): boolean {
   return !!getToken()
 }
 
+/** True when the user has a completed Ewentcast session (not just a raw HighTribe token). */
+export function isEwentcastAuthenticated(): boolean {
+  if (typeof window === 'undefined') return false
+  return !!getToken() && !!localStorage.getItem('ewentcast_account')
+}
+
 /** Returns the Authorization header value ready to use */
 export function authHeader(): string {
   const token = getToken()

@@ -13,6 +13,7 @@ import {
   connectHightribeAccount,
   disconnectHightribeAccount,
   loginHightribeAccount,
+  loginHightribeWithToken,
 } from '../services/hightribe-connect'
 
 export const authRouter = Router()
@@ -131,6 +132,30 @@ authRouter.post('/login-hightribe', async (req, res) => {
     return res.status(401).json({
       status: false,
       message: err instanceof Error ? err.message : 'HighTribe login failed',
+    })
+  }
+})
+
+authRouter.post('/login-hightribe-token', async (req, res) => {
+  try {
+    const { ht_token: bodyToken } = req.body as { ht_token?: string }
+    const headerAuth = req.headers.authorization || ''
+    const htToken = bodyToken || (headerAuth.startsWith('Bearer ') ? headerAuth.slice(7) : '')
+    if (!htToken) {
+      return res.status(422).json({ status: false, message: 'HighTribe token is required' })
+    }
+    const result = await loginHightribeWithToken(htToken)
+    return res.json({
+      status: true,
+      token: result.token,
+      user: result.user,
+      ewentcast: result.account,
+      ht_link_token: result.ht_link_token,
+    })
+  } catch (err) {
+    return res.status(401).json({
+      status: false,
+      message: err instanceof Error ? err.message : 'HighTribe sign-in failed',
     })
   }
 })

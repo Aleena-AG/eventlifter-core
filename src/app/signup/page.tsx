@@ -1,10 +1,22 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { isAuthenticated } from '@/lib/auth'
-import { registerLocal } from '@/lib/ewentcast-session'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { isEwentcastAuthenticated } from '@/lib/auth'
+import {
+  fetchAuthMe,
+  getEwentcastAccount,
+  loginWithHightribe,
+  loginWithHightribeToken,
+  registerLocal,
+} from '@/lib/ewentcast-session'
+import {
+  clearHightribeSsoParams,
+  readHightribeBrowserToken,
+  resolveHightribeTokenWithBridge,
+  startHightribePopupBridge,
+} from '@/lib/hightribe-sso'
 import { InlineLoader } from '@/components/Loader'
 import { AuthShowcase } from '@/components/auth/AuthShowcase'
 import { EWENTCAST_WORDMARK, HIGHTRIBE_COLOR, LUMA_COLOR, EVENTBRITE_COLOR } from '@/lib/brand'
@@ -17,16 +29,54 @@ const PLATFORMS = [
 
 export default function SignupPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const htSso = searchParams.get('ht_sso') === '1'
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [htLoading, setHtLoading] = useState(false)
+  const [showHtForm, setShowHtForm] = useState(false)
+  const [htEmail, setHtEmail] = useState('')
+  const [htPassword, setHtPassword] = useState('')
+  const [showHtPassword, setShowHtPassword] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    if (isAuthenticated()) router.replace('/dashboard')
+    if (isEwentcastAuthenticated()) router.replace('/dashboard')
   }, [router])
+
+  const routeAfterHightribeAuth = useCallback(() => {
+    const account = getEwentcastAccount()
+    if (account?.auth_source === 'hightribe_native' || account?.subscription_active) {
+      router.replace('/dashboard')
+    } else {
+      router.replace('/subscribe')
+    }
+  }, [router])
+
+  const completeHightribeSignup = useCallback(async (token?: string) => {
+    setHtLoading(true)
+    setError('')
+    try {
+      await loginWithHightribeToken(token)
+      await fetchAuthMe()
+      routeAfterHightribeAuth()
+    } catch (err) {
+      clearHightribeSsoParams()
+      setError(err instanceof Error ? err.message : 'HighTribe sign-up failed')
+    } finally {
+      setHtLoading(false)
+    }
+  }, [routeAfterHightribeAuth])
+
+  useEffect(() => {
+    if (!htSso && !searchParams.get('ht_token')) return
+    if (isEwentcastAuthenticated()) return
+    if (!readHightribeBrowserToken()) return
+    void completeHightribeSignup()
+  }, [htSso, searchParams, completeHightribeSignup])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -53,6 +103,62 @@ export default function SignupPage() {
       setLoading(false)
     }
   }
+
+  const handleHightribeSignupClick = () => {
+    setError('')
+
+    const localToken = readHightribeBrowserToken()
+    if (localToken) {
+      void completeHightribeSignup(localToken)
+      return
+    }
+
+    const popupBridge = startHightribePopupBridge()
+
+    void (async () => {
+      setHtLoading(true)
+      try {
+        const { token, popupBlocked } = await resolveHightribeTokenWithBridge(popupBridge)
+        if (token) {
+          await completeHightribeSignup(token)
+          return
+        }
+
+        if (popupBlocked) {
+          setError('Popups are blocked. Allow popups for this site, then try again.')
+        } else {
+          setError(
+            'Could not read your HighTribe session. The HighTribe SSO bridge must redirect back with your token, or sign in with your HighTribe email below.',
+          )
+        }
+        setShowHtForm(true)
+      } finally {
+        popupBridge?.close()
+        setHtLoading(false)
+      }
+    })()
+  }
+
+  const handleHightribeCredentials = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!htEmail || !htPassword) {
+      setError('HighTribe email and password are required')
+      return
+    }
+    setHtLoading(true)
+    setError('')
+    try {
+      await loginWithHightribe(htEmail, htPassword)
+      await fetchAuthMe()
+      routeAfterHightribeAuth()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'HighTribe sign-up failed')
+    } finally {
+      setHtLoading(false)
+    }
+  }
+
+  const busy = loading || htLoading
 
   return (
     <div className="auth-page">
@@ -148,9 +254,95 @@ export default function SignupPage() {
                 </div>
               </div>
 
-              <button type="submit" disabled={loading} className="auth-btn-primary">
+              <button type="submit" disabled={busy} className="auth-btn-primary">
                 {loading ? <InlineLoader label="Creating account" /> : 'Sign up — $20/mo →'}
               </button>
+
+              <div className="auth-divider">or</div>
+
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void handleHightribeSignupClick()}
+                className="auth-btn-ghost"
+                style={{ borderColor: `${HIGHTRIBE_COLOR}44`, color: HIGHTRIBE_COLOR }}
+              >
+                {htLoading && !showHtForm ? (
+                  <InlineLoader label="Connecting HighTribe" />
+                ) : (
+                  'Sign up with HighTribe'
+                )}
+              </button>
+
+              {showHtForm && !readHightribeBrowserToken() && (
+                <div
+                  style={{
+                    marginTop: '12px',
+                    padding: '14px',
+                    borderRadius: '10px',
+                    border: `1px solid ${HIGHTRIBE_COLOR}33`,
+                    background: 'rgba(209,71,157,0.06)',
+                  }}
+                >
+                  <p style={{ margin: '0 0 12px', fontSize: '12px', color: '#8C7F6D', lineHeight: 1.5 }}>
+                    Sign in with your HighTribe account to continue.
+                  </p>
+                  <div className="auth-field">
+                    <label className="auth-label" htmlFor="signup-ht-email">
+                      HighTribe email
+                    </label>
+                    <input
+                      id="signup-ht-email"
+                      type="email"
+                      autoComplete="email"
+                      value={htEmail}
+                      onChange={(e) => setHtEmail(e.target.value)}
+                      placeholder="you@hightribe.com"
+                      className="auth-input"
+                    />
+                  </div>
+                  <div className="auth-field" style={{ marginTop: '10px' }}>
+                    <label className="auth-label" htmlFor="signup-ht-password">
+                      HighTribe password
+                    </label>
+                    <div className="auth-input-wrap">
+                      <input
+                        id="signup-ht-password"
+                        type={showHtPassword ? 'text' : 'password'}
+                        autoComplete="current-password"
+                        value={htPassword}
+                        onChange={(e) => setHtPassword(e.target.value)}
+                        placeholder="Your HighTribe password"
+                        className="auth-input"
+                      />
+                      <button
+                        type="button"
+                        className="auth-toggle-pw"
+                        onClick={() => setShowHtPassword((v) => !v)}
+                        aria-label={showHtPassword ? 'Hide password' : 'Show password'}
+                        aria-pressed={showHtPassword}
+                      >
+                        {showHtPassword ? 'Hide' : 'Show'}
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={htLoading || !htEmail || !htPassword}
+                    onClick={(e) => void handleHightribeCredentials(e)}
+                    className="auth-btn-primary"
+                    style={{ marginTop: '12px', width: '100%' }}
+                  >
+                    {htLoading ? <InlineLoader label="Signing in" /> : 'Continue with HighTribe →'}
+                  </button>
+                </div>
+              )}
+
+              {!showHtForm && (
+                <p className="auth-footer-note" style={{ marginTop: 8, marginBottom: 0, textAlign: 'center' }}>
+                  Uses your existing HighTribe login from this browser when available.
+                </p>
+              )}
             </form>
 
             <div className="auth-divider">Works with</div>
