@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { getTrialDaysRemaining, isOnFreeTrial } from '@/lib/ewentcast-session'
+import { getTrialDaysRemaining, isOnFreeTrial, shouldShowBilling } from '@/lib/ewentcast-session'
 
 export function TrialWarningBanner() {
   const pathname = usePathname()
@@ -11,7 +11,7 @@ export function TrialWarningBanner() {
   const [days, setDays] = useState<number | null>(null)
 
   useEffect(() => {
-    setVisible(isOnFreeTrial())
+    setVisible(shouldShowBilling() && isOnFreeTrial())
     setDays(getTrialDaysRemaining())
   }, [pathname])
 

@@ -22,6 +22,21 @@ export async function requireSession(req: Request): Promise<SessionContext | Nex
   return { user, token }
 }
 
+export async function assertEwentcastBillingAccess(userId: number): Promise<NextResponse | null> {
+  const account = await getAccountView(userId)
+  if (account.auth_source !== 'ewentcast_signup') {
+    return NextResponse.json(
+      {
+        status: false,
+        code: 'BILLING_NOT_AVAILABLE',
+        message: 'Billing is only available for Ewentcast accounts.',
+      },
+      { status: 403 },
+    )
+  }
+  return null
+}
+
 export async function assertEwentcastSubscription(userId: number): Promise<NextResponse | null> {
   const account = await getAccountView(userId)
   if (account.auth_source === 'ewentcast_signup' && !account.subscription_active) {

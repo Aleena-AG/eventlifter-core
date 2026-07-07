@@ -3,7 +3,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { getToken } from '@/lib/auth'
-import { fetchAuthMe, isEwentcastSignupUser, needsSubscription } from '@/lib/ewentcast-session'
+import {
+  fetchAuthMe,
+  isEwentcastSignupUser,
+  isHightribeNativeUser,
+  needsSubscription,
+} from '@/lib/ewentcast-session'
 import { PageLoader } from './Loader'
 import { AppShell } from './AppShell'
 
@@ -93,6 +98,11 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
         return
       }
 
+      if (pathBase === '/billing' && isHightribeNativeUser()) {
+        router.replace('/dashboard')
+        return
+      }
+
       setReady(true)
     }
 
@@ -101,7 +111,7 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [pathname, barePage, isSubscribePage, router])
+  }, [pathname, barePage, isSubscribePage, pathBase, router])
 
   if (!ready) {
     return (

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { getUser } from '@/lib/auth'
-import { channelConnectionMap, connectedChannels } from '@/lib/channel-connection'
+import { connectedChannelsFromMap, fetchChannelConnectionMap } from '@/lib/channel-connection'
 import type { AttendeeRecord } from '@/lib/event-registry'
 import { publishToAllChannels, updateChannelEvent, type EventFormData } from '@/lib/publish-event'
 import type { EventCoverFiles } from '@/lib/cover-image'
@@ -90,14 +90,15 @@ export function EwentcastWizard({
   }, [step])
 
   useEffect(() => {
-    fetch('/api/settings').then(r => r.json()).then((s: {
-      eventbrite?: { hasPrivateToken?: boolean; configured?: boolean }
-      luma?: { configured?: boolean }
-    }) => {
-      const map = channelConnectionMap(s)
-      setConns(map)
-      if (!isEdit) setTargets(connectedChannels(s))
-    }).catch(() => {})
+    let cancelled = false
+    fetchChannelConnectionMap()
+      .then((map) => {
+        if (cancelled) return
+        setConns(map)
+        if (!isEdit) setTargets(connectedChannelsFromMap(map))
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
   }, [isEdit])
 
   const liveTargets = targets.filter(t => conns[t])
