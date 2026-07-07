@@ -16,10 +16,26 @@ interface HtLoginResponse {
   user?: { id?: number | string; name?: string; email?: string }
 }
 
-async function loginToHightribeApi(
-  email: string,
-  password: string,
-): Promise<{ htToken: string; htUserId: string; htEmail: string; htName: string }> {
+type HtProfile = { htToken: string; htUserId: string; htEmail: string; htName: string }
+
+function normalizeHtToken(raw: string): string {
+  return raw.startsWith('Bearer ') ? raw.slice(7) : raw
+}
+
+function parseHtUserPayload(
+  data: Record<string, unknown>,
+  fallbackEmail?: string,
+): { htUserId: string; htEmail: string; htName: string } {
+  const user = (data.user && typeof data.user === 'object' ? data.user : data) as Record<string, unknown>
+  const htUserId = String(user.id ?? '')
+  const htEmail = String(user.email || fallbackEmail || '')
+    .trim()
+    .toLowerCase()
+  const htName = String(user.name || htEmail.split('@')[0] || 'User').trim()
+  return { htUserId, htEmail, htName }
+}
+
+async function loginToHightribeApi(email: string, password: string): Promise<HtProfile> {
   const res = await fetch(`${config.htApiBase}/api/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -31,12 +47,34 @@ async function loginToHightribeApi(
     throw new Error(data.message || 'Invalid HighTribe credentials.')
   }
 
-  const htUserId = String(data.user?.id ?? '')
-  const htToken = data.token.startsWith('Bearer ') ? data.token.slice(7) : data.token
-  const htEmail = (data.user?.email || email).trim().toLowerCase()
-  const htName = (data.user?.name || htEmail.split('@')[0] || 'User').trim()
+  const htToken = normalizeHtToken(data.token)
+  const { htUserId, htEmail, htName } = parseHtUserPayload(
+    (data.user ? { user: data.user } : {}) as Record<string, unknown>,
+    email,
+  )
 
   return { htToken, htUserId, htEmail, htName }
+}
+
+/** Validate an existing HighTribe browser token via GET /api/user. */
+export async function fetchHightribeUserFromToken(htToken: string): Promise<HtProfile> {
+  const clean = normalizeHtToken(htToken)
+  const res = await fetch(`${config.htApiBase}/api/user`, {
+    headers: { Authorization: `Bearer ${clean}`, Accept: 'application/json' },
+  })
+
+  const data = await res.json().catch(() => ({})) as Record<string, unknown>
+  if (!res.ok) {
+    const message = typeof data.message === 'string' ? data.message : 'Invalid or expired HighTribe session.'
+    throw new Error(message)
+  }
+
+  const { htUserId, htEmail, htName } = parseHtUserPayload(data)
+  if (!htUserId || !htEmail) {
+    throw new Error('Could not read your HighTribe profile.')
+  }
+
+  return { htToken: clean, htUserId, htEmail, htName }
 }
 
 async function upsertHtConnection(userId: number, htUserId: string, htToken: string): Promise<void> {
@@ -69,12 +107,10 @@ async function ensureUserSubscription(userId: number): Promise<void> {
   )
 }
 
-/** Sign in with HighTribe — creates local user/session so events can be saved to MySQL. */
-export async function loginHightribeAccount(
-  email: string,
-  password: string,
+async function provisionHightribeSession(
+  profile: HtProfile,
 ): Promise<{ token: string; user: UserView; account: AccountView; ht_link_token: string }> {
-  const { htToken, htUserId, htEmail, htName } = await loginToHightribeApi(email, password)
+  const { htToken, htUserId, htEmail, htName } = profile
   const pool = getPool()
   const now = new Date()
 
@@ -112,6 +148,23 @@ export async function loginHightribeAccount(
     account: await getAccountView(userId),
     ht_link_token: htToken,
   }
+}
+
+/** Sign in with HighTribe email/password — creates local user/session so events can be saved to MySQL. */
+export async function loginHightribeAccount(
+  email: string,
+  password: string,
+): Promise<{ token: string; user: UserView; account: AccountView; ht_link_token: string }> {
+  const profile = await loginToHightribeApi(email, password)
+  return provisionHightribeSession(profile)
+}
+
+/** Sign in with an existing HighTribe token from browser storage (SSO). */
+export async function loginHightribeWithToken(
+  htToken: string,
+): Promise<{ token: string; user: UserView; account: AccountView; ht_link_token: string }> {
+  const profile = await fetchHightribeUserFromToken(htToken)
+  return provisionHightribeSession(profile)
 }
 
 export async function connectHightribeAccount(

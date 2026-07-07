@@ -11,6 +11,7 @@ import {
   connectHightribeAccount,
   disconnectHightribeAccount,
   loginHightribeAccount,
+  loginHightribeWithToken,
 } from '../../../../../backend/src/services/hightribe-connect'
 import { isErrorResponse, requireSession } from '@/lib/server/session'
 
@@ -126,6 +127,27 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
         )
       }
       const result = await loginHightribeAccount(email, password)
+      return NextResponse.json({
+        status: true,
+        token: result.token,
+        user: result.user,
+        ewentcast: result.account,
+        ht_link_token: result.ht_link_token,
+      })
+    }
+
+    if (sub === 'login-hightribe-token') {
+      const headerAuth = req.headers.get('authorization') || ''
+      const htToken =
+        String(body.ht_token || '') ||
+        (headerAuth.startsWith('Bearer ') ? headerAuth.slice(7) : '')
+      if (!htToken) {
+        return NextResponse.json(
+          { status: false, message: 'HighTribe token is required' },
+          { status: 422 },
+        )
+      }
+      const result = await loginHightribeWithToken(htToken)
       return NextResponse.json({
         status: true,
         token: result.token,

@@ -17,6 +17,13 @@ const nextConfig: NextConfig = {
 
     env: {
         NEXT_PUBLIC_APP_URL: appUrl,
+        NEXT_PUBLIC_HIGHTRIBE_APP_URL: (
+          process.env.NEXT_PUBLIC_HIGHTRIBE_APP_URL ||
+          process.env.HIGHTRIBE_APP_URL ||
+          'https://hightribe.com'
+        ).replace(/\/$/, ''),
+        NEXT_PUBLIC_HIGHTRIBE_SSO_PATH:
+          process.env.NEXT_PUBLIC_HIGHTRIBE_SSO_PATH || '/sso/ewentcast-token',
     },
 
     allowedDevOrigins: [
