@@ -1,6 +1,6 @@
 'use client'
 
-import { htApiAuthHeader } from '@/lib/ewentcast-session'
+import { channelFetch } from '@/lib/channel-fetch'
 
 export interface HtEventListItem {
   id: string | number
@@ -72,8 +72,8 @@ export async function fetchHtEventsPage(page = 1, perPage = 12): Promise<HtEvent
     page: String(page),
   })
 
-  const res = await fetch(`/api/hightribe/events?${params}`, {
-    headers: { Authorization: htApiAuthHeader(), Accept: 'application/json' },
+  const res = await channelFetch(`/api/hightribe/events?${params}`, {
+    headers: { Accept: 'application/json' },
   })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
 
@@ -86,8 +86,8 @@ export async function fetchHtEventsPage(page = 1, perPage = 12): Promise<HtEvent
 
 /** Host-wide stats for dashboard — GET /api/events/stats */
 export async function fetchHtHostStats(): Promise<HtHostStats> {
-  const res = await fetch('/api/hightribe/events/stats', {
-    headers: { Authorization: htApiAuthHeader(), Accept: 'application/json' },
+  const res = await channelFetch('/api/hightribe/events/stats', {
+    headers: { Accept: 'application/json' },
   })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
 
@@ -110,8 +110,8 @@ export async function fetchHtBookingsPage(page = 1, perPage = 10): Promise<{
     page: String(page),
   })
 
-  const res = await fetch(`/api/hightribe/events/bookings?${params}`, {
-    headers: { Authorization: htApiAuthHeader(), Accept: 'application/json' },
+  const res = await channelFetch(`/api/hightribe/events/bookings?${params}`, {
+    headers: { Accept: 'application/json' },
   })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
 

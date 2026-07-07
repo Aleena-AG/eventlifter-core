@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { channelFetch } from '@/lib/channel-fetch'
 import { fetchChannelConnectionMap } from '@/lib/channel-connection'
+import { resolveHtApiAuthHeader } from '@/lib/ewentcast-session'
 import { buildEbTicketClass, ebTicketQuantity } from '@/lib/eventbrite-ticket'
 import { resolveEbTimezone } from '@/lib/eventbrite-timezone'
 import { lumaEntryMatchesId, lumaEventToNorm, unwrapLumaEvent } from '@/lib/luma-event-utils'
@@ -315,6 +316,10 @@ export function SyncModal({ open, event, onClose }: Props) {
       targets.map(async (ch) => {
         try {
           if (ch === 'hightribe') {
+            const htAuth = await resolveHtApiAuthHeader()
+            if (!htAuth) {
+              throw new Error('HighTribe session expired. Reconnect in Settings → Hightribe.')
+            }
             // Parse startUtc → date + time fields HT expects
             const startD = new Date(norm.startUtc)
             const endD   = new Date(norm.endUtc)

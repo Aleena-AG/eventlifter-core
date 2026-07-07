@@ -1,6 +1,7 @@
 import { getSettings } from '@/lib/api'
 import { getUser } from '@/lib/auth'
-import { getEwentcastAccount } from '@/lib/ewentcast-session'
+import { fetchAuthMe, getEwentcastAccount, getHtLinkToken } from '@/lib/ewentcast-session'
+import { readHightribeBrowserToken } from '@/lib/hightribe-sso'
 import type { ChannelKey } from '@/lib/types'
 export interface ChannelSettingsView {
   luma?: { configured?: boolean }
@@ -14,6 +15,13 @@ export function isLumaConnected(settings: ChannelSettingsView): boolean {
 
 export function isEventbriteConnected(settings: ChannelSettingsView): boolean {
   return !!(settings.eventbrite?.hasPrivateToken || settings.eventbrite?.configured)
+}
+
+export function hasHtApiToken(): boolean {
+  if (getHtLinkToken()) return true
+  const account = getEwentcastAccount()
+  if (account?.auth_source === 'hightribe_native' && readHightribeBrowserToken()) return true
+  return false
 }
 
 export function isHightribeChannelConnected(): boolean {
@@ -50,6 +58,10 @@ export function isChannelConnected(channel: ChannelKey, settings: ChannelSetting
 /** Load connection flags for all channels (uses auth so user settings load on production). */
 export async function fetchChannelConnectionMap(): Promise<Record<ChannelKey, boolean>> {
   try {
+    const account = getEwentcastAccount()
+    if ((account?.ht_connected || account?.auth_source === 'hightribe_native') && !getHtLinkToken()) {
+      await fetchAuthMe()
+    }
     const settings = (await getSettings()) as ChannelSettingsView
     return channelConnectionMap(settings)
   } catch {
