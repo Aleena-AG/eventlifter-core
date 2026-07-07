@@ -1,5 +1,6 @@
 'use client'
 
+import { channelFetch } from '@/lib/channel-fetch'
 import { authHeader } from '@/lib/auth'
 import type { ChannelKey } from '@/lib/types'
 import { buildEbTicketClass, ebTicketQuantity } from '@/lib/eventbrite-ticket'
@@ -119,9 +120,9 @@ export async function publishToChannel(
         longitude: ev.lng ? parseFloat(String(ev.lng)) : undefined,
       }
     }
-    const res = await fetch('/api/luma/events', {
+    const res = await channelFetch('/api/luma/events', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: authHeader() },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
     const raw = await res.json() as { status?: string; data?: { api_id?: string }; message?: string; error?: string }
@@ -131,8 +132,15 @@ export async function publishToChannel(
   }
 
   // Eventbrite
-  const orgRes = await fetch('/api/eventbrite/users/me/organizations')
-  const orgData = await orgRes.json() as { organizations?: Array<{ id: string }> }
+  const orgRes = await channelFetch('/api/eventbrite/users/me/organizations')
+  const orgData = await orgRes.json() as {
+    organizations?: Array<{ id: string }>
+    error?: string
+    error_description?: string
+  }
+  if (!orgRes.ok) {
+    throw new Error(orgData.error || orgData.error_description || `HTTP ${orgRes.status}`)
+  }
   const orgId = orgData.organizations?.[0]?.id
   if (!orgId) throw new Error('No Eventbrite organization found')
 
@@ -141,7 +149,7 @@ export async function publishToChannel(
     city: String(ev.city || ''),
   })
 
-  const evtRes = await fetch(`/api/eventbrite/organizations/${orgId}/events`, {
+  const evtRes = await channelFetch(`/api/eventbrite/organizations/${orgId}/events`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -162,7 +170,7 @@ export async function publishToChannel(
   const eventId = evtData.id!
 
   if (inPerson && (ev.venue || ev.address || ev.city)) {
-    const vRes = await fetch(`/api/eventbrite/organizations/${orgId}/venues`, {
+    const vRes = await channelFetch(`/api/eventbrite/organizations/${orgId}/venues`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -175,7 +183,7 @@ export async function publishToChannel(
     if (vRes.ok) {
       const vData = await vRes.json() as { id?: string }
       if (vData.id) {
-        await fetch(`/api/eventbrite/events/${eventId}`, {
+        await channelFetch(`/api/eventbrite/events/${eventId}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ event: { venue_id: vData.id } }),
@@ -192,7 +200,7 @@ export async function publishToChannel(
     price: ev.ticketType === 'Free' ? 0 : parseFloat(String(ev.price || '0')),
   })
 
-  const tcRes = await fetch(`/api/eventbrite/events/${eventId}/ticket_classes`, {
+  const tcRes = await channelFetch(`/api/eventbrite/events/${eventId}/ticket_classes`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ticket_class: tc }),
@@ -277,9 +285,9 @@ export async function updateChannelEvent(
         longitude: ev.lng ? parseFloat(String(ev.lng)) : undefined,
       }
     }
-    const res = await fetch('/api/luma/events', {
+    const res = await channelFetch('/api/luma/events', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json', Authorization: authHeader() },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
     const raw = await res.json() as { status?: string; message?: string; error?: string }
@@ -287,7 +295,7 @@ export async function updateChannelEvent(
     return
   }
 
-  const res = await fetch(`/api/eventbrite/events/${eventId}`, {
+  const res = await channelFetch(`/api/eventbrite/events/${eventId}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

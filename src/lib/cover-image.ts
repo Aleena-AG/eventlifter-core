@@ -1,6 +1,7 @@
 'use client'
 
-import { authHeader } from '@/lib/auth'
+import { channelFetch } from '@/lib/channel-fetch'
+import { htApiAuthHeader } from '@/lib/ewentcast-session'
 
 export type EventCoverFiles = { cover?: File | null }
 
@@ -32,9 +33,9 @@ export async function resolveCoverUrl(
   if (!file) return undefined
 
   try {
-    const metaRes = await fetch('/api/luma/images/upload-url', {
+    const metaRes = await channelFetch('/api/luma/images/upload-url', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: authHeader() },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content_type: file.type || 'image/jpeg' }),
     })
     const metaRaw = await metaRes.json() as {
@@ -108,13 +109,13 @@ export async function postHtEvent(
   if (coverFile) {
     return fetch(url, {
       method,
-      headers: { Authorization: authHeader() },
+      headers: { Authorization: htApiAuthHeader() },
       body: buildHtFormData(body, coverFile),
     })
   }
   return fetch(url, {
     method,
-    headers: { 'Content-Type': 'application/json', Authorization: authHeader() },
+    headers: { 'Content-Type': 'application/json', Authorization: htApiAuthHeader() },
     body: JSON.stringify(body),
   })
 }

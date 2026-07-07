@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { authHeader } from '@/lib/auth'
-import { getEwentcastAccount, htApiAuthHeader, isEwentcastSignupUser } from '@/lib/ewentcast-session'
+import { channelFetch } from '@/lib/channel-fetch'
+import { getEwentcastAccount, isEwentcastSignupUser } from '@/lib/ewentcast-session'
 import { listStoredEvents } from '@/lib/channel-events-store'
 import { syncChannelDataToDb } from '@/lib/channel-data-sync'
 import { storedToEbEvent, storedToHtEvent, storedToLumaEvent } from '@/lib/channel-db-mappers'
@@ -30,14 +30,14 @@ type DeleteLink = { channel: ChannelKey; eventId: string | number }
 
 async function deleteOnChannel(channel: ChannelKey, id: string | number): Promise<void> {
   if (channel === 'hightribe') {
-    const res = await fetch(`/api/hightribe/events/${id}`, { method: 'DELETE', headers: { Authorization: htApiAuthHeader() } })
+    const res = await channelFetch(`/api/hightribe/events/${id}`, { method: 'DELETE' })
     if (!res.ok) { const d = await res.json() as { message?: string }; throw new Error(d.message || `HTTP ${res.status}`) }
     return
   }
   if (channel === 'luma') {
-    const res = await fetch('/api/luma/events/cancel', {
+    const res = await channelFetch('/api/luma/events/cancel', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: authHeader() },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ event_id: String(id), should_refund: true }),
     })
     const raw = await res.json() as { status?: string; message?: string; error?: string }
@@ -46,7 +46,7 @@ async function deleteOnChannel(channel: ChannelKey, id: string | number): Promis
     }
     return
   }
-  const res = await fetch(`/api/eventbrite/events/${id}`, { method: 'DELETE' })
+  const res = await channelFetch(`/api/eventbrite/events/${id}`, { method: 'DELETE' })
   if (!res.ok) { const d = await res.json() as { error_description?: string }; throw new Error(d.error_description || `HTTP ${res.status}`) }
 }
 
