@@ -4,13 +4,13 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { isAuthenticated } from '@/lib/auth'
-import { fetchAuthMe, loginLocal } from '@/lib/ewentcast-session'
+import { fetchAuthMe, loginLocal, loginWithHightribe } from '@/lib/ewentcast-session'
 import { InlineLoader } from '@/components/Loader'
 import { AuthShowcase } from '@/components/auth/AuthShowcase'
 import { EWENTCAST_WORDMARK, HIGHTRIBE_COLOR, LUMA_COLOR, EVENTBRITE_COLOR } from '@/lib/brand'
 
 const REMEMBER_EMAIL_KEY = 'ewentcast_login_email'
-const HT_LOGIN_ENABLED = false
+const HT_LOGIN_ENABLED = true
 
 const PLATFORMS = [
   { name: 'Eventbrite', color: EVENTBRITE_COLOR },
@@ -46,6 +46,31 @@ export default function LoginPage() {
       setRememberEmail(true)
     }
   }, [])
+
+  const handleHightribeLogin = async () => {
+    if (!email || !password) {
+      setError('Email and password are required')
+      return
+    }
+    setLoading(true)
+    setError('')
+    try {
+      await loginWithHightribe(email, password)
+
+      if (rememberEmail) {
+        localStorage.setItem(REMEMBER_EMAIL_KEY, email)
+      } else {
+        localStorage.removeItem(REMEMBER_EMAIL_KEY)
+      }
+
+      await fetchAuthMe()
+      router.replace('/dashboard')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'HighTribe login failed')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -166,16 +191,16 @@ export default function LoginPage() {
 
               <button
                 type="button"
-                disabled
-                className="auth-btn-ghost auth-btn-ghost--disabled"
-                title="Sign in with HighTribe is temporarily unavailable"
-                aria-disabled="true"
+                disabled={loading || !HT_LOGIN_ENABLED}
+                onClick={handleHightribeLogin}
+                className="auth-btn-ghost"
+                style={{ borderColor: HIGHTRIBE_COLOR, color: HIGHTRIBE_COLOR }}
               >
-                Sign in with HighTribe
+                {loading ? <InlineLoader label="Signing in" /> : 'Sign in with HighTribe'}
               </button>
-              {!HT_LOGIN_ENABLED && (
+              {HT_LOGIN_ENABLED && (
                 <p className="auth-footer-note" style={{ marginTop: 8, marginBottom: 0, textAlign: 'center' }}>
-                  HighTribe login coming soon — use your Ewentcast email and password above.
+                  HighTribe login uses your HT account — no Ewentcast billing or trial required.
                 </p>
               )}
             </form>

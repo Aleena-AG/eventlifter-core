@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
 import { getToken } from '@/lib/auth'
-import { fetchAuthMe, isEwentcastSignupUser, needsSubscription } from '@/lib/ewentcast-session'
+import { fetchAuthMe, isEwentcastSignupUser, isHightribeNativeUser, needsSubscription } from '@/lib/ewentcast-session'
 import { Sidebar } from './Sidebar'
 import { TrialWarningBanner } from './TrialWarningBanner'
 import { PageLoader } from './Loader'
@@ -93,6 +93,11 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
 
       if (!isSubscribePage && isEwentcastSignupUser() && needsSubscription()) {
         router.replace('/subscribe')
+        return
+      }
+
+      if (pathBase === '/billing' && isHightribeNativeUser()) {
+        router.replace('/dashboard')
         return
       }
 

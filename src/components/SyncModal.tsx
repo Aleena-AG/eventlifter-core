@@ -1,7 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import Link from 'next/link'
 import { authHeader } from '@/lib/auth'
+import { fetchChannelConnectionMap } from '@/lib/channel-connection'
 import { buildEbTicketClass, ebTicketQuantity } from '@/lib/eventbrite-ticket'
 import { resolveEbTimezone } from '@/lib/eventbrite-timezone'
 import { lumaEntryMatchesId, lumaEventToNorm, unwrapLumaEvent } from '@/lib/luma-event-utils'
@@ -58,9 +60,6 @@ interface NormEvent {
 interface Props {
   open: boolean
   event: { id: string | number; title: string; source: SyncSource } | null
-  htConfigured: boolean
-  lumaConfigured: boolean
-  ebConfigured: boolean
   onClose: () => void
 }
 
@@ -237,13 +236,27 @@ function buildHtLocation(norm: NormEvent): Record<string, unknown> {
   }
 }
 
-export function SyncModal({ open, event, htConfigured, lumaConfigured, ebConfigured, onClose }: Props) {
+export function SyncModal({ open, event, onClose }: Props) {
   const [selected, setSelected] = useState<Record<ChannelKey, boolean>>({
     hightribe: false, luma: false, eventbrite: false,
   })
   const [results, setResults] = useState<Partial<Record<ChannelKey, ChannelResult>>>({})
   const [publishing, setPublishing] = useState(false)
   const [done, setDone] = useState(false)
+  const [connections, setConnections] = useState<Record<ChannelKey, boolean>>({
+    hightribe: false, luma: false, eventbrite: false,
+  })
+  const [connectionsLoading, setConnectionsLoading] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    setConnectionsLoading(true)
+    fetchChannelConnectionMap()
+      .then((map) => { if (!cancelled) setConnections(map) })
+      .finally(() => { if (!cancelled) setConnectionsLoading(false) })
+    return () => { cancelled = true }
+  }, [open, event?.id])
 
   if (!open || !event) return null
 
@@ -509,21 +522,30 @@ export function SyncModal({ open, event, htConfigured, lumaConfigured, ebConfigu
 
   const anySelected = Object.entries(selected).some(([k, v]) => v && k !== source)
 
-  const CHANNELS: { key: ChannelKey; label: string; icon: string; color: string; configured: boolean; note: string }[] = [
+  const CHANNELS: { key: ChannelKey; label: string; icon: string; color: string; configured: boolean; note: string; settingsHref: string }[] = [
     {
       key: 'hightribe', label: 'Hightribe', icon: '🏔', color: HIGHTRIBE_COLOR,
-      configured: htConfigured,
-      note: htConfigured ? 'Will create event via Hightribe API' : 'Log in to Hightribe first',
+      configured: connections.hightribe,
+      note: connections.hightribe
+        ? 'Will create event via Hightribe API'
+        : 'Connect Hightribe in Settings first',
+      settingsHref: '/settings?channel=hightribe',
     },
     {
       key: 'luma', label: 'Luma', icon: '✨', color: LUMA_COLOR,
-      configured: lumaConfigured,
-      note: lumaConfigured ? 'Will create event via Luma API' : 'Log in to Hightribe first (Luma is configured server-side)',
+      configured: connections.luma,
+      note: connections.luma
+        ? 'Will create event via Luma API'
+        : 'Configure Luma in Settings first',
+      settingsHref: '/settings?channel=luma',
     },
     {
       key: 'eventbrite', label: 'Eventbrite', icon: '🎫', color: EVENTBRITE_COLOR,
-      configured: ebConfigured,
-      note: ebConfigured ? 'Will create event via Eventbrite API' : 'Configure Eventbrite in Settings first',
+      configured: connections.eventbrite,
+      note: connections.eventbrite
+        ? 'Will create event via Eventbrite API'
+        : 'Configure Eventbrite in Settings first',
+      settingsHref: '/settings?channel=eventbrite',
     },
   ]
 
@@ -570,7 +592,10 @@ export function SyncModal({ open, event, htConfigured, lumaConfigured, ebConfigu
 
         {/* Channel selection */}
         <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {CHANNELS.filter(c => c.key !== source).map(({ key, label, icon, color, configured, note }) => {
+          {connectionsLoading && (
+            <p style={{ margin: 0, fontSize: '12px', color: '#8C7F6D' }}>Checking connected channels…</p>
+          )}
+          {CHANNELS.filter(c => c.key !== source).map(({ key, label, icon, color, configured, note, settingsHref }) => {
             const result = results[key]
             const isSelected = selected[key]
 
@@ -604,7 +629,19 @@ export function SyncModal({ open, event, htConfigured, lumaConfigured, ebConfigu
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: '14px', fontWeight: 500, color: '#211B16' }}>{label}</div>
                     <div style={{ fontSize: '12px', color: result?.status === 'error' ? '#C2502E' : result?.status === 'success' ? '#4E7A4B' : '#8C7F6D', marginTop: '2px' }}>
-                      {result ? result.message : note}
+                      {result ? result.message : (
+                        <>
+                          {note}
+                          {!configured && !connectionsLoading && (
+                            <>
+                              {' '}
+                              <Link href={settingsHref} style={{ color: '#D98A2B', fontWeight: 600 }} onClick={(e) => e.stopPropagation()}>
+                                Open Settings →
+                              </Link>
+                            </>
+                          )}
+                        </>
+                      )}
                     </div>
                   </div>
 

@@ -4,11 +4,6 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { authHeader } from '@/lib/auth'
-import {
-  isEventbriteConnected,
-  isHightribeChannelConnected,
-  isLumaConnected,
-} from '@/lib/channel-connection'
 import { getEwentcastAccount, htApiAuthHeader, isEwentcastSignupUser } from '@/lib/ewentcast-session'
 import { listStoredEvents } from '@/lib/channel-events-store'
 import { syncChannelDataToDb } from '@/lib/channel-data-sync'
@@ -310,10 +305,6 @@ export default function EventsPage() {
 
   // Sync modal
   const [syncEvent, setSyncEvent] = useState<{ id: string | number; title: string; source: SyncSource } | null>(null)
-  const [htConfigured, setHtConfigured] = useState(false)
-  const [lumaConfigured, setLumaConfigured] = useState(false)
-  const [ebConfigured, setEbConfigured] = useState(false)
-
   // Delete confirm
   const [deleteTarget, setDeleteTarget] = useState<{ channel: ChannelKey; id: string|number; title: string } | null>(null)
   const [deleteLinks, setDeleteLinks] = useState<DeleteLink[]>([])
@@ -566,17 +557,6 @@ export default function EventsPage() {
   }
 
   useEffect(() => {
-    fetch('/api/settings').then(r => r.json()).then((s: {
-      luma?: { configured?: boolean }
-      eventbrite?: { hasPrivateToken?: boolean; configured?: boolean }
-    }) => {
-      setHtConfigured(isHightribeChannelConnected())
-      setLumaConfigured(isLumaConnected(s))
-      setEbConfigured(isEventbriteConnected(s))
-    }).catch(() => {})
-  }, [])
-
-  useEffect(() => {
     const htAvailable = !isEwentcastSignupUser() || !!getEwentcastAccount()?.ht_connected
     if (tab === 'hightribe' && htAvailable && htEvents.length === 0 && !htLoading) loadHtEvents(1)
     if (tab === 'luma' && lumaEvents.length === 0 && !lumaLoading) loadLumaEvents()
@@ -621,7 +601,7 @@ export default function EventsPage() {
     <div className="events-page">
       <Toast toasts={toasts} onRemove={removeToast} />
 
-      <SyncModal open={!!syncEvent} event={syncEvent} htConfigured={htConfigured} lumaConfigured={lumaConfigured} ebConfigured={ebConfigured} onClose={() => setSyncEvent(null)} />
+      <SyncModal open={!!syncEvent} event={syncEvent} onClose={() => setSyncEvent(null)} />
 
       <CreateEventWizardModal
         open={createOpen}

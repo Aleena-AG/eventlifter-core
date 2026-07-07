@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
 import { getUser, clearAuth, authHeader, type HtUser } from '@/lib/auth'
-import { logoutLocal, isEwentcastSignupUser } from '@/lib/ewentcast-session'
+import { logoutLocal, shouldShowBilling } from '@/lib/ewentcast-session'
 import { InlineLoader } from '@/components/Loader'
 import { EwentcastLogo } from '@/components/EwentcastLogo'
 import { SidebarNavIcon } from '@/components/SidebarNavIcon'
@@ -37,11 +37,10 @@ export function Sidebar({ mobileOpen = false, onNavigate, onClose }: SidebarProp
   const pathname = usePathname()
   const [user, setUser] = useState<HtUser | null>(null)
   const [loggingOut, setLoggingOut] = useState(false)
-  const [showBilling, setShowBilling] = useState(false)
+  const showBilling = shouldShowBilling()
 
   useEffect(() => {
     setUser(getUser())
-    setShowBilling(isEwentcastSignupUser())
   }, [pathname])
 
   const handleLogout = async () => {

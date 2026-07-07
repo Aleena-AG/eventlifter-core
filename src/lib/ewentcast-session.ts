@@ -62,6 +62,15 @@ export function isEwentcastSignupUser(): boolean {
   return getEwentcastAccount()?.auth_source === 'ewentcast_signup'
 }
 
+export function isHightribeNativeUser(): boolean {
+  return getEwentcastAccount()?.auth_source === 'hightribe_native'
+}
+
+/** Stripe billing / subscribe UI — Ewentcast sign-in only, not HighTribe login. */
+export function shouldShowBilling(): boolean {
+  return isEwentcastSignupUser()
+}
+
 /** Luma/Eventbrite keys on Hightribe API — only when HT link token is available. */
 export function canLoadHtChannelKeys(): boolean {
   if (!getToken()) return false
