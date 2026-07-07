@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { authHeader } from '@/lib/auth'
+import { channelFetch } from '@/lib/channel-fetch'
 import { fetchChannelConnectionMap } from '@/lib/channel-connection'
 import { buildEbTicketClass, ebTicketQuantity } from '@/lib/eventbrite-ticket'
 import { resolveEbTimezone } from '@/lib/eventbrite-timezone'
@@ -113,8 +113,8 @@ function parseCapacity(v: unknown): number | undefined {
 }
 
 async function fetchHtEvent(id: string | number): Promise<NormEvent> {
-  const res = await fetch(`/api/hightribe/events/${id}`, {
-    headers: { Authorization: authHeader(), Accept: 'application/json' },
+  const res = await channelFetch(`/api/hightribe/events/${id}`, {
+    headers: { Accept: 'application/json' },
   })
   const raw = await res.json() as { data?: Record<string, unknown> } & Record<string, unknown>
   const e = (raw.data || raw) as Record<string, unknown>
@@ -142,8 +142,8 @@ async function fetchHtEvent(id: string | number): Promise<NormEvent> {
 }
 
 async function fetchLumaEventFromList(id: string | number): Promise<NormEvent | null> {
-  const res = await fetch('/api/luma/events/hosted?upcoming_only=false&fetch_all=true', {
-    headers: { Authorization: authHeader(), Accept: 'application/json' },
+  const res = await channelFetch('/api/luma/events/hosted?upcoming_only=false&fetch_all=true', {
+    headers: { Accept: 'application/json' },
   })
   const raw = await res.json() as { data?: { entries?: unknown[] }; entries?: unknown[]; status?: string }
   if (!res.ok || raw.status === 'error') return null
@@ -159,8 +159,8 @@ async function fetchLumaEventFromList(id: string | number): Promise<NormEvent | 
 
 async function fetchLumaEvent(id: string | number, fallbackTitle?: string): Promise<NormEvent> {
   try {
-    const res = await fetch(`/api/luma/events?api_id=${encodeURIComponent(String(id))}`, {
-      headers: { Authorization: authHeader(), Accept: 'application/json' },
+    const res = await channelFetch(`/api/luma/events?api_id=${encodeURIComponent(String(id))}`, {
+      headers: { Accept: 'application/json' },
     })
     const raw = await res.json() as { data?: unknown; status?: string; message?: string }
     if (res.ok && raw.status !== 'error') {
@@ -183,7 +183,7 @@ async function fetchLumaEvent(id: string | number, fallbackTitle?: string): Prom
 }
 
 async function fetchEbEvent(id: string | number): Promise<NormEvent> {
-  const res = await fetch(`/api/eventbrite/events/${id}?expand=venue`)
+  const res = await channelFetch(`/api/eventbrite/events/${id}?expand=venue`)
   const e = await res.json() as Record<string, unknown>
   const start = e.start as Record<string, string> | undefined
   const end   = e.end   as Record<string, string> | undefined
@@ -340,9 +340,9 @@ export function SyncModal({ open, event, onClose }: Props) {
               },
               location: buildHtLocation(norm),
             }
-            const res = await fetch('/api/hightribe/events', {
+            const res = await channelFetch('/api/hightribe/events', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: authHeader() },
+              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(body),
             })
             const data = await res.json() as { message?: string; errors?: Record<string, string[]>; data?: { id?: unknown } }
@@ -379,9 +379,9 @@ export function SyncModal({ open, event, onClose }: Props) {
                 longitude: norm.lng,
               }
             }
-            const res = await fetch('/api/luma/events', {
+            const res = await channelFetch('/api/luma/events', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: authHeader() },
+              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(body),
             })
             const raw = await res.json() as { status?: string; data?: { api_id?: string }; message?: string; error?: string }
@@ -400,8 +400,15 @@ export function SyncModal({ open, event, onClose }: Props) {
             const ebTitle = ebEventTitle(norm, event.title)
             const ebDesc = (norm.description || ebTitle).trim() || ebTitle
 
-            const orgRes = await fetch('/api/eventbrite/users/me/organizations')
-            const orgData = await orgRes.json() as { organizations?: Array<{ id: string }> }
+            const orgRes = await channelFetch('/api/eventbrite/users/me/organizations')
+            const orgData = await orgRes.json() as {
+              organizations?: Array<{ id: string }>
+              error?: string
+              error_description?: string
+            }
+            if (!orgRes.ok) {
+              throw new Error(orgData.error || orgData.error_description || `HTTP ${orgRes.status}`)
+            }
             const orgId = orgData.organizations?.[0]?.id
             if (!orgId) throw new Error('No Eventbrite organization found. Create one on eventbrite.com first.')
 
@@ -417,7 +424,7 @@ export function SyncModal({ open, event, onClose }: Props) {
                 shareable: true,
               },
             }
-            const evtRes = await fetch(`/api/eventbrite/organizations/${orgId}/events`, {
+            const evtRes = await channelFetch(`/api/eventbrite/organizations/${orgId}/events`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(evtBody),
@@ -428,7 +435,7 @@ export function SyncModal({ open, event, onClose }: Props) {
 
             // Attach venue for in-person events (same flow as EventFormModal / Laravel EB import)
             if (!norm.isOnline && (norm.venueName || norm.address || norm.city)) {
-              const vRes = await fetch(`/api/eventbrite/organizations/${orgId}/venues`, {
+              const vRes = await channelFetch(`/api/eventbrite/organizations/${orgId}/venues`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -445,7 +452,7 @@ export function SyncModal({ open, event, onClose }: Props) {
               if (vRes.ok) {
                 const vData = await vRes.json() as { id?: string }
                 if (vData.id) {
-                  await fetch(`/api/eventbrite/events/${eventId2}`, {
+                  await channelFetch(`/api/eventbrite/events/${eventId2}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ event: { venue_id: vData.id } }),
@@ -455,7 +462,7 @@ export function SyncModal({ open, event, onClose }: Props) {
             }
 
             // Add free ticket so the event is publishable
-            const tcRes = await fetch(`/api/eventbrite/events/${eventId2}/ticket_classes`, {
+            const tcRes = await channelFetch(`/api/eventbrite/events/${eventId2}/ticket_classes`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
