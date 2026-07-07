@@ -5,6 +5,24 @@ import { getAppUrl } from '@/lib/app-url'
 
 const EB_BASE = 'https://www.eventbriteapi.com/v3'
 
+/** Match Eventbrite UI: Account Settings → Webhooks → "Click to activate all actions" */
+const EVENTBRITE_WEBHOOK_ACTIONS = [
+  'attendee.updated',
+  'attendee.checked_in',
+  'attendee.checked_out',
+  'event.created',
+  'event.published',
+  'event.unpublished',
+  'event.updated',
+  'order.placed',
+  'order.refunded',
+  'order.updated',
+  'organizer.updated',
+  'ticket_class.created',
+  'ticket_class.deleted',
+  'ticket_class.updated',
+].join(',')
+
 function webhookBase(req: NextRequest): string {
   const host = req.headers.get('x-forwarded-host') || req.headers.get('host')
   if (host) {
@@ -69,7 +87,7 @@ export async function POST(req: NextRequest) {
           },
           body: JSON.stringify({
             endpoint_url: webhookUrl,
-            actions: 'order.placed,attendee.updated',
+            actions: EVENTBRITE_WEBHOOK_ACTIONS,
           }),
         })
         const whData = await readJsonSafe(whRes)

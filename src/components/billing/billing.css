@@ -79,7 +79,8 @@
 }
 
 .billing-page {
-  max-width: 880px;
+  width: 100%;
+  max-width: none;
 }
 
 .billing-page__header {
