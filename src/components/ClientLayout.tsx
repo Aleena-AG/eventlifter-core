@@ -1,15 +1,11 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
 import { getToken } from '@/lib/auth'
 import { fetchAuthMe, isEwentcastSignupUser, needsSubscription } from '@/lib/ewentcast-session'
-import { Sidebar } from './Sidebar'
-import { TrialWarningBanner } from './TrialWarningBanner'
 import { PageLoader } from './Loader'
-import { EwentcastLogo } from './EwentcastLogo'
-import '@/app/app-shell.css'
+import { AppShell } from './AppShell'
 
 const PAGE_TITLES: Record<string, string> = {
   '/dashboard': 'Dashboard',
@@ -29,6 +25,7 @@ const BARE_PATHS = new Set([
   '/create',
   '/forgot-password',
   '/reset-password',
+  '/sso/return',
 ])
 
 function isBarePath(pathname: string): boolean {
@@ -126,44 +123,14 @@ export function ClientLayout({ children }: { children: React.ReactNode }) {
   if (barePage) return <>{children}</>
 
   return (
-    <>
-      <header className="app-mobile-topbar">
-        <button
-          type="button"
-          className="app-mobile-menu-btn"
-          onClick={() => setSidebarOpen(true)}
-          aria-label="Open menu"
-          aria-expanded={sidebarOpen}
-        >
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-          </svg>
-        </button>
-        <Link href="/dashboard" className="app-mobile-topbar-brand" aria-label="Ewentcast home">
-          <EwentcastLogo height={26} wordmarkOnly />
-        </Link>
-        <span className="app-mobile-topbar-title">{mobileTitle}</span>
-      </header>
-
-      {sidebarOpen && (
-        <button
-          type="button"
-          className="app-sidebar-backdrop"
-          onClick={() => setSidebarOpen(false)}
-          aria-label="Close menu"
-        />
-      )}
-
-      <Sidebar
-        mobileOpen={sidebarOpen}
-        onNavigate={() => setSidebarOpen(false)}
-        onClose={() => setSidebarOpen(false)}
-      />
-
-      <div className="app-main-wrap">
-        <TrialWarningBanner />
-        <main className="app-main">{children}</main>
-      </div>
-    </>
+    <AppShell
+      mobileTitle={mobileTitle}
+      sidebarOpen={sidebarOpen}
+      onOpenSidebar={() => setSidebarOpen(true)}
+      onCloseSidebar={() => setSidebarOpen(false)}
+      onNavigate={() => setSidebarOpen(false)}
+    >
+      {children}
+    </AppShell>
   )
 }
