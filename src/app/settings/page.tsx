@@ -11,8 +11,7 @@ import type { HtUser } from '@/lib/auth'
 import { ChannelLogo } from '@/components/ChannelLogo'
 import { HIGHTRIBE_COLOR, LUMA_COLOR, EVENTBRITE_COLOR } from '@/lib/brand'
 import { ConnectHightribeSection } from '@/components/ConnectHightribeSection'
-import { getEwentcastAccount, isEwentcastSignupUser, fetchAuthMe, type EwentcastAccount } from '@/lib/ewentcast-session'
-import { SubscriptionBillingSection } from '@/components/billing/SubscriptionBillingSection'
+import { getEwentcastAccount, isEwentcastSignupUser } from '@/lib/ewentcast-session'
 import { disconnectChannelIntegration } from '@/lib/channel-disconnect'
 import { effectiveEventbriteRedirectUri } from '@/lib/app-url'
 import { useAppUrl, useEventbriteRedirectUri } from '@/lib/use-app-url'
@@ -146,6 +145,7 @@ type GuideStep = {
   path: string
   img: string
   note?: string
+  link?: { href: string; label: string }
 }
 
 function StepGuide({ steps, color, title }: {
@@ -252,6 +252,18 @@ function StepGuide({ steps, color, title }: {
                     />
                   </div>
                   <p className="step-guide__step-desc">{s.desc}</p>
+                  {s.link && (
+                    <p className="step-guide__step-desc" style={{ marginTop: 8 }}>
+                      <a
+                        href={s.link.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: 'var(--guide-color, #D98A2B)', fontWeight: 600 }}
+                      >
+                        {s.link.label}
+                      </a>
+                    </p>
+                  )}
                   <div className="step-guide__meta">
                     <code className="step-guide__path">{s.path}</code>
                     {s.note && <span className="step-guide__note">{s.note}</span>}
@@ -309,8 +321,10 @@ const LUMA_STEPS: GuideStep[] = [
 const EVENTBRITE_STEPS: GuideStep[] = [
   {
     num: 1, title: 'Open Eventbrite Developer',
-    desc: 'Go to eventbrite.com → Account → Developer Links → API Keys. Click Create API Key.',
-    path: 'Account → Developer Links → API Keys', img: '/eventbrite-guide/step_1_eventbrite.png',
+    desc: 'Go to Eventbrite, sign in, then open Account → Developer Links → API Keys. Click Create API Key.',
+    path: 'Account → Developer Links → API Keys',
+    img: '/eventbrite-guide/step_1_eventbrite.png',
+    link: { href: 'https://www.eventbrite.com/', label: 'eventbrite.com →' },
   },
   {
     num: 2, title: 'Fill App Details',
@@ -318,14 +332,27 @@ const EVENTBRITE_STEPS: GuideStep[] = [
     path: 'Key Info → Application URL + OAuth Redirect URI', img: '/eventbrite-guide/step_2_eventbrite.png',
   },
   {
-    num: 3, title: 'Copy Credentials',
-    desc: 'Copy your Private Token, API Key, and Client Secret. Paste them into the fields below.',
-    path: 'API Key Details → Copy credentials', img: '/eventbrite-guide/step_3_eventbrite.png',
+    num: 3, title: 'Fill the Form',
+    desc: 'On Eventbrite’s Request a new key page, paste Application URL and OAuth Redirect URI from the copy box above. Complete the form and submit.',
+    path: 'Request a new key → Fill & submit', img: '/eventbrite-guide/step_4_eventbrite.png',
   },
   {
-    num: 4, title: 'Register Webhook',
-    desc: 'Go to Organization → Webhooks → Add Webhook. Paste the Webhook URL and select Order Placed + Attendee Updated.',
-    path: 'Organization → Webhooks → Add Webhook', img: '/eventbrite-guide/step_4_eventbrite.png',
+    num: 4, title: 'Copy Credentials',
+    desc: 'Open your API key → Show API key, client secret and tokens. Copy API Key, Client Secret, Private Token, and Public Token into the form on the right, then click Save.',
+    path: 'API Keys → Copy credentials → Paste & Save', img: '/eventbrite-guide/step_3_eventbrite.png',
+  },
+  {
+    num: 5, title: 'Open Webhooks',
+    desc: 'Open Account Settings, expand Developer Links in the left sidebar, then click Webhooks.',
+    path: 'Account Settings → Developer Links → Webhooks',
+    img: '/eventbrite-guide/step_5_eventbrite.png',
+    link: { href: 'https://www.eventbrite.com/account-settings/webhooks', label: 'eventbrite.com/account-settings/webhooks →' },
+  },
+  {
+    num: 6, title: 'Add Webhook',
+    desc: 'Click + Add webhook. Paste the Eventbrite Webhook URL from the Webhooks section below into Payload URL. Set Event to All Events, check Click to activate all actions, then save.',
+    path: 'Webhooks → Add Webhook → Payload URL + Actions',
+    img: '/eventbrite-guide/step_6_eventbrite.png',
   },
 ]
 
@@ -422,6 +449,9 @@ function WebhooksPanel({ only }: { only?: 'luma' | 'eventbrite' }) {
           <ChannelLogo channel="eventbrite" size={18} />
           <span style={{ fontSize: '12px', fontWeight: 600, color: '#211B16' }}>Eventbrite</span>
         </div>
+        <p style={{ margin: '0 0 8px', fontSize: '12px', color: '#8C7F6D', lineHeight: 1.5 }}>
+          Paste this as <strong>Payload URL</strong> in Eventbrite (steps 5–6 above): Developer Links → Webhooks → Add webhook.
+        </p>
         <div style={urlRowStyle}>
           <code style={{ flex: 1, fontSize: '12px', color: '#211B16', wordBreak: 'break-all' }}>{ebUrl}</code>
           <CopyButton value={ebUrl} />
@@ -502,17 +532,10 @@ export default function SettingsPage() {
   const [disconnecting, setDisconnecting] = useState<string | null>(null)
   const [testing, setTesting] = useState<string | null>(null)
   const [htUser, setHtUser] = useState<HtUser | null>(null)
-  const [account, setAccount] = useState<EwentcastAccount | null>(null)
   const [channelLoadError, setChannelLoadError] = useState<string | null>(null)
   const { toasts, toast, removeToast } = useToast()
 
   useEffect(() => { setHtUser(getUser()) }, [])
-
-  useEffect(() => {
-    fetchAuthMe()
-      .then((data) => setAccount(data?.ewentcast ?? getEwentcastAccount()))
-      .catch(() => setAccount(getEwentcastAccount()))
-  }, [])
 
   const loadSettings = useCallback(async () => {
     setLoading(true)
@@ -736,18 +759,6 @@ export default function SettingsPage() {
 
       {loading ? <PageLoader label="Loading settings…" /> : (
         <>
-          {!focusChannel && account?.auth_source === 'ewentcast_signup' && (
-            <SectionCard title="Subscription & Billing" icon="◆">
-              <p style={{ margin: '0 0 14px', fontSize: '12px', color: '#8C7F6D' }}>
-                Full billing page:{' '}
-                <Link href="/billing" style={{ color: '#D98A2B', textDecoration: 'none', fontWeight: 600 }}>
-                  Open Billing →
-                </Link>
-              </p>
-              <SubscriptionBillingSection account={account} />
-            </SectionCard>
-          )}
-
           {showEventbrite && (
           <SectionCard title="Eventbrite" channel="eventbrite">
             <div className="settings-channel-layout">
