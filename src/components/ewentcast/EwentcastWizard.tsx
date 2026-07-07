@@ -273,12 +273,8 @@ export function EwentcastWizard({
     return (
       <div className="ew-view">
         <div className="ew-view-body">
-        <div className="ew-head">
-          <span className="ew-eyebrow">{isEdit ? `Edit · ${editChannel ? CH_META[editChannel].name : ''}` : 'Step 1 · Master event'}</span>
-          <h2>{isEdit ? 'Update event' : 'Create it once'}</h2>
-          <p>{isEdit ? 'Changes save back to the channel this event lives on.' : 'Work through each tab below. Colored dots on each field show which platforms need it.'}</p>
-        </div>
-
+     
+     
         <div className="ew-pubto">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <span className="label">{isEdit ? 'CHANNEL' : 'PUBLISH TO'}</span>
