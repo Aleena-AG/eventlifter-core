@@ -34,6 +34,8 @@ export function ChannelLogo({ channel, size = 40 }: ChannelLogoProps) {
         alt={`${meta.name} logo`}
         width={size}
         height={size}
+        loading="lazy"
+        decoding="async"
         style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
       />
     </div>

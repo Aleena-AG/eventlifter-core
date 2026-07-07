@@ -95,7 +95,7 @@ export function ChannelCard({
             {disconnecting ? <InlineLoader label="…" /> : disconnectLabel}
           </button>
         )}
-        <Link href={settingsHref} className="channel-card__cta">
+        <Link href={settingsHref} prefetch={false} className="channel-card__cta">
           {connected ? 'Manage connection →' : 'Connect in Settings →'}
         </Link>
       </div>
