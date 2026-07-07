@@ -18,13 +18,24 @@ import { CHANNEL_META } from '@/lib/channels'
 import type { ChannelKey } from '@/lib/types'
 import './events.css'
 
-type Tab = 'hightribe' | 'luma' | 'eventbrite'
-
 const CH_LABELS: Record<ChannelKey, string> = {
   hightribe: 'Hightribe',
   luma: 'Luma',
   eventbrite: 'Eventbrite',
 }
+
+type EventStatusFilter = 'active' | 'expired' | 'draft' | 'cancelled'
+
+const STATUS_FILTER_OPTIONS: { key: EventStatusFilter; label: string; defaultOn: boolean }[] = [
+  { key: 'active', label: 'Active', defaultOn: true },
+  { key: 'expired', label: 'Expired', defaultOn: false },
+  { key: 'draft', label: 'Draft', defaultOn: false },
+  { key: 'cancelled', label: 'Cancelled', defaultOn: false },
+]
+
+const DEFAULT_STATUS_FILTERS = new Set<EventStatusFilter>(
+  STATUS_FILTER_OPTIONS.filter(o => o.defaultOn).map(o => o.key),
+)
 
 type DeleteLink = { channel: ChannelKey; eventId: string | number }
 
@@ -60,18 +71,6 @@ interface LumaEvent {
   geo_address_json?: { full_address?: string; city?: string }
   meeting_url?: string
 }
-interface LumaEntry {
-  event?: LumaEvent
-  id?: string
-  name?: string
-  start_at?: string
-  end_at?: string
-  timezone?: string
-  url?: string
-  cover_url?: string
-  geo_address_json?: { full_address?: string; city?: string }
-  meeting_url?: string
-}
 
 // ─── Eventbrite ──────────────────────────────────────────────────────────────
 interface EbEvent {
@@ -102,36 +101,168 @@ function matchesEventSearch(query: string, ...fields: (string | undefined | null
   return fields.some(f => f && String(f).toLowerCase().includes(q))
 }
 
-function filterHtEvents(events: HtEvent[], query: string): HtEvent[] {
-  if (!query.trim()) return events
-  return events.filter(evt => {
-    const loc = evt.location
-      ? [evt.location.venue_name, evt.location.city, evt.location.country].filter(Boolean).join(' ')
-      : ''
-    return matchesEventSearch(
-      query,
-      evt.title,
-      loc,
-      evt.publish_status,
-      evt.status,
-      evt.slug,
-    )
-  })
+function parseMs(value?: string): number {
+  if (!value) return 0
+  const ms = new Date(value).getTime()
+  return Number.isFinite(ms) ? ms : 0
 }
 
-function filterLumaEvents(events: LumaEvent[], query: string): LumaEvent[] {
+function getLifecycleTags(startMs: number, endMs: number, status?: string): EventStatusFilter[] {
+  const tags = new Set<EventStatusFilter>()
+  const st = (status || '').toLowerCase()
+  const now = Date.now()
+
+  if (/cancel|canceled|cancelled/.test(st)) tags.add('cancelled')
+  if (/draft/.test(st)) tags.add('draft')
+
+  const effectiveEnd = endMs > 0 ? endMs : startMs
+  if (effectiveEnd > 0 && effectiveEnd < now) {
+    tags.add('expired')
+  } else if (/completed|ended|past|closed/.test(st)) {
+    tags.add('expired')
+  } else {
+    tags.add('active')
+  }
+
+  if (tags.size === 0) tags.add('active')
+  return [...tags]
+}
+
+function matchesStatusFilters(tags: EventStatusFilter[], selected: Set<EventStatusFilter>): boolean {
+  return tags.some(tag => selected.has(tag))
+}
+
+function filterUnifiedEvents(events: UnifiedEvent[], query: string): UnifiedEvent[] {
   if (!query.trim()) return events
+  const q = query.trim().toLowerCase()
   return events.filter(evt => matchesEventSearch(
-    query,
-    evt.name,
-    evt.geo_address_json?.full_address,
-    evt.geo_address_json?.city,
+    q,
+    evt.title,
+    evt.location,
+    evt.status,
+    CH_LABELS[evt.channel],
   ))
 }
 
-function filterEbEvents(events: EbEvent[], query: string): EbEvent[] {
-  if (!query.trim()) return events
-  return events.filter(evt => matchesEventSearch(query, evt.name?.text, evt.status))
+function filterByStatus(events: UnifiedEvent[], selected: Set<EventStatusFilter>): UnifiedEvent[] {
+  return events.filter(evt => matchesStatusFilters(evt.lifecycleTags, selected))
+}
+
+function isPrimarilyExpired(evt: UnifiedEvent): boolean {
+  return evt.lifecycleTags.includes('expired') && !evt.lifecycleTags.includes('active')
+}
+
+type UnifiedEvent = {
+  key: string
+  channel: ChannelKey
+  id: string | number
+  title: string
+  sortMs: number
+  endMs: number
+  dateStr: string
+  image?: string
+  location?: string
+  url?: string
+  status?: string
+  lifecycleTags: EventStatusFilter[]
+  syncSource: SyncSource
+}
+
+function htToUnified(evt: HtEvent): UnifiedEvent {
+  const d = evt.dates as {
+    starts_at?: string
+    start_date?: string
+    start_time?: string
+    ends_at?: string
+    end_date?: string
+    end_time?: string
+  } | undefined
+  const startUtc = d?.starts_at || (d?.start_date ? `${d.start_date}T${d.start_time || '00:00'}` : '')
+  const endUtc = d?.ends_at || (d?.end_date ? `${d.end_date}T${d.end_time || '23:59:00'}` : '')
+  const dateStr = d?.starts_at ? fmtUtc(d.starts_at) : fmt(d?.start_date, d?.start_time)
+  const loc = evt.location
+    ? [evt.location.venue_name, evt.location.city, evt.location.country].filter(Boolean).join(', ')
+    : undefined
+  const sortMs = parseMs(startUtc)
+  const endMs = parseMs(endUtc)
+  const status = evt.publish_status || evt.status
+  return {
+    key: `hightribe-${evt.id}`,
+    channel: 'hightribe',
+    id: evt.id,
+    title: evt.title,
+    sortMs,
+    endMs,
+    dateStr,
+    image: evt.cover_image || evt.cover_image_aspect_ratio?.[0]?.image || undefined,
+    location: loc,
+    url: evt.share_url || (evt.slug ? `https://Hightribe.com/events/${evt.slug}` : undefined),
+    status,
+    lifecycleTags: getLifecycleTags(sortMs, endMs, status),
+    syncSource: 'hightribe',
+  }
+}
+
+function lumaToUnified(evt: LumaEvent): UnifiedEvent {
+  const sortMs = parseMs(evt.start_at)
+  const endMs = parseMs(evt.end_at)
+  return {
+    key: `luma-${evt.api_id}`,
+    channel: 'luma',
+    id: evt.api_id,
+    title: evt.name,
+    sortMs,
+    endMs,
+    dateStr: fmtUtc(evt.start_at),
+    image: evt.cover_url,
+    location: evt.geo_address_json?.full_address || evt.geo_address_json?.city,
+    url: evt.url,
+    lifecycleTags: getLifecycleTags(sortMs, endMs),
+    syncSource: 'luma',
+  }
+}
+
+function ebToUnified(evt: EbEvent): UnifiedEvent {
+  const sortMs = parseMs(evt.start?.utc)
+  const endMs = parseMs(evt.end?.utc)
+  const title = evt.name?.text || 'Untitled'
+  const status = evt.status
+  return {
+    key: `eventbrite-${evt.id}`,
+    channel: 'eventbrite',
+    id: evt.id,
+    title,
+    sortMs,
+    endMs,
+    dateStr: fmtUtc(evt.start?.utc),
+    image: evt.logo?.original?.url,
+    url: evt.url,
+    status,
+    lifecycleTags: getLifecycleTags(sortMs, endMs, status),
+    syncSource: 'eventbrite',
+  }
+}
+
+function EmptyState({ searchQuery, filtersActive }: { searchQuery?: string; filtersActive?: boolean }) {
+  return (
+    <div className="events-empty">
+      <div className="events-empty-icon" aria-hidden="true">📭</div>
+      <h3>
+        {searchQuery?.trim()
+          ? 'No matching events'
+          : filtersActive
+            ? 'No events match these filters'
+            : 'No events found'}
+      </h3>
+      <p>
+        {searchQuery?.trim()
+          ? `Nothing matches "${searchQuery.trim()}". Try a different title or location.`
+          : filtersActive
+            ? 'Try adding Expired, Draft, or Cancelled filters above.'
+            : 'Create an event or sync from your connected channels in Settings.'}
+      </p>
+    </div>
+  )
 }
 
 // ─── Delete confirm dialog ────────────────────────────────────────────────────
@@ -277,26 +408,16 @@ function EventCard({
   )
 }
 
-function EmptyState({ channel, searchQuery }: { channel: string; searchQuery?: string }) {
-  return (
-    <div className="events-empty">
-      <div className="events-empty-icon" aria-hidden="true">📭</div>
-      <h3>{searchQuery?.trim() ? 'No matching events' : `No ${channel} events found`}</h3>
-      <p>
-        {searchQuery?.trim()
-          ? `Nothing matches "${searchQuery.trim()}". Try a different title or location.`
-          : `Make sure your ${channel} credentials are configured in Settings.`}
-      </p>
-    </div>
-  )
-}
-
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function EventsPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [tab, setTab] = useState<Tab>('hightribe')
   const [searchQuery, setSearchQuery] = useState('')
+  const [statusFilters, setStatusFilters] = useState<Set<EventStatusFilter>>(
+    () => new Set(DEFAULT_STATUS_FILTERS),
+  )
+  const [page, setPage] = useState(1)
+  const perPage = 12
   const [createOpen, setCreateOpen] = useState(false)
   const [editModal, setEditModal] = useState<{
     open: boolean; channel: ChannelKey; eventId: string | number
@@ -312,13 +433,9 @@ export default function EventsPage() {
   const [deleting, setDeleting] = useState(false)
 
   // Hightribe state
-  const [htEvents, setHtEvents] = useState<HtEvent[]>([])
   const [htAllEvents, setHtAllEvents] = useState<HtEvent[]>([])
   const [htLoading, setHtLoading] = useState(false)
   const [htSyncing, setHtSyncing] = useState(false)
-  const [htPage, setHtPage] = useState(1)
-  const [htLastPage, setHtLastPage] = useState(1)
-  const [htTotal, setHtTotal] = useState<number | null>(null)
 
   // Luma state
   const [lumaEvents, setLumaEvents] = useState<LumaEvent[]>([])
@@ -330,47 +447,37 @@ export default function EventsPage() {
   const [ebLoading, setEbLoading] = useState(false)
   const [ebSyncing, setEbSyncing] = useState(false)
 
-  // ── Fetchers ──────────────────────────────────────────────────────────────
-  const applyHtPage = useCallback((all: HtEvent[], page: number) => {
-    const perPage = 12
-    const lastPage = Math.max(1, Math.ceil(all.length / perPage))
-    const safePage = Math.min(Math.max(1, page), lastPage)
-    setHtAllEvents(all)
-    setHtEvents(all.slice((safePage - 1) * perPage, safePage * perPage))
-    setHtPage(safePage)
-    setHtLastPage(lastPage)
-    setHtTotal(all.length)
-  }, [])
+  const htAvailable = !isEwentcastSignupUser() || !!getEwentcastAccount()?.ht_connected
 
-  const loadHtEventsFromDb = useCallback(async (page = 1) => {
+  const loadHtEventsFromDb = useCallback(async () => {
+    if (!htAvailable) {
+      setHtAllEvents([])
+      return
+    }
     setHtLoading(true)
     try {
       const rows = await listStoredEvents('hightribe')
-      const events = rows.map(storedToHtEvent)
-      applyHtPage(events, page)
+      setHtAllEvents(rows.map(storedToHtEvent))
     } catch {
       toast.error('Failed to load Hightribe events from database')
     } finally {
       setHtLoading(false)
     }
-  }, [applyHtPage, toast])
+  }, [htAvailable, toast])
 
-  const syncHtEvents = useCallback(async (page = 1) => {
+  const syncHtEvents = useCallback(async () => {
+    if (!htAvailable) return
     setHtSyncing(true)
     try {
       const { events } = await syncChannelDataToDb('hightribe')
       toast.success(events > 0 ? `Synced ${events} events from Hightribe` : 'Hightribe sync complete')
-      await loadHtEventsFromDb(page)
+      await loadHtEventsFromDb()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Hightribe sync failed')
     } finally {
       setHtSyncing(false)
     }
-  }, [loadHtEventsFromDb, toast])
-
-  const loadHtEvents = useCallback(async (page = 1) => {
-    await loadHtEventsFromDb(page)
-  }, [loadHtEventsFromDb])
+  }, [htAvailable, loadHtEventsFromDb, toast])
 
   const loadLumaEventsFromDb = useCallback(async () => {
     setLumaLoading(true)
@@ -397,10 +504,6 @@ export default function EventsPage() {
     }
   }, [loadLumaEventsFromDb, toast])
 
-  const loadLumaEvents = useCallback(async () => {
-    await loadLumaEventsFromDb()
-  }, [loadLumaEventsFromDb])
-
   const loadEbEventsFromDb = useCallback(async () => {
     setEbLoading(true)
     try {
@@ -426,31 +529,70 @@ export default function EventsPage() {
     }
   }, [loadEbEventsFromDb, toast])
 
-  const loadEbEvents = useCallback(async () => {
-    await loadEbEventsFromDb()
-  }, [loadEbEventsFromDb])
+  const loadAllEvents = useCallback(async () => {
+    await Promise.all([
+      loadHtEventsFromDb(),
+      loadLumaEventsFromDb(),
+      loadEbEventsFromDb(),
+    ])
+  }, [loadHtEventsFromDb, loadLumaEventsFromDb, loadEbEventsFromDb])
 
-  const htFiltered = useMemo(() => filterHtEvents(htAllEvents, searchQuery), [htAllEvents, searchQuery])
-  const lumaFiltered = useMemo(() => filterLumaEvents(lumaEvents, searchQuery), [lumaEvents, searchQuery])
-  const ebFiltered = useMemo(() => filterEbEvents(ebEvents, searchQuery), [ebEvents, searchQuery])
+  const syncAllEvents = useCallback(async () => {
+    const tasks: Promise<void>[] = [syncLumaEvents(), syncEbEvents()]
+    if (htAvailable) tasks.unshift(syncHtEvents())
+    await Promise.all(tasks)
+  }, [htAvailable, syncHtEvents, syncLumaEvents, syncEbEvents])
 
-  useEffect(() => {
-    setSearchQuery('')
-    setHtPage(1)
-  }, [tab])
+  const mergedEvents = useMemo(() => {
+    const items: UnifiedEvent[] = []
+    if (htAvailable) items.push(...htAllEvents.map(htToUnified))
+    items.push(...lumaEvents.map(lumaToUnified))
+    items.push(...ebEvents.map(ebToUnified))
+    return items
+  }, [htAvailable, htAllEvents, lumaEvents, ebEvents])
 
-  useEffect(() => {
-    const perPage = 12
-    const lastPage = Math.max(1, Math.ceil(htFiltered.length / perPage))
-    const safePage = Math.min(Math.max(1, htPage), lastPage)
-    setHtEvents(htFiltered.slice((safePage - 1) * perPage, safePage * perPage))
-    setHtLastPage(lastPage)
-    if (safePage !== htPage) setHtPage(safePage)
-  }, [htFiltered, htPage])
+  const allEvents = useMemo(() => {
+    const searched = filterUnifiedEvents(mergedEvents, searchQuery)
+    const filtered = filterByStatus(searched, statusFilters)
+    return filtered.sort((a, b) => {
+      const aExpired = isPrimarilyExpired(a)
+      const bExpired = isPrimarilyExpired(b)
+      if (aExpired !== bExpired) return aExpired ? 1 : -1
+      if (!a.sortMs && !b.sortMs) return a.title.localeCompare(b.title)
+      if (!a.sortMs) return 1
+      if (!b.sortMs) return -1
+      return a.sortMs - b.sortMs
+    })
+  }, [mergedEvents, searchQuery, statusFilters])
 
-  useEffect(() => {
-    setHtPage(1)
-  }, [searchQuery])
+  const filtersDifferFromDefault = useMemo(() => {
+    if (statusFilters.size !== DEFAULT_STATUS_FILTERS.size) return true
+    for (const key of DEFAULT_STATUS_FILTERS) {
+      if (!statusFilters.has(key)) return true
+    }
+    return false
+  }, [statusFilters])
+
+  function toggleStatusFilter(key: EventStatusFilter) {
+    setStatusFilters(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) {
+        if (next.size === 1) return prev
+        next.delete(key)
+      } else {
+        next.add(key)
+      }
+      return next
+    })
+  }
+
+  const lastPage = Math.max(1, Math.ceil(allEvents.length / perPage))
+  const safePage = Math.min(Math.max(1, page), lastPage)
+  const pagedEvents = allEvents.slice((safePage - 1) * perPage, safePage * perPage)
+
+  const totalCount = mergedEvents.length
+  const loading = htLoading || lumaLoading || ebLoading
+  const syncing = htSyncing || lumaSyncing || ebSyncing
 
   // Load linked copies when delete dialog opens
   useEffect(() => {
@@ -485,7 +627,7 @@ export default function EventsPage() {
       const has = (ch: ChannelKey) => links.some(l => l.channel === ch)
 
       if (deleteTarget.channel !== 'hightribe' && !has('hightribe')) {
-        const match = htEvents.find(e => e.title.trim().toLowerCase() === norm)
+        const match = htAllEvents.find(e => e.title.trim().toLowerCase() === norm)
         if (match) { links.push({ channel: 'hightribe', eventId: match.id }); also.hightribe = true }
       }
       if (deleteTarget.channel !== 'luma' && !has('luma')) {
@@ -503,7 +645,7 @@ export default function EventsPage() {
       }
     })()
     return () => { cancelled = true }
-  }, [deleteTarget, htEvents, lumaEvents, ebEvents])
+  }, [deleteTarget, htAllEvents, lumaEvents, ebEvents])
 
   // ── Delete handler ────────────────────────────────────────────────────────
   async function handleDelete() {
@@ -523,7 +665,6 @@ export default function EventsPage() {
       try {
         await deleteOnChannel(t.channel, t.eventId)
         if (t.channel === 'hightribe') {
-          setHtEvents(ev => ev.filter(e => String(e.id) !== String(t.eventId)))
           setHtAllEvents(ev => ev.filter(e => String(e.id) !== String(t.eventId)))
         }
         else if (t.channel === 'luma') setLumaEvents(ev => ev.filter(e => e.api_id !== String(t.eventId)))
@@ -557,17 +698,16 @@ export default function EventsPage() {
   }
 
   useEffect(() => {
-    const htAvailable = !isEwentcastSignupUser() || !!getEwentcastAccount()?.ht_connected
-    if (tab === 'hightribe' && htAvailable && htEvents.length === 0 && !htLoading) loadHtEvents(1)
-    if (tab === 'luma' && lumaEvents.length === 0 && !lumaLoading) loadLumaEvents()
-    if (tab === 'eventbrite' && ebEvents.length === 0 && !ebLoading) loadEbEvents()
-  }, [tab]) // eslint-disable-line react-hooks/exhaustive-deps
+    void loadAllEvents()
+  }, [loadAllEvents])
 
-  const TABS: { key: Tab; name: string; color: string }[] = [
-    { key: 'hightribe', name: CHANNEL_META.hightribe.name, color: CHANNEL_META.hightribe.color },
-    { key: 'luma', name: CHANNEL_META.luma.name, color: CHANNEL_META.luma.color },
-    { key: 'eventbrite', name: CHANNEL_META.eventbrite.name, color: CHANNEL_META.eventbrite.color },
-  ]
+  useEffect(() => {
+    setPage(1)
+  }, [searchQuery, statusFilters])
+
+  useEffect(() => {
+    if (page !== safePage) setPage(safePage)
+  }, [page, safePage])
 
   function openCreate() { setCreateOpen(true) }
   function closeCreate() {
@@ -580,9 +720,7 @@ export default function EventsPage() {
   }, [searchParams])
 
   function onPublished() {
-    void loadHtEvents(1)
-    void loadLumaEvents()
-    void loadEbEvents()
+    void loadAllEvents()
   }
   function openEdit(channel: ChannelKey, id: string|number) {
     setEditModal({ open: true, channel, eventId: id })
@@ -592,9 +730,7 @@ export default function EventsPage() {
     const label = CH_LABELS[channel]
     toast.success(`Event updated on ${label}!`)
     setEditModal(f => ({ ...f, open: false }))
-    if (channel === 'hightribe') { setHtEvents([]); loadHtEvents(1) }
-    else if (channel === 'luma') { setLumaEvents([]); loadLumaEvents() }
-    else { setEbEvents([]); loadEbEvents() }
+    void loadAllEvents()
   }
 
   return (
@@ -639,7 +775,7 @@ export default function EventsPage() {
       <div className="events-header">
         <div>
           <h1>Events</h1>
-          <p>Manage events across Hightribe, Luma, and Eventbrite.</p>
+          <p>All your events from Hightribe, Luma, and Eventbrite in one place.</p>
         </div>
         <button type="button" className="events-create-btn" onClick={openCreate}>
           <span className="events-create-btn__icon" aria-hidden="true">
@@ -651,23 +787,25 @@ export default function EventsPage() {
         </button>
       </div>
 
-      {/* Tabs */}
-      <div className="events-tabs" role="tablist" aria-label="Event platforms">
-        {TABS.map(({ key, name, color }) => (
-          <button
-            key={key}
-            type="button"
-            role="tab"
-            aria-selected={tab === key}
-            className={`events-tab${tab === key ? ' active' : ''}`}
-            style={tab === key ? { color } : undefined}
-            onClick={() => setTab(key)}
-          >
-            <span className="events-tab-dot" style={{ background: tab === key ? color : 'var(--line)' }} />
-            <ChannelLogo channel={key} size={18} />
-            <span className="events-tab-label">{name}</span>
-          </button>
-        ))}
+      <div className="events-filters" role="group" aria-label="Event status filters">
+        <span className="events-filters-label">Status</span>
+        <div className="events-filters-chips">
+          {STATUS_FILTER_OPTIONS.map(({ key, label }) => {
+            const on = statusFilters.has(key)
+            return (
+              <button
+                key={key}
+                type="button"
+                data-filter={key}
+                className={`events-filter-chip${on ? ' events-filter-chip--on' : ''}`}
+                aria-pressed={on}
+                onClick={() => toggleStatusFilter(key)}
+              >
+                {label}
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       <div className="events-search-row">
@@ -676,7 +814,7 @@ export default function EventsPage() {
           <input
             type="search"
             className="events-search"
-            placeholder="Search events by title, location, or status…"
+            placeholder="Search events by title, location, channel, or status…"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             aria-label="Search events"
@@ -684,207 +822,94 @@ export default function EventsPage() {
         </div>
       </div>
 
-      {/* ── Hightribe tab ───────────────────────────────────────────────────── */}
-      {tab === 'hightribe' && (
-        <div>
-          {isEwentcastSignupUser() && !getEwentcastAccount()?.ht_connected ? (
-            <div className="events-connect-banner">
-              <h3>Connect Hightribe to load your events</h3>
-              <p>Luma and Eventbrite work without this step.</p>
-              <a href="/settings">Go to Settings → Connect Hightribe</a>
-            </div>
-          ) : (
-          <>
-          <div className="events-toolbar">
-            <span className="events-toolbar-count">
-              {searchQuery.trim() ? (
-                <><strong>{htFiltered.length}</strong> of <strong>{htAllEvents.length}</strong> events</>
-              ) : htTotal !== null ? (
-                <><strong>{htTotal}</strong> events hosted by you</>
-              ) : (
-                'Your hosted events'
-              )}
-            </span>
-            <div className="events-toolbar-actions">
-              <button
-                type="button"
-                className="events-refresh-btn"
-                onClick={() => loadHtEvents(htPage)}
-                disabled={htLoading || htSyncing}
-              >
-                {htLoading ? <InlineLoader label="Refreshing" /> : '↻ Refresh'}
-              </button>
-              <button
-                type="button"
-                className="events-refresh-btn events-refresh-btn--sync"
-                onClick={() => syncHtEvents(htPage)}
-                disabled={htLoading || htSyncing}
-              >
-                {htSyncing ? <InlineLoader label="Syncing" /> : '⇅ Sync'}
-              </button>
-            </div>
-          </div>
-          {htLoading ? (
-            <PageLoader label="Loading Hightribe events…" />
-          ) : htAllEvents.length === 0 ? (
-            <EmptyState channel="Hightribe" />
-          ) : htFiltered.length === 0 ? (
-            <EmptyState channel="Hightribe" searchQuery={searchQuery} />
-          ) : (
-            <>
-              <div className="events-list">
-                {htEvents.map((evt) => {
-                  const d = evt.dates
-                  const dateStr = d?.starts_at ? fmtUtc(d.starts_at) : fmt(d?.start_date, d?.start_time)
-                  const loc = evt.location ? [evt.location.venue_name, evt.location.city, evt.location.country].filter(Boolean).join(', ') : undefined
-                  const image = evt.cover_image || evt.cover_image_aspect_ratio?.[0]?.image || undefined
-                  const url = evt.share_url || (evt.slug ? `https://Hightribe.com/events/${evt.slug}` : undefined)
-                  const displayStatus = evt.publish_status || evt.status
-                  return (
-                    <EventCard
-                      key={String(evt.id)}
-                      image={image} title={evt.title} dateStr={dateStr}
-                      channel="hightribe" badgeColor={CHANNEL_META.hightribe.color}
-                      location={loc} url={url} status={displayStatus}
-                      detailHref={`/events/hightribe/${encodeURIComponent(String(evt.id))}`}
-                      onEdit={() => openEdit('hightribe', evt.id)}
-                      onDelete={() => setDeleteTarget({ channel:'hightribe', id:evt.id, title:evt.title })}
-                      onSync={() => setSyncEvent({ id:evt.id, title:evt.title, source:'hightribe' })}
-                    />
-                  )
-                })}
-              </div>
-              {htLastPage > 1 && (
-                <div className="events-pagination">
-                  <button type="button" className="events-page-btn" onClick={() => setHtPage(p => Math.max(1, p - 1))} disabled={htPage <= 1 || htLoading}>← Prev</button>
-                  <span className="events-page-info">
-                    Page {htPage} / {htLastPage}
-                    {htFiltered.length > 0 && <span style={{ marginLeft:'6px' }}>· {htFiltered.length} events</span>}
-                  </span>
-                  <button type="button" className="events-page-btn" onClick={() => setHtPage(p => Math.min(htLastPage, p + 1))} disabled={htPage >= htLastPage || htLoading}>Next →</button>
-                </div>
-              )}
-            </>
-          )}
-          </>
-          )}
+      {isEwentcastSignupUser() && !getEwentcastAccount()?.ht_connected && (
+        <div className="events-connect-banner" style={{ marginBottom: 12 }}>
+          <h3>Connect Hightribe to include your hosted events</h3>
+          <p>Luma and Eventbrite events still appear below.</p>
+          <a href="/settings">Go to Settings → Connect Hightribe</a>
         </div>
       )}
 
-      {/* ── Luma tab ──────────────────────────────────────────────────────── */}
-      {tab === 'luma' && (
-        <div>
-          <div className="events-toolbar">
-            <span className="events-toolbar-count">
-              {searchQuery.trim() ? (
-                <><strong>{lumaFiltered.length}</strong> of <strong>{lumaEvents.length}</strong> events</>
-              ) : (
-                <><strong>{lumaEvents.length}</strong> {lumaEvents.length === 1 ? 'event' : 'events'}</>
-              )}
-            </span>
-            <div className="events-toolbar-actions">
-              <button
-                type="button"
-                className="events-refresh-btn"
-                onClick={loadLumaEvents}
-                disabled={lumaLoading || lumaSyncing}
-              >
-                {lumaLoading ? <InlineLoader label="Refreshing" /> : '↻ Refresh'}
-              </button>
-              <button
-                type="button"
-                className="events-refresh-btn events-refresh-btn--sync"
-                onClick={syncLumaEvents}
-                disabled={lumaLoading || lumaSyncing}
-              >
-                {lumaSyncing ? <InlineLoader label="Syncing" /> : '⇅ Sync'}
-              </button>
-            </div>
-          </div>
-          {lumaLoading ? (
-            <PageLoader label="Loading Luma events…" />
-          ) : lumaEvents.length === 0 ? (
-            <EmptyState channel="Luma" />
-          ) : lumaFiltered.length === 0 ? (
-            <EmptyState channel="Luma" searchQuery={searchQuery} />
+      <div className="events-toolbar">
+        <span className="events-toolbar-count">
+          {searchQuery.trim() || filtersDifferFromDefault ? (
+            <><strong>{allEvents.length}</strong> shown · <strong>{totalCount}</strong> total</>
           ) : (
-            <div className="events-list">
-              {lumaFiltered.map((evt) => (
-                <EventCard
-                  key={evt.api_id}
-                  image={evt.cover_url} title={evt.name} dateStr={fmtUtc(evt.start_at)}
-                  channel="luma" badgeColor={CHANNEL_META.luma.color}
-                  location={evt.geo_address_json?.full_address || evt.geo_address_json?.city}
-                  url={evt.url}
-                  detailHref={`/events/luma/${encodeURIComponent(evt.api_id)}`}
-                  onEdit={() => openEdit('luma', evt.api_id)}
-                  onDelete={() => setDeleteTarget({ channel:'luma', id:evt.api_id, title:evt.name })}
-                  onSync={() => setSyncEvent({ id:evt.api_id, title:evt.name, source:'luma' })}
-                />
-              ))}
-            </div>
+            <><strong>{allEvents.length}</strong> active {allEvents.length === 1 ? 'event' : 'events'}</>
           )}
+        </span>
+        <div className="events-toolbar-actions">
+          <button
+            type="button"
+            className="events-refresh-btn"
+            onClick={() => void loadAllEvents()}
+            disabled={loading || syncing}
+          >
+            {loading ? <InlineLoader label="Refreshing" /> : '↻ Refresh'}
+          </button>
+          <button
+            type="button"
+            className="events-refresh-btn events-refresh-btn--sync"
+            onClick={() => void syncAllEvents()}
+            disabled={loading || syncing}
+          >
+            {syncing ? <InlineLoader label="Syncing" /> : '⇅ Sync all'}
+          </button>
         </div>
-      )}
+      </div>
 
-      {/* ── Eventbrite tab ────────────────────────────────────────────────── */}
-      {tab === 'eventbrite' && (
-        <div>
-          <div className="events-toolbar">
-            <span className="events-toolbar-count">
-              {searchQuery.trim() ? (
-                <><strong>{ebFiltered.length}</strong> of <strong>{ebEvents.length}</strong> events</>
-              ) : (
-                <><strong>{ebEvents.length}</strong> {ebEvents.length === 1 ? 'event' : 'events'}</>
-              )}
-            </span>
-            <div className="events-toolbar-actions">
-              <button
-                type="button"
-                className="events-refresh-btn"
-                onClick={loadEbEvents}
-                disabled={ebLoading || ebSyncing}
-              >
-                {ebLoading ? <InlineLoader label="Refreshing" /> : '↻ Refresh'}
-              </button>
-              <button
-                type="button"
-                className="events-refresh-btn events-refresh-btn--sync"
-                onClick={syncEbEvents}
-                disabled={ebLoading || ebSyncing}
-              >
-                {ebSyncing ? <InlineLoader label="Syncing" /> : '⇅ Sync'}
-              </button>
-            </div>
+      {loading && totalCount === 0 ? (
+        <PageLoader label="Loading events…" />
+      ) : totalCount === 0 ? (
+        <EmptyState />
+      ) : allEvents.length === 0 ? (
+        <EmptyState searchQuery={searchQuery} filtersActive={filtersDifferFromDefault || !!searchQuery.trim()} />
+      ) : (
+        <>
+          <div className="events-list">
+            {pagedEvents.map((evt) => (
+              <EventCard
+                key={evt.key}
+                image={evt.image}
+                title={evt.title}
+                dateStr={evt.dateStr}
+                channel={evt.channel}
+                badgeColor={CHANNEL_META[evt.channel].color}
+                location={evt.location}
+                url={evt.url}
+                status={evt.status}
+                detailHref={`/events/${evt.channel}/${encodeURIComponent(String(evt.id))}`}
+                onEdit={() => openEdit(evt.channel, evt.id)}
+                onDelete={() => setDeleteTarget({ channel: evt.channel, id: evt.id, title: evt.title })}
+                onSync={() => setSyncEvent({ id: evt.id, title: evt.title, source: evt.syncSource })}
+              />
+            ))}
           </div>
-          {ebLoading ? (
-            <PageLoader label="Loading Eventbrite events…" />
-          ) : ebEvents.length === 0 ? (
-            <EmptyState channel="Eventbrite" />
-          ) : ebFiltered.length === 0 ? (
-            <EmptyState channel="Eventbrite" searchQuery={searchQuery} />
-          ) : (
-            <div className="events-list">
-              {ebFiltered.map((evt) => {
-                const title = evt.name?.text || 'Untitled'
-                return (
-                  <EventCard
-                    key={evt.id}
-                    image={evt.logo?.original?.url}
-                    title={title}
-                    dateStr={fmtUtc(evt.start?.utc)}
-                    channel="eventbrite" badgeColor={CHANNEL_META.eventbrite.color}
-                    url={evt.url} status={evt.status}
-                    detailHref={`/events/eventbrite/${encodeURIComponent(evt.id)}`}
-                    onEdit={() => openEdit('eventbrite', evt.id)}
-                    onDelete={() => setDeleteTarget({ channel:'eventbrite', id:evt.id, title })}
-                    onSync={() => setSyncEvent({ id:evt.id, title, source:'eventbrite' })}
-                  />
-                )
-              })}
+          {lastPage > 1 && (
+            <div className="events-pagination">
+              <button
+                type="button"
+                className="events-page-btn"
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={safePage <= 1 || loading}
+              >
+                ← Prev
+              </button>
+              <span className="events-page-info">
+                Page {safePage} / {lastPage}
+                {allEvents.length > 0 && <span style={{ marginLeft: '6px' }}>· {allEvents.length} events</span>}
+              </span>
+              <button
+                type="button"
+                className="events-page-btn"
+                onClick={() => setPage(p => Math.min(lastPage, p + 1))}
+                disabled={safePage >= lastPage || loading}
+              >
+                Next →
+              </button>
             </div>
           )}
-        </div>
+        </>
       )}
     </div>
   )
