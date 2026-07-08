@@ -1,5 +1,6 @@
 import type { ResultSetHeader } from 'mysql2'
 import type { RowDataPacket } from 'mysql2'
+import { useDatabase } from '../config'
 import { getPool, query } from '../db/pool'
 import type { AttendeeRecord, ChannelKey, ChannelRef, MasterEventRecord } from '../types'
 
@@ -99,6 +100,7 @@ async function assembleMasters(rows: MasterRow[]): Promise<MasterEventRecord[]> 
 }
 
 export async function listMasterEvents(): Promise<MasterEventRecord[]> {
+  if (!useDatabase()) return []
   const rows = await query<MasterRow[]>(
     'SELECT id, title, capacity, sold, created_at, updated_at FROM master_events ORDER BY updated_at DESC',
   )
@@ -106,6 +108,7 @@ export async function listMasterEvents(): Promise<MasterEventRecord[]> {
 }
 
 export async function getMasterEvent(id: string): Promise<MasterEventRecord | null> {
+  if (!useDatabase()) return null
   const rows = await query<MasterRow[]>(
     'SELECT id, title, capacity, sold, created_at, updated_at FROM master_events WHERE id = ? LIMIT 1',
     [id],
@@ -119,6 +122,7 @@ export async function findMasterByChannelEvent(
   channel: ChannelKey,
   eventId: string,
 ): Promise<MasterEventRecord | null> {
+  if (!useDatabase()) return null
   const rows = await query<MasterRow[]>(
     `SELECT m.id, m.title, m.capacity, m.sold, m.created_at, m.updated_at
      FROM master_events m
@@ -142,6 +146,7 @@ export async function findMasterContextByChannelEvent(
   capacity: number
   sold: number
 } | null> {
+  if (!useDatabase()) return null
   const rows = await query<(MasterRow & { user_id: number | null })[]>(
     `SELECT m.id, m.title, m.user_id, m.capacity, m.sold, m.created_at, m.updated_at
      FROM master_events m
@@ -167,6 +172,9 @@ export async function createMasterEvent(input: {
   userId?: number | null
   channels?: Partial<Record<ChannelKey, ChannelRef>>
 }): Promise<MasterEventRecord> {
+  if (!useDatabase()) {
+    throw new Error('Registry is unavailable while MySQL is disabled')
+  }
   const now = new Date()
   const id = `mst_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
   const pool = getPool()
@@ -194,6 +202,7 @@ export async function linkChannelEvent(
   channel: ChannelKey,
   ref: ChannelRef,
 ): Promise<MasterEventRecord | null> {
+  if (!useDatabase()) return null
   const master = await getMasterEvent(masterId)
   if (!master) return null
 
@@ -212,6 +221,7 @@ export async function registerAttendee(
   masterId: string,
   attendee: Omit<AttendeeRecord, 'registeredAt'> & { registeredAt?: string },
 ): Promise<MasterEventRecord | null> {
+  if (!useDatabase()) return null
   const exists = await query<{ id: string }[]>(
     'SELECT id FROM master_events WHERE id = ? LIMIT 1',
     [masterId],
@@ -239,6 +249,7 @@ export async function registerAttendee(
 }
 
 export async function deleteMasterEvent(id: string): Promise<boolean> {
+  if (!useDatabase()) return false
   const [result] = await getPool().query<ResultSetHeader>(
     'DELETE FROM master_events WHERE id = ?',
     [id],
@@ -250,6 +261,7 @@ export async function removeChannelFromMaster(
   masterId: string,
   channel: ChannelKey,
 ): Promise<MasterEventRecord | null> {
+  if (!useDatabase()) return null
   const master = await getMasterEvent(masterId)
   if (!master) return null
 

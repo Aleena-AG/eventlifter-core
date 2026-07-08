@@ -1,11 +1,16 @@
 import { Router } from 'express'
-import { config, dbConfigured } from '../config'
+import { config, dbConfigured, useDatabase } from '../config'
 import { getPool } from '../db/pool'
 
 export const healthRouter = Router()
 
 healthRouter.get('/health', (_req, res) => {
-  res.json({ ok: true, service: 'ewentcast-backend', db: dbConfigured() })
+  res.json({
+    ok: true,
+    service: 'ewentcast-backend',
+    db: useDatabase(),
+    storage: useDatabase() ? 'mysql' : 'local-file',
+  })
 })
 
 healthRouter.get('/db-health', async (req, res) => {
@@ -14,6 +19,13 @@ healthRouter.get('/db-health', async (req, res) => {
   }
   if (req.query.token !== config.healthToken) {
     return res.status(401).json({ ok: false, error: 'Unauthorized' })
+  }
+  if (!useDatabase()) {
+    return res.json({
+      ok: true,
+      mode: 'local',
+      store: 'data/local-app-store.json',
+    })
   }
   if (!dbConfigured()) {
     return res.status(503).json({ ok: false, error: 'Database env vars are not configured' })

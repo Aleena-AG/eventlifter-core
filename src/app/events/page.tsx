@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { channelFetch } from '@/lib/channel-fetch'
@@ -115,13 +115,15 @@ function getLifecycleTags(startMs: number, endMs: number, status?: string): Even
   if (/cancel|canceled|cancelled/.test(st)) tags.add('cancelled')
   if (/draft/.test(st)) tags.add('draft')
 
-  const effectiveEnd = endMs > 0 ? endMs : startMs
-  if (effectiveEnd > 0 && effectiveEnd < now) {
-    tags.add('expired')
-  } else if (/completed|ended|past|closed/.test(st)) {
-    tags.add('expired')
-  } else {
-    tags.add('active')
+  if (tags.size === 0) {
+    const effectiveEnd = endMs > 0 ? endMs : startMs
+    if (effectiveEnd > 0 && effectiveEnd < now) {
+      tags.add('expired')
+    } else if (/completed|ended|past|closed/.test(st)) {
+      tags.add('expired')
+    } else {
+      tags.add('active')
+    }
   }
 
   if (tags.size === 0) tags.add('active')
@@ -423,6 +425,8 @@ export default function EventsPage() {
     open: boolean; channel: ChannelKey; eventId: string | number
   }>({ open: false, channel: 'hightribe', eventId: '' })
   const { toasts, toast, removeToast } = useToast()
+  const toastRef = useRef(toast)
+  toastRef.current = toast
 
   // Sync modal
   const [syncEvent, setSyncEvent] = useState<{ id: string | number; title: string; source: SyncSource } | null>(null)
@@ -459,25 +463,25 @@ export default function EventsPage() {
       const rows = await listStoredEvents('hightribe')
       setHtAllEvents(rows.map(storedToHtEvent))
     } catch {
-      toast.error('Failed to load Hightribe events from database')
+      toastRef.current.error('Failed to load Hightribe events from database')
     } finally {
       setHtLoading(false)
     }
-  }, [htAvailable, toast])
+  }, [htAvailable])
 
   const syncHtEvents = useCallback(async () => {
     if (!htAvailable) return
     setHtSyncing(true)
     try {
       const { events } = await syncChannelDataToDb('hightribe')
-      toast.success(events > 0 ? `Synced ${events} events from Hightribe` : 'Hightribe sync complete')
+      toastRef.current.success(events > 0 ? `Synced ${events} events from Hightribe` : 'Hightribe sync complete')
       await loadHtEventsFromDb()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Hightribe sync failed')
+      toastRef.current.error(err instanceof Error ? err.message : 'Hightribe sync failed')
     } finally {
       setHtSyncing(false)
     }
-  }, [htAvailable, loadHtEventsFromDb, toast])
+  }, [htAvailable, loadHtEventsFromDb])
 
   const loadLumaEventsFromDb = useCallback(async () => {
     setLumaLoading(true)
@@ -485,24 +489,24 @@ export default function EventsPage() {
       const rows = await listStoredEvents('luma')
       setLumaEvents(rows.map(storedToLumaEvent))
     } catch {
-      toast.error('Failed to load Luma events from database')
+      toastRef.current.error('Failed to load Luma events from database')
     } finally {
       setLumaLoading(false)
     }
-  }, [toast])
+  }, [])
 
   const syncLumaEvents = useCallback(async () => {
     setLumaSyncing(true)
     try {
       const { events, bookings } = await syncChannelDataToDb('luma')
-      toast.success(`Synced ${events} events, ${bookings} bookings`)
+      toastRef.current.success(`Synced ${events} events, ${bookings} bookings`)
       await loadLumaEventsFromDb()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Luma sync failed')
+      toastRef.current.error(err instanceof Error ? err.message : 'Luma sync failed')
     } finally {
       setLumaSyncing(false)
     }
-  }, [loadLumaEventsFromDb, toast])
+  }, [loadLumaEventsFromDb])
 
   const loadEbEventsFromDb = useCallback(async () => {
     setEbLoading(true)
@@ -510,24 +514,24 @@ export default function EventsPage() {
       const rows = await listStoredEvents('eventbrite')
       setEbEvents(rows.map(storedToEbEvent))
     } catch {
-      toast.error('Failed to load Eventbrite events from database')
+      toastRef.current.error('Failed to load Eventbrite events from database')
     } finally {
       setEbLoading(false)
     }
-  }, [toast])
+  }, [])
 
   const syncEbEvents = useCallback(async () => {
     setEbSyncing(true)
     try {
       const { events, bookings } = await syncChannelDataToDb('eventbrite')
-      toast.success(`Synced ${events} events, ${bookings} bookings`)
+      toastRef.current.success(`Synced ${events} events, ${bookings} bookings`)
       await loadEbEventsFromDb()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Eventbrite sync failed')
+      toastRef.current.error(err instanceof Error ? err.message : 'Eventbrite sync failed')
     } finally {
       setEbSyncing(false)
     }
-  }, [loadEbEventsFromDb, toast])
+  }, [loadEbEventsFromDb])
 
   const loadAllEvents = useCallback(async () => {
     await Promise.all([
@@ -690,8 +694,8 @@ export default function EventsPage() {
       }
     } catch { /* non-fatal */ }
 
-    if (errors.length) toast.error(errors.join(' · '))
-    else toast.success(targets.length > 1 ? `Deleted from ${targets.length} channels` : 'Event deleted successfully')
+    if (errors.length) toastRef.current.error(errors.join(' · '))
+    else toastRef.current.success(targets.length > 1 ? `Deleted from ${targets.length} channels` : 'Event deleted successfully')
 
     setDeleting(false)
     setDeleteTarget(null)
@@ -699,7 +703,9 @@ export default function EventsPage() {
 
   useEffect(() => {
     void loadAllEvents()
-  }, [loadAllEvents])
+    // Mount-only initial load — callbacks are stable; avoid re-fetch loops on re-render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     setPage(1)
@@ -728,7 +734,7 @@ export default function EventsPage() {
 
   function onSaved(channel: ChannelKey) {
     const label = CH_LABELS[channel]
-    toast.success(`Event updated on ${label}!`)
+    toastRef.current.success(`Event updated on ${label}!`)
     setEditModal(f => ({ ...f, open: false }))
     void loadAllEvents()
   }

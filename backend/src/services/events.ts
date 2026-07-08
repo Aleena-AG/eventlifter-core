@@ -1,5 +1,15 @@
 import type { RowDataPacket } from 'mysql2'
+import { useDatabase } from '../config'
 import { getPool, query } from '../db/pool'
+import {
+  localDeleteAllEvents,
+  localDeleteEvent,
+  localGetEvent,
+  localListEvents,
+  localResolveUserIdFromEvent,
+  localUpsertEvents,
+  type LocalEventRow,
+} from '../db/local-store'
 
 export type ChannelName = 'luma' | 'eventbrite' | 'hightribe'
 
@@ -69,10 +79,37 @@ function mapRow(row: RowDataPacket): StoredEvent {
   }
 }
 
+function mapLocalLite(row: LocalEventRow): StoredEvent {
+  return {
+    id: row.id,
+    user_id: row.user_id,
+    external_id: row.external_id,
+    title: row.title,
+    start_at: row.start_at,
+    end_at: row.end_at,
+    timezone: row.timezone,
+    url: row.url,
+    cover_url: row.cover_url,
+    status: row.status,
+    payload: {},
+    synced_at: row.synced_at,
+  }
+}
+
+function mapLocalFull(row: LocalEventRow): StoredEvent {
+  return {
+    ...mapLocalLite(row),
+    payload: row.payload_json || {},
+  }
+}
+
 export async function listChannelEvents(
   channel: ChannelName,
   userId: number,
 ): Promise<StoredEvent[]> {
+  if (!useDatabase()) {
+    return localListEvents(channel, userId).map(mapLocalLite)
+  }
   const table = TABLE[channel]
   const rows = await query<RowDataPacket[]>(
     `SELECT ${LIST_COLUMNS} FROM ${table} WHERE user_id = ? ORDER BY start_at DESC, updated_at DESC`,
@@ -86,6 +123,10 @@ export async function getChannelEvent(
   userId: number,
   externalId: string,
 ): Promise<StoredEvent | null> {
+  if (!useDatabase()) {
+    const row = localGetEvent(channel, userId, externalId)
+    return row ? mapLocalFull(row) : null
+  }
   const table = TABLE[channel]
   const rows = await query<RowDataPacket[]>(
     `SELECT * FROM ${table} WHERE user_id = ? AND external_id = ? LIMIT 1`,
@@ -98,6 +139,9 @@ export async function resolveUserIdFromChannelEvent(
   channel: ChannelName,
   eventId: string,
 ): Promise<number | null> {
+  if (!useDatabase()) {
+    return localResolveUserIdFromEvent(channel, eventId)
+  }
   const table = TABLE[channel]
   const rows = await query<RowDataPacket[]>(
     `SELECT user_id FROM ${table} WHERE external_id = ? LIMIT 1`,
@@ -111,6 +155,28 @@ export async function upsertChannelEvents(
   userId: number,
   events: Array<Record<string, unknown>>,
 ): Promise<{ upserted: number }> {
+  if (!useDatabase()) {
+    const now = new Date().toISOString()
+    const rows = events.map((raw) => {
+      const n = normalizeEvent(channel, raw)
+      return {
+        external_id: n.external_id,
+        title: n.title,
+        start_at: n.start_at ? n.start_at.toISOString() : null,
+        end_at: n.end_at ? n.end_at.toISOString() : null,
+        timezone: n.timezone,
+        url: n.url,
+        cover_url: n.cover_url,
+        status: n.status,
+        is_free: n.is_free,
+        payload_json: raw,
+        synced_at: now,
+      }
+    }).filter((r) => r.external_id)
+    const upserted = localUpsertEvents(channel, userId, rows)
+    return { upserted }
+  }
+
   const pool = getPool()
   const now = new Date()
   let upserted = 0
@@ -273,6 +339,9 @@ export async function deleteChannelEvent(
   userId: number,
   externalId: string,
 ): Promise<boolean> {
+  if (!useDatabase()) {
+    return localDeleteEvent(channel, userId, externalId)
+  }
   const table = TABLE[channel]
   const [result] = await getPool().query(
     `DELETE FROM ${table} WHERE user_id = ? AND external_id = ?`,

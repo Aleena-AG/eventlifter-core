@@ -1,6 +1,7 @@
 import type { RowDataPacket } from 'mysql2'
-import { config } from '../config'
+import { config, useDatabase } from '../config'
 import { getPool, query } from '../db/pool'
+import { localGetUserSettings, localSetUserSettings } from '../db/local-store'
 import type { AppSettings, ChannelSettingsKey } from '../types/settings'
 
 function defaultRedirectUri(): string {
@@ -132,6 +133,10 @@ async function readStored(userId: number): Promise<Partial<AppSettings> | null> 
 }
 
 export async function getUserSettings(userId: number): Promise<AppSettings> {
+  if (!useDatabase()) {
+    const stored = localGetUserSettings(userId)
+    return mergeSettings(defaultSettings(), stored)
+  }
   const stored = await readStored(userId)
   return mergeSettings(defaultSettings(), stored)
 }
@@ -142,6 +147,12 @@ export async function updateUserSettings(
 ): Promise<AppSettings> {
   const current = await getUserSettings(userId)
   const updated = mergePatch(current, patch)
+
+  if (!useDatabase()) {
+    localSetUserSettings(userId, updated)
+    return updated
+  }
+
   const now = new Date()
 
   await getPool().query(

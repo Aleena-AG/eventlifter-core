@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 
 export type ToastType = 'success' | 'error' | 'info'
 
@@ -77,8 +77,14 @@ function ToastItem({ toast, onRemove }: { toast: ToastItem; onRemove: (id: strin
 
 export function useToast() {
   const [toasts, setToasts] = useState<ToastItem[]>([])
+  const lastToastRef = useRef<{ message: string; at: number } | null>(null)
 
   const addToast = useCallback((message: string, type: ToastType = 'info') => {
+    const now = Date.now()
+    const last = lastToastRef.current
+    if (last && last.message === message && now - last.at < 4000) return
+    lastToastRef.current = { message, at: now }
+
     const id = Math.random().toString(36).slice(2)
     setToasts((prev) => [...prev, { id, message, type }])
   }, [])
@@ -87,11 +93,11 @@ export function useToast() {
     setToasts((prev) => prev.filter((t) => t.id !== id))
   }, [])
 
-  const toast = {
+  const toast = useMemo(() => ({
     success: (msg: string) => addToast(msg, 'success'),
     error: (msg: string) => addToast(msg, 'error'),
     info: (msg: string) => addToast(msg, 'info'),
-  }
+  }), [addToast])
 
   return { toasts, toast, removeToast }
 }

@@ -10,11 +10,14 @@ function withAuth(headers: Record<string, string> = {}): Record<string, string> 
 }
 
 async function parseApiError(r: Response): Promise<never> {
-  const d = await r.json().catch(() => ({})) as { error?: string; message?: string }
+  const d = await r.json().catch(() => ({})) as { error?: string; message?: string; code?: string }
   const message = d.error || d.message || `HTTP ${r.status}`
   if (r.status === 401 || isAuthErrorMessage(message)) {
     clearAuth()
     throw new Error('SESSION_EXPIRED')
+  }
+  if (r.status === 402 || d.code === 'SUBSCRIPTION_REQUIRED') {
+    throw new Error('SUBSCRIPTION_REQUIRED')
   }
   throw new Error(message)
 }

@@ -6,9 +6,7 @@ export const runtime = 'nodejs'
 
 export async function GET(req: NextRequest) {
   const session = await requireSubscribedSession(req)
-  if (isErrorResponse(session)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  if (isErrorResponse(session)) return session
 
   try {
     const stats = await getDashboardStatsForUser(session.user.id)

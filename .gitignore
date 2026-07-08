@@ -8,3 +8,4 @@ _express_backup/
 settings.json
 data/*.db
 data/*.db-*
+data/local-app-store.json

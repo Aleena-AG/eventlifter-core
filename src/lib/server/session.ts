@@ -13,13 +13,21 @@ export async function requireSession(req: Request): Promise<SessionContext | Nex
     return NextResponse.json({ status: false, message: 'Unauthorized' }, { status: 401 })
   }
 
-  const user = await resolveSession(header)
-  if (!user) {
-    return NextResponse.json({ status: false, message: 'Session expired' }, { status: 401 })
-  }
+  try {
+    const user = await resolveSession(header)
+    if (!user) {
+      return NextResponse.json({ status: false, message: 'Session expired' }, { status: 401 })
+    }
 
-  const token = header.startsWith('Bearer ') ? header.slice(7).trim() : header.trim()
-  return { user, token }
+    const token = header.startsWith('Bearer ') ? header.slice(7).trim() : header.trim()
+    return { user, token }
+  } catch (err) {
+    console.error('[requireSession]', err instanceof Error ? err.message : err)
+    return NextResponse.json(
+      { status: false, message: 'Service temporarily unavailable' },
+      { status: 503 },
+    )
+  }
 }
 
 export async function assertEwentcastBillingAccess(userId: number): Promise<NextResponse | null> {
