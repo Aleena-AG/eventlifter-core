@@ -2,6 +2,7 @@
 
 import { channelFetch } from '@/lib/channel-fetch'
 import { authHeader } from '@/lib/auth'
+import { syncStoredEvents } from '@/lib/channel-events-store'
 import type { ChannelKey } from '@/lib/types'
 import { buildEbTicketClass, ebTicketQuantity } from '@/lib/eventbrite-ticket'
 import { resolveEbTimezone } from '@/lib/eventbrite-timezone'
@@ -314,26 +315,94 @@ export async function updateChannelEvent(
   if (!res.ok) throw new Error(data.error_description || data.error || `HTTP ${res.status}`)
 }
 
+/**
+ * Save a just-published event into our local channel store so it shows up on
+ * the Events page immediately (without waiting for a manual/live re-sync).
+ * Best-effort: failures here never fail the publish.
+ */
+async function persistPublishedEvent(
+  ch: ChannelKey,
+  ev: EventFormData,
+  ref: { eventId: string; url?: string },
+): Promise<void> {
+  if (!ref.eventId) return
+  const tz = String(ev.timezone || 'UTC')
+  const startUtc = toIso(String(ev.date), String(ev.time), tz)
+  const endUtc = toIso(String(ev.endDate || ev.date), String(ev.endTime || ev.time), tz)
+  const cover = String(ev.coverUrl || '')
+
+  let raw: Record<string, unknown>
+  if (ch === 'luma') {
+    const url = ref.url ? (/^https?:\/\//i.test(ref.url) ? ref.url : `https://${ref.url}`) : ''
+    raw = {
+      api_id: ref.eventId,
+      name: ev.title,
+      start_at: startUtc,
+      end_at: endUtc,
+      timezone: tz,
+      url,
+      cover_url: cover,
+      status: 'published',
+    }
+  } else if (ch === 'eventbrite') {
+    raw = {
+      id: ref.eventId,
+      name: { text: ev.title },
+      start: { utc: startUtc },
+      end: { utc: endUtc },
+      url: ref.url || '',
+      is_free: ev.ticketType === 'Free',
+      status: 'live',
+    }
+  } else {
+    raw = {
+      id: ref.eventId,
+      title: ev.title,
+      dates: { starts_at: startUtc, ends_at: endUtc },
+      timezone: tz,
+      cover_url: cover,
+      location: String(ev.venue || ev.address || ev.city || ''),
+      status: 'published',
+    }
+  }
+
+  try {
+    await syncStoredEvents(ch, [raw], { prune: false })
+  } catch {
+    // non-fatal — event still exists on the channel; a later sync will pick it up
+  }
+}
+
+export type PublishResults = Partial<Record<ChannelKey, { status: 'synced' | 'error'; url?: string; message?: string }>>
+
 export async function publishToAllChannels(
   ev: EventFormData,
   targets: ChannelKey[],
   files?: EventCoverFiles,
-): Promise<Partial<Record<ChannelKey, { status: 'synced' | 'error'; url?: string; message?: string }>>> {
-  const masterRes = await fetch('/api/registry', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: authHeader(),
-    },
-    body: JSON.stringify({
-      action: 'create',
-      title: String(ev.title),
-      capacity: parseInt(String(ev.capacity || '150')) || 150,
-    }),
-  })
-  const master = await masterRes.json() as { id: string }
+  existingMasterId?: string,
+): Promise<{ masterId: string; results: PublishResults }> {
+  let masterId = existingMasterId || ''
+  if (!masterId) {
+    const masterRes = await fetch('/api/registry', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: authHeader(),
+      },
+      body: JSON.stringify({
+        action: 'create',
+        title: String(ev.title),
+        capacity: parseInt(String(ev.capacity || '150')) || 150,
+      }),
+    })
+    const master = await masterRes.json() as { id?: string; error?: string }
+    if (!masterRes.ok || !master.id) {
+      throw new Error(master.error || `Could not create master event (HTTP ${masterRes.status})`)
+    }
+    masterId = master.id
+  }
 
-  const results: Partial<Record<ChannelKey, { status: 'synced' | 'error'; url?: string; message?: string }>> = {}
+  const results: PublishResults = {}
 
   for (const ch of targets) {
     try {
@@ -346,11 +415,12 @@ export async function publishToAllChannels(
         },
         body: JSON.stringify({
           action: 'link',
-          masterId: master.id,
+          masterId,
           channel: ch,
           ref: { eventId: ref.eventId, ticketId: ref.ticketId, url: ref.url },
         }),
       })
+      await persistPublishedEvent(ch, ev, { eventId: ref.eventId, url: ref.url })
       results[ch] = { status: 'synced', url: ref.url }
     } catch (e) {
       results[ch] = { status: 'error', message: e instanceof Error ? e.message : String(e) }
@@ -359,5 +429,5 @@ export async function publishToAllChannels(
 
   try { await fetch('/api/webhooks/setup', { method: 'POST' }) } catch { /* non-fatal */ }
 
-  return results
+  return { masterId, results }
 }

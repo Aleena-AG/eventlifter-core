@@ -6,6 +6,7 @@ import { getUser } from '@/lib/auth'
 import { connectedChannelsFromMap, fetchChannelConnectionMap } from '@/lib/channel-connection'
 import type { AttendeeRecord } from '@/lib/event-registry'
 import { publishToAllChannels, updateChannelEvent, type EventFormData } from '@/lib/publish-event'
+import { syncChannelDataToDb } from '@/lib/channel-data-sync'
 import type { EventCoverFiles } from '@/lib/cover-image'
 import { loadEventFormData } from '@/lib/event-form-data'
 import type { ChannelKey } from '@/lib/types'
@@ -79,6 +80,8 @@ export function EwentcastWizard({
     isEdit && editChannel ? [editChannel] : [],
   )
   const [pub, setPub] = useState<PubState>({})
+  const [masterId, setMasterId] = useState<string | null>(null)
+  const [publishError, setPublishError] = useState<string | null>(null)
   const [publishing, setPublishing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -205,26 +208,62 @@ export function EwentcastWizard({
   }
 
   async function startPublish() {
-    setPublishing(true)
-    const queued: PubState = {}
-    liveTargets.forEach(ch => { queued[ch] = { status: 'queued' } })
-    setPub(queued)
+    // First run publishes every connected channel; a retry only re-publishes the
+    // ones that aren't already synced (so we never duplicate a synced channel).
+    const toPublish = liveTargets.filter(ch => pub[ch]?.status !== 'synced')
+    const targets = toPublish.length > 0 ? toPublish : liveTargets
+    if (targets.length === 0) return
 
-    for (const ch of liveTargets) {
+    setPublishError(null)
+    setPublishing(true)
+    setPub(p => {
+      const next = { ...p }
+      targets.forEach(ch => { next[ch] = { status: 'queued' } })
+      return next
+    })
+
+    for (const ch of targets) {
       setPub(p => ({ ...p, [ch]: { status: 'publishing' } }))
       await new Promise(r => setTimeout(r, 300))
     }
 
-    const results = await publishToAllChannels(ev, liveTargets, coverFiles)
-    const next: PubState = {}
-    for (const ch of liveTargets) {
-      const r = results[ch]
-      next[ch] = r?.status === 'synced'
-        ? { status: 'synced', url: r.url }
-        : { status: 'error', message: r?.message || 'Failed' }
+    try {
+      const { masterId: mid, results } = await publishToAllChannels(
+        ev, targets, coverFiles, masterId ?? undefined,
+      )
+      setMasterId(mid)
+      setPub(p => {
+        const next = { ...p }
+        for (const ch of targets) {
+          const r = results[ch]
+          next[ch] = r?.status === 'synced'
+            ? { status: 'synced', url: r.url }
+            : { status: 'error', message: r?.message || 'Failed' }
+        }
+        return next
+      })
+
+      // A publish only creates the event on the remote channel + registry; it
+      // doesn't write to our local event store, so the new event wouldn't show
+      // on the Events page until a manual sync. Pull each successfully published
+      // channel into the store now so it appears immediately.
+      const publishedChannels = targets.filter(ch => results[ch]?.status === 'synced')
+      await Promise.all(
+        publishedChannels.map(ch =>
+          syncChannelDataToDb(ch).catch(() => { /* best-effort refresh */ }),
+        ),
+      )
+    } catch (e) {
+      // Master-event creation failed — nothing was published, so reset lanes.
+      setPublishError(e instanceof Error ? e.message : 'Publish failed')
+      setPub(p => {
+        const next = { ...p }
+        for (const ch of targets) next[ch] = { status: 'error', message: 'Not published' }
+        return next
+      })
+    } finally {
+      setPublishing(false)
     }
-    setPub(next)
-    setPublishing(false)
   }
 
   const sec = SECTIONS[section]
@@ -595,6 +634,10 @@ export function EwentcastWizard({
   function viewPublish() {
     const allDone = liveTargets.length > 0 && liveTargets.every(ch => pub[ch]?.status === 'synced')
     const started = Object.keys(pub).length > 0
+    const settled = started && !publishing
+    const syncedCount = liveTargets.filter(ch => pub[ch]?.status === 'synced').length
+    const failedCount = liveTargets.filter(ch => pub[ch]?.status === 'error').length
+    const hasFailed = settled && failedCount > 0
 
     return (
       <div className="ew-view">
@@ -656,15 +699,25 @@ export function EwentcastWizard({
         <div className="ew-foot">
           <span className="note">
             {allDone ? 'All channels synced. Attendees now flow back into one dashboard.' :
-              started ? 'Publishing — links appear as each channel confirms.' : 'Nothing published yet.'}
+              publishing ? 'Publishing — links appear as each channel confirms.' :
+              hasFailed ? `${syncedCount} synced · ${failedCount} failed. Fix the issue and retry the failed channel${failedCount > 1 ? 's' : ''}.` :
+              'Nothing published yet.'}
           </span>
+          {publishError && <span className="note ew-foot-error">{publishError}</span>}
           <div className="ew-foot-actions">
             <button type="button" className="ew-btn ghost" onClick={() => setStep(0)}>← Back to form</button>
+            {syncedCount > 0 && !allDone && !publishing && (
+              <button type="button" className="ew-btn ghost" onClick={() => setStep(2)}>Skip to dashboard →</button>
+            )}
             {allDone ? (
               <button type="button" className="ew-btn primary" onClick={() => setStep(2)}>Open dashboard →</button>
             ) : (
-              <button type="button" className="ew-btn primary" disabled={publishing || started} onClick={startPublish}>
-                {publishing || started ? <InlineLoader label="Publishing" /> : `Publish to ${liveTargets.length} channels`}
+              <button type="button" className="ew-btn primary" disabled={publishing} onClick={startPublish}>
+                {publishing
+                  ? <InlineLoader label="Publishing" />
+                  : hasFailed
+                    ? `Retry ${failedCount} failed channel${failedCount > 1 ? 's' : ''}`
+                    : `Publish to ${liveTargets.length} channels`}
               </button>
             )}
           </div>

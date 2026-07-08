@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import type { AppSettings } from '../types/settings'
 import type { ChannelName } from '../services/events'
+import type { ChannelKey, ChannelRef } from '../types'
 
 function dataDir(): string {
   const dir = process.env.DATA_DIR
@@ -99,6 +100,32 @@ export interface LocalBookingRow {
   updated_at: string
 }
 
+export interface LocalMasterEvent {
+  id: string
+  user_id: number | null
+  title: string
+  capacity: number
+  sold: number
+  created_at: string
+  updated_at: string
+}
+
+export interface LocalChannelRef {
+  master_id: string
+  channel: ChannelKey
+  event_id: string
+  ticket_id: string | null
+  url: string | null
+}
+
+export interface LocalRegistryAttendee {
+  master_id: string
+  email: string
+  name: string
+  source_channel: ChannelKey
+  registered_at: string
+}
+
 interface LocalAppStore {
   nextId: {
     user: number
@@ -117,6 +144,9 @@ interface LocalAppStore {
   eventbrite_events: LocalEventRow[]
   hightribe_events: LocalEventRow[]
   channel_bookings: LocalBookingRow[]
+  master_events: LocalMasterEvent[]
+  channel_refs: LocalChannelRef[]
+  registry_attendees: LocalRegistryAttendee[]
 }
 
 declare global {
@@ -137,6 +167,9 @@ function emptyStore(): LocalAppStore {
     eventbrite_events: [],
     hightribe_events: [],
     channel_bookings: [],
+    master_events: [],
+    channel_refs: [],
+    registry_attendees: [],
   }
 }
 
@@ -145,7 +178,9 @@ function loadStore(): LocalAppStore {
   try {
     const file = storePath()
     if (fs.existsSync(file)) {
-      global.__ewentcastLocalStore = JSON.parse(fs.readFileSync(file, 'utf8')) as LocalAppStore
+      const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<LocalAppStore>
+      // Merge onto an empty store so older files missing newer tables stay valid.
+      global.__ewentcastLocalStore = { ...emptyStore(), ...parsed }
       return global.__ewentcastLocalStore
     }
   } catch {
@@ -495,4 +530,164 @@ export function localDeleteAllBookings(userId: number, channel?: ChannelName): n
   })
   saveStore(store)
   return before - store.channel_bookings.length
+}
+
+// ── Registry (master events + channel refs + attendees) ─────────────────────
+
+const REGISTRY_CHANNELS: ChannelKey[] = ['hightribe', 'luma', 'eventbrite']
+
+export function localCreateMasterEvent(input: {
+  id: string
+  title: string
+  capacity: number
+  userId?: number | null
+  channels?: Partial<Record<ChannelKey, ChannelRef>>
+}): LocalMasterEvent {
+  const store = loadStore()
+  const now = new Date().toISOString()
+  const master: LocalMasterEvent = {
+    id: input.id,
+    user_id: input.userId ?? null,
+    title: input.title,
+    capacity: input.capacity,
+    sold: 0,
+    created_at: now,
+    updated_at: now,
+  }
+  store.master_events.push(master)
+
+  for (const [channel, ref] of Object.entries(input.channels || {})) {
+    if (!ref || !REGISTRY_CHANNELS.includes(channel as ChannelKey)) continue
+    store.channel_refs.push({
+      master_id: input.id,
+      channel: channel as ChannelKey,
+      event_id: ref.eventId || '',
+      ticket_id: ref.ticketId || null,
+      url: ref.url || null,
+    })
+  }
+
+  saveStore(store)
+  return master
+}
+
+export function localGetMasterEvent(id: string): LocalMasterEvent | null {
+  return loadStore().master_events.find((m) => m.id === id) || null
+}
+
+export function localListMasterEvents(): LocalMasterEvent[] {
+  return [...loadStore().master_events].sort(
+    (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
+  )
+}
+
+export function localGetChannelRefs(masterId: string): LocalChannelRef[] {
+  return loadStore().channel_refs.filter((c) => c.master_id === masterId)
+}
+
+export function localGetAttendees(masterId: string): LocalRegistryAttendee[] {
+  return loadStore()
+    .registry_attendees.filter((a) => a.master_id === masterId)
+    .sort((a, b) => new Date(a.registered_at).getTime() - new Date(b.registered_at).getTime())
+}
+
+export function localFindMasterByChannelEvent(
+  channel: ChannelKey,
+  eventId: string,
+): LocalMasterEvent | null {
+  const store = loadStore()
+  const ref = store.channel_refs.find(
+    (c) => c.channel === channel && c.event_id === String(eventId),
+  )
+  if (!ref) return null
+  return store.master_events.find((m) => m.id === ref.master_id) || null
+}
+
+export function localLinkChannelEvent(
+  masterId: string,
+  channel: ChannelKey,
+  ref: ChannelRef,
+): LocalMasterEvent | null {
+  const store = loadStore()
+  const master = store.master_events.find((m) => m.id === masterId)
+  if (!master) return null
+
+  const existing = store.channel_refs.find(
+    (c) => c.master_id === masterId && c.channel === channel,
+  )
+  if (existing) {
+    existing.event_id = ref.eventId
+    existing.ticket_id = ref.ticketId || null
+    existing.url = ref.url || null
+  } else {
+    store.channel_refs.push({
+      master_id: masterId,
+      channel,
+      event_id: ref.eventId,
+      ticket_id: ref.ticketId || null,
+      url: ref.url || null,
+    })
+  }
+  master.updated_at = new Date().toISOString()
+  saveStore(store)
+  return master
+}
+
+export function localRegisterAttendee(
+  masterId: string,
+  attendee: { email: string; name: string; source: ChannelKey; registeredAt?: string },
+): LocalMasterEvent | null {
+  const store = loadStore()
+  const master = store.master_events.find((m) => m.id === masterId)
+  if (!master) return null
+
+  const email = attendee.email.toLowerCase().trim()
+  const dupe = store.registry_attendees.find(
+    (a) => a.master_id === masterId && a.email === email,
+  )
+  if (!dupe) {
+    store.registry_attendees.push({
+      master_id: masterId,
+      email,
+      name: attendee.name,
+      source_channel: attendee.source,
+      registered_at: attendee.registeredAt || new Date().toISOString(),
+    })
+    master.sold += 1
+    master.updated_at = new Date().toISOString()
+  }
+  saveStore(store)
+  return master
+}
+
+export function localDeleteMasterEvent(id: string): boolean {
+  const store = loadStore()
+  const before = store.master_events.length
+  store.master_events = store.master_events.filter((m) => m.id !== id)
+  store.channel_refs = store.channel_refs.filter((c) => c.master_id !== id)
+  store.registry_attendees = store.registry_attendees.filter((a) => a.master_id !== id)
+  saveStore(store)
+  return store.master_events.length < before
+}
+
+export function localRemoveChannelFromMaster(
+  masterId: string,
+  channel: ChannelKey,
+): LocalMasterEvent | null {
+  const store = loadStore()
+  const master = store.master_events.find((m) => m.id === masterId)
+  if (!master) return null
+
+  store.channel_refs = store.channel_refs.filter(
+    (c) => !(c.master_id === masterId && c.channel === channel),
+  )
+  const remaining = store.channel_refs.filter((c) => c.master_id === masterId)
+  if (remaining.length === 0) {
+    saveStore(store)
+    localDeleteMasterEvent(masterId)
+    return null
+  }
+  master.updated_at = new Date().toISOString()
+  saveStore(store)
+  return master
 }

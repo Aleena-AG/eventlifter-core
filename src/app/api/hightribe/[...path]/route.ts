@@ -12,9 +12,15 @@ async function handler(
   req.nextUrl.searchParams.forEach((v, k) => url.searchParams.set(k, v))
 
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
     Accept: 'application/json',
   }
+
+  // Preserve the incoming Content-Type verbatim. For multipart/form-data this
+  // carries the boundary that matches the raw body bytes — forcing JSON here
+  // would make the upstream API see an empty body (all fields "required").
+  const contentType = req.headers.get('content-type')
+  const isMultipart = !!contentType && contentType.includes('multipart/form-data')
+  if (contentType) headers['Content-Type'] = contentType
 
   const authHeader = req.headers.get('authorization')
   if (authHeader) headers['Authorization'] = authHeader
@@ -22,8 +28,15 @@ async function handler(
   const init: RequestInit = { method: req.method, headers }
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     try {
-      const body = await req.text()
-      if (body) init.body = body
+      if (isMultipart) {
+        // Forward raw bytes so the multipart boundary stays intact.
+        const buf = await req.arrayBuffer()
+        if (buf.byteLength) init.body = buf
+      } else {
+        const body = await req.text()
+        if (body) init.body = body
+        if (!contentType) headers['Content-Type'] = 'application/json'
+      }
     } catch {
       // ignore body read errors
     }

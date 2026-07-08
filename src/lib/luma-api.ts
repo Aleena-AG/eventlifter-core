@@ -284,6 +284,11 @@ export async function proxyLumaPath(
     }
   }
 
+  if (path === 'images/upload-url' && method === 'POST') {
+    // Luma's image upload flow: create-upload-url returns { upload_url, file_url }.
+    return { data: await lumaRequest(settings, 'POST', '/v1/images/create-upload-url', { body }), status: 200 }
+  }
+
   if (path === 'users/self' && method === 'GET') {
     return { data: await lumaRequest(settings, 'GET', '/v1/users/get-self'), status: 200 }
   }

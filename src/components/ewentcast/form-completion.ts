@@ -1,6 +1,13 @@
 import type { EventFormData } from '@/lib/publish-event'
 import type { ChannelKey } from '@/lib/types'
-import { SECTIONS, type FieldDef } from './config'
+import { ALL_CHANNELS, SECTIONS, type FieldDef } from './config'
+
+// Completion is measured against the channels the event will publish to. When
+// none are selected/connected yet, fall back to all channels so the percentage
+// still reflects the fields the user has filled (instead of showing 0%).
+function effectiveTargets(targets: ChannelKey[]): ChannelKey[] {
+  return targets.length > 0 ? targets : ALL_CHANNELS
+}
 
 const OPTIONAL_FIELDS = new Set([
   'summary', 'tags', 'coverUrl', 'lat', 'lng', 'password',
@@ -47,7 +54,8 @@ export function getSectionStatus(
   ev: EventFormData,
   targets: ChannelKey[],
 ): SectionStatus {
-  const fields = SECTIONS[sectionIndex].fields.filter(f => isFieldRequired(f, targets, ev))
+  const eff = effectiveTargets(targets)
+  const fields = SECTIONS[sectionIndex].fields.filter(f => isFieldRequired(f, eff, ev))
   if (fields.length === 0) return { complete: true, filled: 0, total: 0, pct: 100 }
   const filled = fields.filter(f => isFieldFilled(f, ev[f.k])).length
   const total = fields.length
@@ -60,8 +68,9 @@ export function getSectionStatus(
 }
 
 export function getFormCompletion(ev: EventFormData, targets: ChannelKey[]) {
-  const sectionStatuses = SECTIONS.map((_, i) => getSectionStatus(i, ev, targets))
-  const allRequired = SECTIONS.flatMap(s => s.fields).filter(f => isFieldRequired(f, targets, ev))
+  const eff = effectiveTargets(targets)
+  const sectionStatuses = SECTIONS.map((_, i) => getSectionStatus(i, ev, eff))
+  const allRequired = SECTIONS.flatMap(s => s.fields).filter(f => isFieldRequired(f, eff, ev))
   const filled = allRequired.filter(f => isFieldFilled(f, ev[f.k])).length
   const total = allRequired.length
   const pct = total === 0 ? 0 : Math.round((filled / total) * 100)

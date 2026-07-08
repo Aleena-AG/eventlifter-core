@@ -252,7 +252,10 @@ function titleDateKey(evt: UnifiedEvent): string {
   return day ? `${title}::${day}` : title
 }
 
-function mergeMembers(members: UnifiedEvent[]): GroupedEvent {
+function mergeMembers(
+  members: UnifiedEvent[],
+  registryChannels?: Partial<Record<ChannelKey, { eventId: string; url?: string }>>,
+): GroupedEvent {
   const sorted = [...members].sort((a, b) => {
     // Prefer the channel with more complete data / earlier start
     if (!a.sortMs && !b.sortMs) return CHANNEL_ORDER.indexOf(a.channel) - CHANNEL_ORDER.indexOf(b.channel)
@@ -262,14 +265,31 @@ function mergeMembers(members: UnifiedEvent[]): GroupedEvent {
     return CHANNEL_ORDER.indexOf(a.channel) - CHANNEL_ORDER.indexOf(b.channel)
   })
   const primary = sorted[0]
-  const channelSet = new Set(members.map(m => m.channel))
-  const channels = CHANNEL_ORDER.filter(ch => channelSet.has(ch))
   const channelIds: Partial<Record<ChannelKey, string | number>> = {}
   const channelStatuses: Partial<Record<ChannelKey, string | undefined>> = {}
   for (const m of members) {
     channelIds[m.channel] = m.id
     channelStatuses[m.channel] = m.status
   }
+
+  // Include every channel this event was published to per the registry, even
+  // when that channel's copy isn't in our local store yet — so the card shows
+  // all platform badges (e.g. Hightribe + Luma) instead of just the one synced.
+  let registryUrl: string | undefined
+  if (registryChannels) {
+    for (const ch of CHANNEL_ORDER) {
+      const ref = registryChannels[ch]
+      if (!ref?.eventId) continue
+      if (channelIds[ch] == null) channelIds[ch] = ref.eventId
+      if (!registryUrl && ref.url) registryUrl = ref.url
+    }
+  }
+
+  const channelSet = new Set<ChannelKey>([
+    ...members.map(m => m.channel),
+    ...(Object.keys(channelIds) as ChannelKey[]),
+  ])
+  const channels = CHANNEL_ORDER.filter(ch => channelSet.has(ch))
   const bestImage = members.find(m => m.image)?.image
   const bestLocation = members.find(m => m.location)?.location
   const bestUrl = members.find(m => m.url)?.url
@@ -280,7 +300,7 @@ function mergeMembers(members: UnifiedEvent[]): GroupedEvent {
     key: members.map(m => m.key).join('|'),
     image: bestImage || primary.image,
     location: bestLocation || primary.location,
-    url: bestUrl || primary.url,
+    url: bestUrl || primary.url || registryUrl,
     channels,
     channelIds,
     channelStatuses,
@@ -314,7 +334,7 @@ function groupUnifiedEvents(
       }
     }
     if (members.length === 0) continue
-    result.push(mergeMembers(members))
+    result.push(mergeMembers(members, master.channels))
   }
 
   // 2) Remaining events → group by title + start day (cross-channel publish without registry)
