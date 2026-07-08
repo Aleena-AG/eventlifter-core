@@ -174,14 +174,24 @@ export async function loadEventDashboardData(
     }
   }
 
+  // No formal cross-channel link (registry master) — best-effort merge by
+  // matching title so bookings for the "same" event on other channels still
+  // show up together instead of a single-channel-only view.
+  const normTitle = title.trim().toLowerCase()
+  const crossChannelBookings = allBookings.filter(
+    (b) => b.channel !== channel && b.event_title.trim().toLowerCase() === normTitle,
+  )
+  eventBookings = [...eventBookings, ...crossChannelBookings]
+
   const attendees = bookingsToAttendees(eventBookings)
   const registrations = eventBookings.reduce((sum, b) => sum + (b.ticket_count || 1), 0)
+  const channels = Array.from(new Set([channel, ...eventBookings.map((b) => b.channel)])) as ChannelKey[]
 
   return {
     title,
     capacity,
     attendees,
-    channels: [channel],
+    channels,
     channelCounts: countByChannel(attendees),
     registrations,
     uniqueAttendees: attendees.length,

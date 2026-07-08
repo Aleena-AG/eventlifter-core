@@ -1,7 +1,10 @@
 'use client'
 
-import { useState } from 'react'
-import { authHeader } from '@/lib/auth'
+import { useState, useEffect } from 'react'
+import Link from 'next/link'
+import { channelFetch } from '@/lib/channel-fetch'
+import { fetchChannelConnectionMap } from '@/lib/channel-connection'
+import { resolveHtApiAuthHeader } from '@/lib/ewentcast-session'
 import { buildEbTicketClass, ebTicketQuantity } from '@/lib/eventbrite-ticket'
 import { resolveEbTimezone } from '@/lib/eventbrite-timezone'
 import { lumaEntryMatchesId, lumaEventToNorm, unwrapLumaEvent } from '@/lib/luma-event-utils'
@@ -58,9 +61,6 @@ interface NormEvent {
 interface Props {
   open: boolean
   event: { id: string | number; title: string; source: SyncSource } | null
-  htConfigured: boolean
-  lumaConfigured: boolean
-  ebConfigured: boolean
   onClose: () => void
 }
 
@@ -114,8 +114,8 @@ function parseCapacity(v: unknown): number | undefined {
 }
 
 async function fetchHtEvent(id: string | number): Promise<NormEvent> {
-  const res = await fetch(`/api/hightribe/events/${id}`, {
-    headers: { Authorization: authHeader(), Accept: 'application/json' },
+  const res = await channelFetch(`/api/hightribe/events/${id}`, {
+    headers: { Accept: 'application/json' },
   })
   const raw = await res.json() as { data?: Record<string, unknown> } & Record<string, unknown>
   const e = (raw.data || raw) as Record<string, unknown>
@@ -143,8 +143,8 @@ async function fetchHtEvent(id: string | number): Promise<NormEvent> {
 }
 
 async function fetchLumaEventFromList(id: string | number): Promise<NormEvent | null> {
-  const res = await fetch('/api/luma/events/hosted?upcoming_only=false&fetch_all=true', {
-    headers: { Authorization: authHeader(), Accept: 'application/json' },
+  const res = await channelFetch('/api/luma/events/hosted?upcoming_only=false&fetch_all=true', {
+    headers: { Accept: 'application/json' },
   })
   const raw = await res.json() as { data?: { entries?: unknown[] }; entries?: unknown[]; status?: string }
   if (!res.ok || raw.status === 'error') return null
@@ -160,8 +160,8 @@ async function fetchLumaEventFromList(id: string | number): Promise<NormEvent | 
 
 async function fetchLumaEvent(id: string | number, fallbackTitle?: string): Promise<NormEvent> {
   try {
-    const res = await fetch(`/api/luma/events?api_id=${encodeURIComponent(String(id))}`, {
-      headers: { Authorization: authHeader(), Accept: 'application/json' },
+    const res = await channelFetch(`/api/luma/events?api_id=${encodeURIComponent(String(id))}`, {
+      headers: { Accept: 'application/json' },
     })
     const raw = await res.json() as { data?: unknown; status?: string; message?: string }
     if (res.ok && raw.status !== 'error') {
@@ -184,7 +184,7 @@ async function fetchLumaEvent(id: string | number, fallbackTitle?: string): Prom
 }
 
 async function fetchEbEvent(id: string | number): Promise<NormEvent> {
-  const res = await fetch(`/api/eventbrite/events/${id}?expand=venue`)
+  const res = await channelFetch(`/api/eventbrite/events/${id}?expand=venue`)
   const e = await res.json() as Record<string, unknown>
   const start = e.start as Record<string, string> | undefined
   const end   = e.end   as Record<string, string> | undefined
@@ -237,20 +237,47 @@ function buildHtLocation(norm: NormEvent): Record<string, unknown> {
   }
 }
 
-export function SyncModal({ open, event, htConfigured, lumaConfigured, ebConfigured, onClose }: Props) {
+export function SyncModal({ open, event, onClose }: Props) {
   const [selected, setSelected] = useState<Record<ChannelKey, boolean>>({
     hightribe: false, luma: false, eventbrite: false,
   })
   const [results, setResults] = useState<Partial<Record<ChannelKey, ChannelResult>>>({})
   const [publishing, setPublishing] = useState(false)
   const [done, setDone] = useState(false)
+  const [connections, setConnections] = useState<Record<ChannelKey, boolean>>({
+    hightribe: false, luma: false, eventbrite: false,
+  })
+  const [connectionsLoading, setConnectionsLoading] = useState(false)
+  const [existingLinks, setExistingLinks] = useState<Partial<Record<ChannelKey, { eventId: string; url?: string }>>>({})
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    setConnectionsLoading(true)
+    fetchChannelConnectionMap()
+      .then((map) => { if (!cancelled) setConnections(map) })
+      .finally(() => { if (!cancelled) setConnectionsLoading(false) })
+    return () => { cancelled = true }
+  }, [open, event?.id])
+
+  useEffect(() => {
+    if (!open || !event) { setExistingLinks({}); return }
+    let cancelled = false
+    fetch(`/api/registry?channel=${event.source}&eventId=${encodeURIComponent(String(event.id))}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { links?: Partial<Record<ChannelKey, { eventId: string; url?: string }>> } | null) => {
+        if (!cancelled) setExistingLinks(data?.links || {})
+      })
+      .catch(() => { if (!cancelled) setExistingLinks({}) })
+    return () => { cancelled = true }
+  }, [open, event?.id, event?.source])
 
   if (!open || !event) return null
 
   const source = event.source
 
   const toggleChannel = (ch: ChannelKey) => {
-    if (ch === source || publishing || done) return
+    if (ch === source || publishing || done || existingLinks[ch]) return
     setSelected((s) => ({ ...s, [ch]: !s[ch] }))
   }
 
@@ -263,7 +290,8 @@ export function SyncModal({ open, event, htConfigured, lumaConfigured, ebConfigu
   }
 
   const handlePublish = async () => {
-    const targets = (Object.keys(selected) as ChannelKey[]).filter((k) => selected[k] && k !== source)
+    const targets = (Object.keys(selected) as ChannelKey[])
+      .filter((k) => selected[k] && k !== source && !existingLinks[k])
     if (targets.length === 0) return
 
     setPublishing(true)
@@ -302,6 +330,10 @@ export function SyncModal({ open, event, htConfigured, lumaConfigured, ebConfigu
       targets.map(async (ch) => {
         try {
           if (ch === 'hightribe') {
+            const htAuth = await resolveHtApiAuthHeader()
+            if (!htAuth) {
+              throw new Error('HighTribe session expired. Reconnect in Settings → Hightribe.')
+            }
             // Parse startUtc → date + time fields HT expects
             const startD = new Date(norm.startUtc)
             const endD   = new Date(norm.endUtc)
@@ -327,9 +359,9 @@ export function SyncModal({ open, event, htConfigured, lumaConfigured, ebConfigu
               },
               location: buildHtLocation(norm),
             }
-            const res = await fetch('/api/hightribe/events', {
+            const res = await channelFetch('/api/hightribe/events', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: authHeader() },
+              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(body),
             })
             const data = await res.json() as { message?: string; errors?: Record<string, string[]>; data?: { id?: unknown } }
@@ -366,9 +398,9 @@ export function SyncModal({ open, event, htConfigured, lumaConfigured, ebConfigu
                 longitude: norm.lng,
               }
             }
-            const res = await fetch('/api/luma/events', {
+            const res = await channelFetch('/api/luma/events', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: authHeader() },
+              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(body),
             })
             const raw = await res.json() as { status?: string; data?: { api_id?: string }; message?: string; error?: string }
@@ -387,8 +419,15 @@ export function SyncModal({ open, event, htConfigured, lumaConfigured, ebConfigu
             const ebTitle = ebEventTitle(norm, event.title)
             const ebDesc = (norm.description || ebTitle).trim() || ebTitle
 
-            const orgRes = await fetch('/api/eventbrite/users/me/organizations')
-            const orgData = await orgRes.json() as { organizations?: Array<{ id: string }> }
+            const orgRes = await channelFetch('/api/eventbrite/users/me/organizations')
+            const orgData = await orgRes.json() as {
+              organizations?: Array<{ id: string }>
+              error?: string
+              error_description?: string
+            }
+            if (!orgRes.ok) {
+              throw new Error(orgData.error || orgData.error_description || `HTTP ${orgRes.status}`)
+            }
             const orgId = orgData.organizations?.[0]?.id
             if (!orgId) throw new Error('No Eventbrite organization found. Create one on eventbrite.com first.')
 
@@ -404,7 +443,7 @@ export function SyncModal({ open, event, htConfigured, lumaConfigured, ebConfigu
                 shareable: true,
               },
             }
-            const evtRes = await fetch(`/api/eventbrite/organizations/${orgId}/events`, {
+            const evtRes = await channelFetch(`/api/eventbrite/organizations/${orgId}/events`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(evtBody),
@@ -415,7 +454,7 @@ export function SyncModal({ open, event, htConfigured, lumaConfigured, ebConfigu
 
             // Attach venue for in-person events (same flow as EventFormModal / Laravel EB import)
             if (!norm.isOnline && (norm.venueName || norm.address || norm.city)) {
-              const vRes = await fetch(`/api/eventbrite/organizations/${orgId}/venues`, {
+              const vRes = await channelFetch(`/api/eventbrite/organizations/${orgId}/venues`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -432,7 +471,7 @@ export function SyncModal({ open, event, htConfigured, lumaConfigured, ebConfigu
               if (vRes.ok) {
                 const vData = await vRes.json() as { id?: string }
                 if (vData.id) {
-                  await fetch(`/api/eventbrite/events/${eventId2}`, {
+                  await channelFetch(`/api/eventbrite/events/${eventId2}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ event: { venue_id: vData.id } }),
@@ -442,7 +481,7 @@ export function SyncModal({ open, event, htConfigured, lumaConfigured, ebConfigu
             }
 
             // Add free ticket so the event is publishable
-            const tcRes = await fetch(`/api/eventbrite/events/${eventId2}/ticket_classes`, {
+            const tcRes = await channelFetch(`/api/eventbrite/events/${eventId2}/ticket_classes`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -509,21 +548,30 @@ export function SyncModal({ open, event, htConfigured, lumaConfigured, ebConfigu
 
   const anySelected = Object.entries(selected).some(([k, v]) => v && k !== source)
 
-  const CHANNELS: { key: ChannelKey; label: string; icon: string; color: string; configured: boolean; note: string }[] = [
+  const CHANNELS: { key: ChannelKey; label: string; icon: string; color: string; configured: boolean; note: string; settingsHref: string }[] = [
     {
       key: 'hightribe', label: 'Hightribe', icon: '🏔', color: HIGHTRIBE_COLOR,
-      configured: htConfigured,
-      note: htConfigured ? 'Will create event via Hightribe API' : 'Log in to Hightribe first',
+      configured: connections.hightribe,
+      note: connections.hightribe
+        ? 'Will create event via Hightribe API'
+        : 'Connect Hightribe in Settings first',
+      settingsHref: '/settings?channel=hightribe',
     },
     {
       key: 'luma', label: 'Luma', icon: '✨', color: LUMA_COLOR,
-      configured: lumaConfigured,
-      note: lumaConfigured ? 'Will create event via Luma API' : 'Log in to Hightribe first (Luma is configured server-side)',
+      configured: connections.luma,
+      note: connections.luma
+        ? 'Will create event via Luma API'
+        : 'Configure Luma in Settings first',
+      settingsHref: '/settings?channel=luma',
     },
     {
       key: 'eventbrite', label: 'Eventbrite', icon: '🎫', color: EVENTBRITE_COLOR,
-      configured: ebConfigured,
-      note: ebConfigured ? 'Will create event via Eventbrite API' : 'Configure Eventbrite in Settings first',
+      configured: connections.eventbrite,
+      note: connections.eventbrite
+        ? 'Will create event via Eventbrite API'
+        : 'Configure Eventbrite in Settings first',
+      settingsHref: '/settings?channel=eventbrite',
     },
   ]
 
@@ -570,20 +618,24 @@ export function SyncModal({ open, event, htConfigured, lumaConfigured, ebConfigu
 
         {/* Channel selection */}
         <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {CHANNELS.filter(c => c.key !== source).map(({ key, label, icon, color, configured, note }) => {
+          {connectionsLoading && (
+            <p style={{ margin: 0, fontSize: '12px', color: '#8C7F6D' }}>Checking connected channels…</p>
+          )}
+          {CHANNELS.filter(c => c.key !== source).map(({ key, label, icon, color, configured, note, settingsHref }) => {
             const result = results[key]
             const isSelected = selected[key]
+            const alreadyPublished = existingLinks[key]
 
             return (
               <div
                 key={key}
-                onClick={() => configured && toggleChannel(key)}
+                onClick={() => !alreadyPublished && configured && toggleChannel(key)}
                 style={{
-                  border: `1px solid ${result?.status === 'success' ? 'rgba(63,185,80,0.4)' : result?.status === 'error' ? 'rgba(248,81,73,0.4)' : isSelected ? color + '4d' : '#E8DFD0'}`,
+                  border: `1px solid ${alreadyPublished || result?.status === 'success' ? 'rgba(63,185,80,0.4)' : result?.status === 'error' ? 'rgba(248,81,73,0.4)' : isSelected ? color + '4d' : '#E8DFD0'}`,
                   borderRadius: '8px',
                   padding: '14px 16px',
-                  background: isSelected && !result ? color + '0d' : '#F1EADC',
-                  cursor: configured && !publishing && !done ? 'pointer' : 'default',
+                  background: alreadyPublished ? 'rgba(63,185,80,0.06)' : isSelected && !result ? color + '0d' : '#F1EADC',
+                  cursor: !alreadyPublished && configured && !publishing && !done ? 'pointer' : 'default',
                   opacity: !configured ? 0.5 : 1,
                   transition: 'all 0.15s',
                 }}
@@ -592,19 +644,31 @@ export function SyncModal({ open, event, htConfigured, lumaConfigured, ebConfigu
                   {/* Checkbox */}
                   <div style={{
                     width: '18px', height: '18px', borderRadius: '4px',
-                    border: `2px solid ${isSelected ? color : '#E8DFD0'}`,
-                    background: isSelected ? color : 'transparent',
+                    border: `2px solid ${alreadyPublished ? '#4E7A4B' : isSelected ? color : '#E8DFD0'}`,
+                    background: alreadyPublished ? '#4E7A4B' : isSelected ? color : 'transparent',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     flexShrink: 0, fontSize: '12px', color: '#fff',
                   }}>
-                    {isSelected ? '✓' : ''}
+                    {alreadyPublished || isSelected ? '✓' : ''}
                   </div>
 
                   <span style={{ fontSize: '16px' }}>{icon}</span>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: '14px', fontWeight: 500, color: '#211B16' }}>{label}</div>
-                    <div style={{ fontSize: '12px', color: result?.status === 'error' ? '#C2502E' : result?.status === 'success' ? '#4E7A4B' : '#8C7F6D', marginTop: '2px' }}>
-                      {result ? result.message : note}
+                    <div style={{ fontSize: '12px', color: alreadyPublished || result?.status === 'success' ? '#4E7A4B' : result?.status === 'error' ? '#C2502E' : '#8C7F6D', marginTop: '2px' }}>
+                      {alreadyPublished ? `Already published (ID: ${alreadyPublished.eventId})` : result ? result.message : (
+                        <>
+                          {note}
+                          {!configured && !connectionsLoading && (
+                            <>
+                              {' '}
+                              <Link href={settingsHref} style={{ color: '#D98A2B', fontWeight: 600 }} onClick={(e) => e.stopPropagation()}>
+                                Open Settings →
+                              </Link>
+                            </>
+                          )}
+                        </>
+                      )}
                     </div>
                   </div>
 

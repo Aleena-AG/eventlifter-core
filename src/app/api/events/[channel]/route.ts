@@ -14,9 +14,7 @@ type RouteContext = { params: Promise<{ channel: string }> }
 
 export async function GET(req: NextRequest, ctx: RouteContext) {
   const session = await requireSubscribedSession(req)
-  if (isErrorResponse(session)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  if (isErrorResponse(session)) return session
 
   const { channel: raw } = await ctx.params
   const channel = parseChannel(raw)
@@ -56,9 +54,7 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
 
 export async function DELETE(req: NextRequest, ctx: RouteContext) {
   const session = await requireSubscribedSession(req)
-  if (isErrorResponse(session)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  if (isErrorResponse(session)) return session
 
   const { channel: raw } = await ctx.params
   const channel = parseChannel(raw)

@@ -1,6 +1,7 @@
 'use client'
 
-import { htApiAuthHeader } from '@/lib/ewentcast-session'
+import { channelFetch } from '@/lib/channel-fetch'
+import { resolveHtApiAuthHeader } from '@/lib/ewentcast-session'
 import type { HtChannelSettingsData } from '@/lib/channel-settings-shared'
 
 export type { HtChannelSettingsData } from '@/lib/channel-settings-shared'
@@ -14,12 +15,12 @@ type HtApiResponse = {
 }
 
 export async function fetchChannelSettingsViaProxy(masked = true): Promise<HtChannelSettingsData> {
-  const auth = htApiAuthHeader()
-  if (!auth) throw new Error('Login to Hightribe first')
+  const auth = await resolveHtApiAuthHeader()
+  if (!auth) throw new Error('HighTribe session expired. Reconnect in Settings → Hightribe.')
 
   const qs = masked ? '?masked=1' : ''
-  const res = await fetch(`/api/hightribe/channel-integrations/settings${qs}`, {
-    headers: { Accept: 'application/json', Authorization: auth },
+  const res = await channelFetch(`/api/hightribe/channel-integrations/settings${qs}`, {
+    headers: { Accept: 'application/json' },
     cache: 'no-store',
   })
   const raw = await res.json() as HtApiResponse
@@ -32,15 +33,14 @@ export async function fetchChannelSettingsViaProxy(masked = true): Promise<HtCha
 export async function saveChannelSettingsViaProxy(
   payload: HtChannelSettingsData,
 ): Promise<HtChannelSettingsData> {
-  const auth = htApiAuthHeader()
-  if (!auth) throw new Error('Login to Hightribe first')
+  const auth = await resolveHtApiAuthHeader()
+  if (!auth) throw new Error('HighTribe session expired. Reconnect in Settings → Hightribe.')
 
-  const res = await fetch('/api/hightribe/channel-integrations/settings', {
+  const res = await channelFetch('/api/hightribe/channel-integrations/settings', {
     method: 'PUT',
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
-      Authorization: auth,
     },
     body: JSON.stringify(payload),
     cache: 'no-store',

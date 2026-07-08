@@ -1,7 +1,8 @@
 import type { RowDataPacket } from 'mysql2'
 import Stripe from 'stripe'
-import { config, stripeConfigured } from '../config'
+import { config, stripeConfigured, useDatabase } from '../config'
 import { getPool, query } from '../db/pool'
+import { localGetSubscription, localGetUserById, localUpsertSubscription } from '../db/local-store'
 
 let stripeClient: Stripe | null = null
 
@@ -30,6 +31,23 @@ interface UserBillingRow extends RowDataPacket {
 }
 
 async function getUserBillingRow(userId: number): Promise<UserBillingRow | null> {
+  if (!useDatabase()) {
+    const user = localGetUserById(userId)
+    if (!user) return null
+    const sub = localGetSubscription(userId)
+    return {
+      email: user.email,
+      name: user.name,
+      plan: sub?.plan ?? null,
+      sub_status: sub?.status ?? null,
+      stripe_customer_id: sub?.stripe_customer_id ?? null,
+      stripe_subscription_id: sub?.stripe_subscription_id ?? null,
+      money_back_refunded_at: sub?.money_back_refunded_at
+        ? new Date(sub.money_back_refunded_at)
+        : null,
+    }
+  }
+
   const rows = await query<UserBillingRow[]>(
     `SELECT u.email, u.name,
             s.plan, s.status AS sub_status,
@@ -55,6 +73,11 @@ export async function ensureStripeCustomer(userId: number): Promise<string> {
     name: row.name,
     metadata: { user_id: String(userId) },
   })
+
+  if (!useDatabase()) {
+    localUpsertSubscription(userId, { stripe_customer_id: customer.id })
+    return customer.id
+  }
 
   const now = new Date()
   const pool = getPool()
@@ -119,6 +142,19 @@ export async function syncSubscriptionFromStripe(
   const trialEnd = subscription.trial_end
     ? new Date(subscription.trial_end * 1000)
     : null
+
+  if (!useDatabase()) {
+    localUpsertSubscription(userId, {
+      plan: 'pro_monthly_20',
+      status,
+      stripe_customer_id: customerId || undefined,
+      stripe_subscription_id: subscription.id,
+      current_period_end: periodEnd ? periodEnd.toISOString() : null,
+      trial_ends_at: trialEnd ? trialEnd.toISOString() : null,
+    })
+    return
+  }
+
   const now = new Date()
 
   await getPool().query(

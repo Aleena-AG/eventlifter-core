@@ -8,6 +8,7 @@ import { logoutLocal } from '@/lib/ewentcast-session'
 import {
   fetchAuthMe,
   getEwentcastAccount,
+  isHightribeNativeUser,
   needsSubscription,
   confirmSubscriptionPayment,
   startSubscriptionCheckout,
@@ -55,7 +56,12 @@ function SubscribeContent() {
       router.replace('/login')
       return
     }
-    refresh().finally(() => setLoading(false))
+    refresh().then((ok) => {
+      if (!ok) return
+      if (isHightribeNativeUser()) {
+        router.replace('/dashboard')
+      }
+    }).finally(() => setLoading(false))
   }, [router])
 
   useEffect(() => {

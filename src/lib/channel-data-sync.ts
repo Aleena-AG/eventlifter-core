@@ -60,7 +60,7 @@ async function fetchEventbriteEventRows(): Promise<Array<Record<string, unknown>
 /** Pull events + bookings from channel APIs and persist to MySQL. */
 export async function syncChannelDataToDb(
   channel: ChannelKey,
-): Promise<{ events: number; bookings: number }> {
+): Promise<{ events: number; pruned: number; bookings: number }> {
   const ch = channel as ChannelName
   let events: Array<Record<string, unknown>> = []
   let bookings: BookingListItem[] = []
@@ -85,17 +85,33 @@ export async function syncChannelDataToDb(
   }
 
   let eventCount = 0
+  let prunedCount = 0
   let bookingCount = 0
 
-  if (events.length > 0) {
-    eventCount = await syncStoredEvents(ch, events)
-  }
+  const eventSync = await syncStoredEvents(ch, events, { prune: true })
+  eventCount = eventSync.upserted
+  prunedCount = eventSync.pruned
+
   if (bookings.length > 0) {
     bookingCount = await syncStoredBookings(ch, bookingsToPayload(bookings))
   }
 
-  return { events: eventCount, bookings: bookingCount }
+  return { events: eventCount, pruned: prunedCount, bookings: bookingCount }
 }
 
 /** Remove all cached events, bookings, and registry links for a channel. */
 export { purgeChannelDataFromDb }
+
+export function formatEventSyncMessage(result: {
+  events: number
+  pruned: number
+  bookings?: number
+}): string {
+  const parts: string[] = []
+  if (result.events > 0) parts.push(`${result.events} event${result.events === 1 ? '' : 's'} synced`)
+  if (result.pruned > 0) parts.push(`${result.pruned} stale removed`)
+  if (result.bookings != null && result.bookings > 0) {
+    parts.push(`${result.bookings} booking${result.bookings === 1 ? '' : 's'}`)
+  }
+  return parts.length > 0 ? parts.join(', ') : 'Sync complete'
+}

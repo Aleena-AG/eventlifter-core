@@ -1,6 +1,21 @@
 import type { RowDataPacket } from 'mysql2'
-import { config } from '../config'
+import { config, useDatabase } from '../config'
 import { getPool, query } from '../db/pool'
+import {
+  localConsumeResetToken,
+  localCreateResetToken,
+  localCreateSession,
+  localCreateUser,
+  localDeleteSession,
+  localDeleteSessionsForUser,
+  localGetHtConnection,
+  localGetSubscription,
+  localGetUserByEmail,
+  localGetUserById,
+  localResolveSession,
+  localUpdateUser,
+  localUpsertSubscription,
+} from '../db/local-store'
 import { hashPassword, newToken, verifyPassword } from '../lib/crypto'
 import { isEmailConfigured, sendPasswordResetEmail } from './email'
 
@@ -53,6 +68,43 @@ function trialDaysRemaining(trialEndsAt: Date | null): number | null {
 }
 
 export async function getAccountView(userId: number): Promise<AccountView> {
+  if (!useDatabase()) {
+    const row = localGetUserById(userId)
+    const sub = localGetSubscription(userId)
+    const ht = localGetHtConnection(userId)
+    const authSource: AccountView['auth_source'] =
+      row?.auth_source === 'hightribe' ? 'hightribe_native' : 'ewentcast_signup'
+
+    const subStatus = sub?.status ?? null
+    const hasSubscription = subStatus != null && String(subStatus).trim() !== ''
+    const status = hasSubscription ? String(subStatus) : 'inactive'
+    const trialEndsAt = sub?.trial_ends_at ? new Date(sub.trial_ends_at) : null
+    const trialStillValid =
+      status === 'trialing' && trialEndsAt != null && trialEndsAt > new Date()
+    const trialExpired =
+      status === 'trialing' && trialEndsAt != null && trialEndsAt <= new Date()
+    const paidActive = status === 'active'
+    const active = paidActive || trialStillValid
+    const displayStatus = trialExpired ? 'expired' : status
+    const daysLeft =
+      status === 'trialing' && trialEndsAt ? trialDaysRemaining(trialEndsAt) : null
+    const periodEnd = sub?.current_period_end ? new Date(sub.current_period_end) : null
+
+    return {
+      auth_source: authSource,
+      subscription_plan: sub?.plan || 'pro_monthly_20',
+      subscription_status: displayStatus,
+      subscription_active: active,
+      subscription_amount_usd: config.stripe.amountUsd || 20,
+      trial_ends_at: trialEndsAt ? trialEndsAt.toISOString() : null,
+      trial_days_remaining: daysLeft,
+      current_period_end: periodEnd ? periodEnd.toISOString() : null,
+      ht_connected: !!ht?.ht_user_id,
+      linked_ht_user_id: ht?.ht_user_id ? Number(ht.ht_user_id) : null,
+      ht_connected_at: ht?.connected_at ?? null,
+    }
+  }
+
   const rows = await query<RowDataPacket[]>(
     `SELECT u.auth_source,
             s.plan, s.status AS sub_status, s.trial_ends_at, s.current_period_end,
@@ -110,6 +162,10 @@ export async function getAccountView(userId: number): Promise<AccountView> {
 export async function createSession(userId: number): Promise<string> {
   const token = newToken()
   const expiresAt = sessionExpiry()
+  if (!useDatabase()) {
+    localCreateSession(userId, token, expiresAt)
+    return token
+  }
   await getPool().query(
     'INSERT INTO sessions (user_id, token, expires_at, created_at) VALUES (?, ?, ?, ?)',
     [userId, token, expiresAt, new Date()],
@@ -118,11 +174,19 @@ export async function createSession(userId: number): Promise<string> {
 }
 
 export async function deleteSession(token: string): Promise<void> {
+  if (!useDatabase()) {
+    localDeleteSession(token)
+    return
+  }
   await getPool().query('DELETE FROM sessions WHERE token = ?', [token])
 }
 
 export async function resolveSession(token: string): Promise<UserRow | null> {
   const clean = token.startsWith('Bearer ') ? token.slice(7) : token
+  if (!useDatabase()) {
+    const user = localResolveSession(clean)
+    return user as UserRow | null
+  }
   const rows = await query<UserRow[]>(
     `SELECT u.id, u.email, u.name, u.password_hash, u.auth_source, u.ht_user_id
      FROM sessions s
@@ -140,6 +204,31 @@ export async function registerUser(input: {
   password: string
 }): Promise<{ token: string; user: UserView; account: AccountView }> {
   const email = input.email.trim().toLowerCase()
+  if (!useDatabase()) {
+    if (localGetUserByEmail(email)) {
+      throw new Error('An account with this email already exists')
+    }
+    const trialEnd = new Date()
+    trialEnd.setDate(trialEnd.getDate() + config.trialDays)
+    const user = localCreateUser({
+      email,
+      name: input.name.trim(),
+      password_hash: hashPassword(input.password),
+      auth_source: 'local',
+    })
+    localUpsertSubscription(user.id, {
+      plan: 'pro_monthly_20',
+      status: 'trialing',
+      trial_ends_at: trialEnd.toISOString(),
+    })
+    const token = await createSession(user.id)
+    return {
+      token,
+      user: { id: user.id, name: user.name, email: user.email },
+      account: await getAccountView(user.id),
+    }
+  }
+
   const existing = await query<{ id: number }[]>(
     'SELECT id FROM users WHERE email = ? LIMIT 1',
     [email],
@@ -177,6 +266,19 @@ export async function loginUser(
   email: string,
   password: string,
 ): Promise<{ token: string; user: UserView; account: AccountView }> {
+  if (!useDatabase()) {
+    const user = localGetUserByEmail(email.trim().toLowerCase())
+    if (!user || !verifyPassword(password, user.password_hash)) {
+      throw new Error('Invalid email or password')
+    }
+    const token = await createSession(user.id)
+    return {
+      token,
+      user: { id: user.id, name: user.name, email: user.email },
+      account: await getAccountView(user.id),
+    }
+  }
+
   const rows = await query<UserRow[]>(
     'SELECT id, email, name, password_hash, auth_source, ht_user_id FROM users WHERE email = ? LIMIT 1',
     [email.trim().toLowerCase()],
@@ -200,6 +302,25 @@ export async function requestPasswordReset(email: string): Promise<{
   resetToken?: string
   resetUrl?: string
 }> {
+  const normalized = email.trim().toLowerCase()
+  if (!useDatabase()) {
+    const user = localGetUserByEmail(normalized)
+    if (!user) return { ok: true }
+    const token = newToken()
+    const expiresAt = resetExpiry()
+    localCreateResetToken(user.id, token, expiresAt)
+    const resetUrl = `${config.appUrl}/reset-password?token=${token}`
+    if (isEmailConfigured()) {
+      await sendPasswordResetEmail({ to: user.email, name: user.name, resetUrl })
+      return { ok: true, emailed: true }
+    }
+    if (config.exposeResetToken) {
+      return { ok: true, resetToken: token, resetUrl }
+    }
+    console.warn('[requestPasswordReset] SMTP not configured and AUTH_EXPOSE_RESET_TOKEN is false — email not sent')
+    return { ok: true }
+  }
+
   const rows = await query<UserRow[]>(
     'SELECT id, email, name FROM users WHERE email = ? LIMIT 1',
     [email.trim().toLowerCase()],
@@ -249,6 +370,14 @@ export async function requestPasswordReset(email: string): Promise<{
 export async function resetPassword(token: string, password: string): Promise<void> {
   if (password.length < 8) throw new Error('Password must be at least 8 characters')
 
+  if (!useDatabase()) {
+    const row = localConsumeResetToken(token)
+    if (!row) throw new Error('Invalid or expired reset link')
+    localUpdateUser(row.user_id, { password_hash: hashPassword(password) })
+    localDeleteSessionsForUser(row.user_id)
+    return
+  }
+
   const rows = await query<RowDataPacket[]>(
     `SELECT id, user_id FROM password_reset_tokens
      WHERE token = ? AND used_at IS NULL AND expires_at > ?
@@ -279,6 +408,15 @@ export async function getMe(token: string): Promise<{
 } | null> {
   const user = await resolveSession(token)
   if (!user) return null
+
+  if (!useDatabase()) {
+    const ht = localGetHtConnection(user.id)
+    return {
+      user: { id: user.id, name: user.name, email: user.email },
+      account: await getAccountView(user.id),
+      ht_link_token: ht?.ht_token || null,
+    }
+  }
 
   const ht = await query<RowDataPacket[]>(
     'SELECT ht_token FROM ht_connections WHERE user_id = ? LIMIT 1',

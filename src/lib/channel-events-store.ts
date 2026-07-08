@@ -34,12 +34,16 @@ export interface StoredChannelBooking {
 }
 
 export async function listStoredEvents(channel: ChannelName): Promise<StoredChannelEvent[]> {
-  const res = await fetch(`/api/events/${channel}`, {
-    headers: { Authorization: authHeader(), Accept: 'application/json' },
-  })
-  if (!res.ok) return []
-  const data = await res.json() as { events?: StoredChannelEvent[] }
-  return data.events || []
+  try {
+    const res = await fetch(`/api/events/${channel}`, {
+      headers: { Authorization: authHeader(), Accept: 'application/json' },
+    })
+    if (!res.ok) return []
+    const data = await res.json() as { events?: StoredChannelEvent[] }
+    return data.events || []
+  } catch {
+    return []
+  }
 }
 
 export async function listAllStoredBookings(): Promise<StoredChannelBooking[]> {
@@ -98,10 +102,32 @@ export async function purgeChannelDataFromDb(channel: ChannelName): Promise<void
   }
 }
 
+/** Remove one event from our stored copy (MySQL / local file). */
+export async function deleteStoredEvent(
+  channel: ChannelName,
+  externalId: string | number,
+): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `/api/events/${channel}/${encodeURIComponent(String(externalId))}`,
+      {
+        method: 'DELETE',
+        headers: { Authorization: authHeader(), Accept: 'application/json' },
+      },
+    )
+    if (!res.ok) return false
+    const data = await res.json().catch(() => ({})) as { ok?: boolean }
+    return data.ok !== false
+  } catch {
+    return false
+  }
+}
+
 export async function syncStoredEvents(
   channel: ChannelName,
   events: Array<Record<string, unknown>>,
-): Promise<number> {
+  options?: { prune?: boolean },
+): Promise<{ upserted: number; pruned: number }> {
   const res = await fetch(`/api/events/${channel}/sync`, {
     method: 'POST',
     headers: {
@@ -109,14 +135,14 @@ export async function syncStoredEvents(
       'Content-Type': 'application/json',
       Accept: 'application/json',
     },
-    body: JSON.stringify({ events }),
+    body: JSON.stringify({ events, prune: options?.prune !== false }),
   })
   if (!res.ok) {
     const err = await res.json() as { error?: string }
     throw new Error(err.error || `Sync failed (${res.status})`)
   }
-  const data = await res.json() as { upserted?: number }
-  return data.upserted ?? 0
+  const data = await res.json() as { upserted?: number; pruned?: number }
+  return { upserted: data.upserted ?? 0, pruned: data.pruned ?? 0 }
 }
 
 export function channelToTab(channel: ChannelKey): ChannelName {

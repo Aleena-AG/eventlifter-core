@@ -771,8 +771,8 @@ export default function SettingsPage() {
                 <div className="settings-form-fields">
               <div className="settings-grid-2">
                 <div>
-                  <label style={LABEL}>API Key</label>
-                  <input style={INPUT} type="text" placeholder="API Key"
+                  <label style={LABEL}>Client ID</label>
+                  <input style={INPUT} type="text" placeholder="Client ID"
                     value={eb.clientId || ''}
                     onChange={(e) => updateSection('eventbrite', 'clientId', e.target.value)} />
                 </div>

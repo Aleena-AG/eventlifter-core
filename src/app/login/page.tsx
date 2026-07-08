@@ -339,7 +339,7 @@ export default function LoginPage() {
 
               {!showHtForm && (
                 <p className="auth-footer-note" style={{ marginTop: 8, marginBottom: 0, textAlign: 'center' }}>
-                  Uses your HighTribe session from this browser when available. Otherwise sign in here with your HighTribe credentials.
+                  Uses your HighTribe session from this browser when available. Otherwise sign in with your HighTribe credentials — no Ewentcast billing or trial required.
                 </p>
               )}
             </form>

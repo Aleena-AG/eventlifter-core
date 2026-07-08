@@ -1,5 +1,7 @@
 import type { ResultSetHeader, RowDataPacket } from 'mysql2'
+import { useDatabase } from '../config'
 import { getPool, query } from '../db/pool'
+import { localDeleteAllEvents, localListEvents } from '../db/local-store'
 import { deleteAllChannelBookings } from './bookings'
 import type { ChannelName } from './events'
 
@@ -13,6 +15,9 @@ export async function deleteAllChannelEvents(
   userId: number,
   channel: ChannelName,
 ): Promise<number> {
+  if (!useDatabase()) {
+    return localDeleteAllEvents(channel, userId)
+  }
   const table = EVENT_TABLE[channel]
   const [result] = await getPool().query<ResultSetHeader>(
     `DELETE FROM ${table} WHERE user_id = ?`,
@@ -81,6 +86,13 @@ export async function purgeChannelData(
   bookingsDeleted: number
   registryLinksRemoved: number
 }> {
+  if (!useDatabase()) {
+    const externalIds = localListEvents(channel, userId).map((e) => e.external_id)
+    const eventsDeleted = await deleteAllChannelEvents(userId, channel)
+    const bookingsDeleted = await deleteAllChannelBookings(userId, channel)
+    return { eventsDeleted, bookingsDeleted, registryLinksRemoved: externalIds.length > 0 ? 0 : 0 }
+  }
+
   const table = EVENT_TABLE[channel]
   const eventRows = await query<RowDataPacket[]>(
     `SELECT external_id FROM ${table} WHERE user_id = ?`,

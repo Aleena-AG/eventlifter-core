@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { authHeader } from '@/lib/auth'
+import { channelFetch } from '@/lib/channel-fetch'
 import { buildEbTicketClass } from '@/lib/eventbrite-ticket'
 import { postHtEvent, resolveCoverFileForHt } from '@/lib/cover-image'
 import { InlineLoader, PageLoader } from '@/components/Loader'
@@ -183,7 +183,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
     setLoadingEvent(true)
     try {
       if (ch === 'hightribe') {
-        const res = await fetch(`/api/hightribe/events/${id}`, { headers: { Authorization: authHeader() } })
+        const res = await channelFetch(`/api/hightribe/events/${id}`)
         const data = await res.json() as { data?: Record<string, unknown> }
         const e = (data.data || data) as Record<string, unknown>
         const dates = (e.dates || {}) as Record<string, string>
@@ -221,7 +221,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
           allowRefunds: !!(e.allow_refunds),
         })
       } else if (ch === 'luma') {
-        const res = await fetch(`/api/luma/events?api_id=${id}`, { headers: { Authorization: authHeader() } })
+        const res = await channelFetch(`/api/luma/events?api_id=${id}`)
         const raw = await res.json() as { data?: Record<string, unknown> } & Record<string, unknown>
         const e = (raw.data || raw) as Record<string, unknown>
         const geo = (e.geo_address_json || {}) as Record<string, string>
@@ -236,7 +236,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
           capacity: e.capacity ? String(e.capacity) : '',
         })
       } else {
-        const res = await fetch(`/api/eventbrite/events/${id}`)
+        const res = await channelFetch(`/api/eventbrite/events/${id}`)
         const e = await res.json() as Record<string, unknown>
         const start = (e.start || {}) as Record<string, string>
         const end   = (e.end   || {}) as Record<string, string>
@@ -352,7 +352,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
     }
     if (m === 'edit') body.api_id = eventId
     const method = m === 'edit' ? 'PUT' : 'POST'
-    const res = await fetch('/api/luma/events', { method, headers:{'Content-Type':'application/json', Authorization: authHeader()}, body: JSON.stringify(body) })
+    const res = await channelFetch('/api/luma/events', { method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
     const data = await res.json() as { status?: string; message?: string; error?: string }
     if (!res.ok || data.status === 'error') throw new Error(data.message || data.error || `HTTP ${res.status}`)
   }
@@ -362,25 +362,32 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
     const endUtc   = toISO(eb.endDate,   eb.endTime)
     if (m === 'edit') {
       const body = { event: { name:{ html: eb.title }, description:{ html: eb.description || '' }, start:{ utc: startUtc, timezone: eb.timezone }, end:{ utc: endUtc, timezone: eb.timezone }, currency: eb.currency, online_event: eb.isOnline, listed: eb.listed } }
-      const res = await fetch(`/api/eventbrite/events/${eventId}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
+      const res = await channelFetch(`/api/eventbrite/events/${eventId}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
       const data = await res.json() as { error_description?: string }
       if (!res.ok) throw new Error(data.error_description || `HTTP ${res.status}`)
       return
     }
     setStatusMsg('Getting organization…')
-    const orgRes = await fetch('/api/eventbrite/users/me/organizations')
-    const orgData = await orgRes.json() as { organizations?: Array<{ id: string }> }
+    const orgRes = await channelFetch('/api/eventbrite/users/me/organizations')
+    const orgData = await orgRes.json() as {
+      organizations?: Array<{ id: string }>
+      error?: string
+      error_description?: string
+    }
+    if (!orgRes.ok) {
+      throw new Error(orgData.error || orgData.error_description || `HTTP ${orgRes.status}`)
+    }
     const orgId = orgData.organizations?.[0]?.id
     if (!orgId) throw new Error('No Eventbrite organization found. Create one on eventbrite.com first.')
     setStatusMsg('Creating event…')
-    const evtRes = await fetch(`/api/eventbrite/organizations/${orgId}/events`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ event: { name:{ html: eb.title }, description:{ html: eb.description || '' }, start:{ utc: startUtc, timezone: eb.timezone }, end:{ utc: endUtc, timezone: eb.timezone }, currency: eb.currency, online_event: eb.isOnline, listed: eb.listed, shareable: true } }) })
+    const evtRes = await channelFetch(`/api/eventbrite/organizations/${orgId}/events`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ event: { name:{ html: eb.title }, description:{ html: eb.description || '' }, start:{ utc: startUtc, timezone: eb.timezone }, end:{ utc: endUtc, timezone: eb.timezone }, currency: eb.currency, online_event: eb.isOnline, listed: eb.listed, shareable: true } }) })
     const evtData = await evtRes.json() as { id?: string; error_description?: string; error?: string }
     if (!evtRes.ok) throw new Error(evtData.error_description || evtData.error || `HTTP ${evtRes.status}`)
     const eventId2 = evtData.id!
     if (!eb.isOnline && (eb.venueName || eb.address || eb.city)) {
       setStatusMsg('Creating venue…')
-      const vRes = await fetch(`/api/eventbrite/organizations/${orgId}/venues`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ venue: { name: eb.venueName || eb.city, address: { address_1: eb.address || undefined, city: eb.city || undefined, country: eb.country || undefined } } }) })
-      if (vRes.ok) { const vData = await vRes.json() as { id?: string }; if (vData.id) await fetch(`/api/eventbrite/events/${eventId2}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ event: { venue_id: vData.id } }) }) }
+      const vRes = await channelFetch(`/api/eventbrite/organizations/${orgId}/venues`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ venue: { name: eb.venueName || eb.city, address: { address_1: eb.address || undefined, city: eb.city || undefined, country: eb.country || undefined } } }) })
+      if (vRes.ok) { const vData = await vRes.json() as { id?: string }; if (vData.id) await channelFetch(`/api/eventbrite/events/${eventId2}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ event: { venue_id: vData.id } }) }) }
     }
     setStatusMsg('Creating tickets…')
     const tc = buildEbTicketClass({
@@ -390,7 +397,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
       currency: eb.currency,
       price: eb.ticketType === 'free' ? 0 : eb.ticketPrice,
     })
-    const tcRes = await fetch(`/api/eventbrite/events/${eventId2}/ticket_classes`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ticket_class: tc }) })
+    const tcRes = await channelFetch(`/api/eventbrite/events/${eventId2}/ticket_classes`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ticket_class: tc }) })
     if (!tcRes.ok) { const d = await tcRes.json() as { error_description?: string }; throw new Error(`Tickets: ${d.error_description || `HTTP ${tcRes.status}`}`) }
   }
 

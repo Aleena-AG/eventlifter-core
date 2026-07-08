@@ -1,3 +1,7 @@
+'use client'
+
+import { channelFetch } from '@/lib/channel-fetch'
+
 const COUNTRY_TZ: Record<string, string> = {
   PK: 'Asia/Karachi',
   IN: 'Asia/Kolkata',
@@ -70,7 +74,7 @@ function etcGmtFromOffset(offsetMin: number): string {
 export async function fetchEbTimezones(): Promise<Set<string>> {
   if (cache && Date.now() - cacheAt < 3_600_000) return cache
   try {
-    const res = await fetch('/api/eventbrite/system/timezones?page_size=1000')
+    const res = await channelFetch('/api/eventbrite/system/timezones?page_size=1000')
     if (res.ok) {
       const data = await res.json() as { timezones?: Array<{ timezone?: string }> }
       const set = new Set(

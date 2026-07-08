@@ -5,7 +5,7 @@ import {
   isStripeConfigured,
   processMoneyBackRefund,
 } from '@/lib/server/stripe-billing'
-import { isErrorResponse, requireSession } from '@/lib/server/session'
+import { isErrorResponse, requireSession, assertEwentcastBillingAccess } from '@/lib/server/session'
 
 export const runtime = 'nodejs'
 
@@ -14,6 +14,9 @@ export async function GET(req: NextRequest) {
   if (isErrorResponse(session)) {
     return NextResponse.json({ status: false, message: 'Unauthorized' }, { status: 401 })
   }
+
+  const billingDenied = await assertEwentcastBillingAccess(session.user.id)
+  if (billingDenied) return billingDenied
 
   if (!isStripeConfigured()) {
     return NextResponse.json(
@@ -38,6 +41,9 @@ export async function POST(req: NextRequest) {
   if (isErrorResponse(session)) {
     return NextResponse.json({ status: false, message: 'Unauthorized' }, { status: 401 })
   }
+
+  const billingDenied = await assertEwentcastBillingAccess(session.user.id)
+  if (billingDenied) return billingDenied
 
   if (!isStripeConfigured()) {
     return NextResponse.json(

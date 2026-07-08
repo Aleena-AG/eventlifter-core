@@ -1,5 +1,14 @@
 import { getPool, query } from '../db/pool'
-import { config } from '../config'
+import { config, useDatabase } from '../config'
+import {
+  localCreateUser,
+  localDeleteHtConnection,
+  localGetSubscription,
+  localGetUserByEmail,
+  localUpdateUser,
+  localUpsertHtConnection,
+  localUpsertSubscription,
+} from '../db/local-store'
 import {
   createSession,
   getAccountView,
@@ -78,6 +87,10 @@ export async function fetchHightribeUserFromToken(htToken: string): Promise<HtPr
 }
 
 async function upsertHtConnection(userId: number, htUserId: string, htToken: string): Promise<void> {
+  if (!useDatabase()) {
+    localUpsertHtConnection(userId, htUserId, htToken)
+    return
+  }
   await getPool().query(
     `INSERT INTO ht_connections (user_id, ht_user_id, ht_token, connected_at)
      VALUES (?, ?, ?, ?)
@@ -90,6 +103,18 @@ async function upsertHtConnection(userId: number, htUserId: string, htToken: str
 }
 
 async function ensureUserSubscription(userId: number): Promise<void> {
+  if (!useDatabase()) {
+    if (localGetSubscription(userId)) return
+    const trialEnd = new Date()
+    trialEnd.setDate(trialEnd.getDate() + config.trialDays)
+    localUpsertSubscription(userId, {
+      plan: 'pro_monthly_20',
+      status: 'trialing',
+      trial_ends_at: trialEnd.toISOString(),
+    })
+    return
+  }
+
   const now = new Date()
   const existing = await query<{ user_id: number }[]>(
     'SELECT user_id FROM subscriptions WHERE user_id = ? LIMIT 1',
@@ -111,6 +136,34 @@ async function provisionHightribeSession(
   profile: HtProfile,
 ): Promise<{ token: string; user: UserView; account: AccountView; ht_link_token: string }> {
   const { htToken, htUserId, htEmail, htName } = profile
+
+  if (!useDatabase()) {
+    const existing = localGetUserByEmail(htEmail)
+    let userId: number
+    if (existing) {
+      userId = existing.id
+      localUpdateUser(userId, { name: htName, auth_source: 'hightribe', ht_user_id: htUserId })
+    } else {
+      const user = localCreateUser({
+        email: htEmail,
+        name: htName,
+        password_hash: hashPassword(newToken()),
+        auth_source: 'hightribe',
+        ht_user_id: htUserId,
+      })
+      userId = user.id
+    }
+    await ensureUserSubscription(userId)
+    await upsertHtConnection(userId, htUserId, htToken)
+    const token = await createSession(userId)
+    return {
+      token,
+      user: { id: userId, name: htName, email: htEmail },
+      account: await getAccountView(userId),
+      ht_link_token: htToken,
+    }
+  }
+
   const pool = getPool()
   const now = new Date()
 
@@ -188,6 +241,10 @@ export async function connectHightribeAccount(
 
 export async function disconnectHightribeAccount(userId: number): Promise<AccountView> {
   await purgeChannelData(userId, 'hightribe')
+  if (!useDatabase()) {
+    localDeleteHtConnection(userId)
+    return getAccountView(userId)
+  }
   await getPool().query('DELETE FROM ht_connections WHERE user_id = ?', [userId])
   return getAccountView(userId)
 }

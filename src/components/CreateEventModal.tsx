@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { authHeader } from '@/lib/auth'
+import { channelFetch } from '@/lib/channel-fetch'
 import { buildEbTicketClass } from '@/lib/eventbrite-ticket'
 import { HIGHTRIBE_COLOR, LUMA_COLOR, EVENTBRITE_COLOR } from '@/lib/brand'
 
@@ -161,9 +161,9 @@ export function CreateEventModal({ open, onClose, onCreated }: Props) {
           },
           capacity: form.capacity ? parseInt(form.capacity) : undefined,
         }
-        const res = await fetch('/api/hightribe/events', {
+        const res = await channelFetch('/api/hightribe/events', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: authHeader() },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         })
         const data = await res.json() as { message?: string; error?: string; errors?: Record<string, string[]> }
@@ -192,9 +192,9 @@ export function CreateEventModal({ open, onClose, onCreated }: Props) {
           meeting_url: form.isOnline ? (form.onlineUrl || undefined) : undefined,
           capacity: form.capacity ? parseInt(form.capacity) : undefined,
         }
-        const res = await fetch('/api/luma/events/create', {
+        const res = await channelFetch('/api/luma/events/create', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: authHeader() },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         })
         const data = await res.json() as { error?: string; message?: string }
@@ -205,8 +205,15 @@ export function CreateEventModal({ open, onClose, onCreated }: Props) {
       else if (target === 'eventbrite') {
         // 1. Get org ID
         setStatusMsg('Getting organization…')
-        const orgRes = await fetch('/api/eventbrite/users/me/organizations')
-        const orgData = await orgRes.json() as { organizations?: Array<{ id: string }> }
+        const orgRes = await channelFetch('/api/eventbrite/users/me/organizations')
+        const orgData = await orgRes.json() as {
+          organizations?: Array<{ id: string }>
+          error?: string
+          error_description?: string
+        }
+        if (!orgRes.ok) {
+          throw new Error(orgData.error || orgData.error_description || `HTTP ${orgRes.status}`)
+        }
         const orgId = orgData.organizations?.[0]?.id
         if (!orgId) throw new Error('No Eventbrite organization found. Create one on eventbrite.com first.')
 
@@ -225,7 +232,7 @@ export function CreateEventModal({ open, onClose, onCreated }: Props) {
             capacity: form.capacity ? parseInt(form.capacity) : undefined,
           },
         }
-        const evtRes = await fetch(`/api/eventbrite/organizations/${orgId}/events`, {
+        const evtRes = await channelFetch(`/api/eventbrite/organizations/${orgId}/events`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(eventBody),
@@ -247,7 +254,7 @@ export function CreateEventModal({ open, onClose, onCreated }: Props) {
               },
             },
           }
-          const venueRes = await fetch(`/api/eventbrite/organizations/${orgId}/venues`, {
+          const venueRes = await channelFetch(`/api/eventbrite/organizations/${orgId}/venues`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(venueBody),
@@ -256,7 +263,7 @@ export function CreateEventModal({ open, onClose, onCreated }: Props) {
             const venueData = await venueRes.json() as { id?: string }
             if (venueData.id) {
               // Attach venue to event
-              await fetch(`/api/eventbrite/events/${eventId}`, {
+              await channelFetch(`/api/eventbrite/events/${eventId}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ event: { venue_id: venueData.id } }),
@@ -267,7 +274,7 @@ export function CreateEventModal({ open, onClose, onCreated }: Props) {
 
         // 4. Create ticket class (required to publish)
         setStatusMsg('Creating ticket class…')
-        const ticketRes = await fetch(`/api/eventbrite/events/${eventId}/ticket_classes`, {
+        const ticketRes = await channelFetch(`/api/eventbrite/events/${eventId}/ticket_classes`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

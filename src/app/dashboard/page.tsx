@@ -79,10 +79,16 @@ export default function DashboardPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
+    let settingsSnapshot: SafeSettings = {}
     try {
-      const s = (await getSettings()) as SafeSettings
-      setSettings(s)
-      const dash = await loadDashboardStats(s)
+      settingsSnapshot = (await getSettings()) as SafeSettings
+      setSettings(settingsSnapshot)
+    } catch {
+      // Settings failure should not block dashboard counts.
+    }
+
+    try {
+      const dash = await loadDashboardStats(settingsSnapshot)
       setStats(dash)
     } catch {
       setStats(null)
@@ -93,18 +99,24 @@ export default function DashboardPage() {
 
   const syncAll = useCallback(async () => {
     setSyncing(true)
+    let settingsSnapshot: SafeSettings = settings
     try {
-      const s = (await getSettings()) as SafeSettings
-      setSettings(s)
-      await syncAllConnectedChannels(s)
-      const dash = await loadDashboardStats(s)
+      settingsSnapshot = (await getSettings()) as SafeSettings
+      setSettings(settingsSnapshot)
+    } catch {
+      // Keep existing settings snapshot for sync.
+    }
+
+    try {
+      await syncAllConnectedChannels(settingsSnapshot)
+      const dash = await loadDashboardStats(settingsSnapshot)
       setStats(dash)
     } catch {
       setStats(null)
     } finally {
       setSyncing(false)
     }
-  }, [])
+  }, [settings])
 
   useEffect(() => {
     load()

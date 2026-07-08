@@ -5,31 +5,24 @@ import { useParams, useRouter } from 'next/navigation'
 import { EventLiveDashboard } from '@/components/events/EventLiveDashboard'
 import { PageLoader } from '@/components/Loader'
 import { loadEventDashboardData, type EventDashboardData } from '@/lib/event-dashboard-data'
-import { CHANNEL_KEYS } from '@/lib/channels'
-import type { ChannelKey } from '@/lib/types'
-
-function isChannelKey(v: string): v is ChannelKey {
-  return CHANNEL_KEYS.includes(v as ChannelKey)
-}
+import { decodeEventRef } from '@/lib/event-ref'
 
 export default function EventDetailPage() {
   const params = useParams()
   const router = useRouter()
-  const channelParam = String(params.channel || '')
-  const eventId = String(params.eventId || '')
+  const ref = String(params.ref || '')
+  const decoded = decodeEventRef(ref)
 
   const [data, setData] = useState<EventDashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
-  const channel = isChannelKey(channelParam) ? channelParam : null
-
   const load = useCallback(async (isRefresh = false) => {
-    if (!channel || !eventId) return
+    if (!decoded) return
     if (isRefresh) setRefreshing(true)
     else setLoading(true)
     try {
-      const next = await loadEventDashboardData(channel, eventId, { refresh: isRefresh })
+      const next = await loadEventDashboardData(decoded.channel, decoded.id, { refresh: isRefresh })
       setData(next)
     } catch {
       setData(null)
@@ -37,17 +30,18 @@ export default function EventDetailPage() {
       setLoading(false)
       setRefreshing(false)
     }
-  }, [channel, eventId])
+  }, [decoded])
 
   useEffect(() => {
-    if (!channel) {
+    if (!decoded) {
       router.replace('/events')
       return
     }
     load()
-  }, [channel, load, router])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ref])
 
-  if (!channel) return null
+  if (!decoded) return null
 
   if (loading && !data) {
     return <PageLoader label="Loading event dashboard…" />

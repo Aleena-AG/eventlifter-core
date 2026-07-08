@@ -16,8 +16,7 @@ export async function syncLumaEventsFromApi(
   const entries = Array.isArray(result.entries)
     ? result.entries as Array<Record<string, unknown>>
     : []
-  if (!entries.length) return 0
-  const { upserted } = await upsertChannelEvents('luma', userId, entries)
+  const { upserted } = await upsertChannelEvents('luma', userId, entries, { prune: true })
   return upserted
 }
 
