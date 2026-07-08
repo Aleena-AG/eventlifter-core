@@ -427,6 +427,26 @@ export function localDeleteAllEvents(channel: ChannelName, userId: number): numb
   return deleted
 }
 
+/** Drop stored events for this user/channel that are not in keepExternalIds. */
+export function localPruneEvents(
+  channel: ChannelName,
+  userId: number,
+  keepExternalIds: Set<string>,
+): number {
+  const store = loadStore()
+  const table = eventTable(store, channel)
+  const next = table.filter(
+    (e) => !(e.user_id === userId && !keepExternalIds.has(e.external_id)),
+  )
+  const pruned = table.length - next.length
+  if (pruned === 0) return 0
+  if (channel === 'luma') store.luma_events = next
+  else if (channel === 'eventbrite') store.eventbrite_events = next
+  else store.hightribe_events = next
+  saveStore(store)
+  return pruned
+}
+
 export function localListBookings(userId: number): LocalBookingRow[] {
   return loadStore()
     .channel_bookings.filter((b) => b.user_id === userId)

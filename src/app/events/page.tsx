@@ -5,8 +5,8 @@ import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { channelFetch } from '@/lib/channel-fetch'
 import { getEwentcastAccount, isEwentcastSignupUser } from '@/lib/ewentcast-session'
-import { listStoredEvents } from '@/lib/channel-events-store'
-import { syncChannelDataToDb } from '@/lib/channel-data-sync'
+import { deleteStoredEvent, listStoredEvents } from '@/lib/channel-events-store'
+import { syncChannelDataToDb, formatEventSyncMessage } from '@/lib/channel-data-sync'
 import { storedToEbEvent, storedToHtEvent, storedToLumaEvent } from '@/lib/channel-db-mappers'
 import type { HtEventListItem } from '@/lib/hightribe-events'
 import { Toast, useToast } from '@/components/Toast'
@@ -15,6 +15,7 @@ import { SyncModal, SyncSource } from '@/components/SyncModal'
 import { CreateEventWizardModal } from '@/components/ewentcast/CreateEventWizardModal'
 import { ChannelLogo } from '@/components/ChannelLogo'
 import { CHANNEL_META } from '@/lib/channels'
+import { encodeEventRef } from '@/lib/event-ref'
 import type { ChannelKey } from '@/lib/types'
 import './events.css'
 
@@ -37,13 +38,39 @@ const DEFAULT_STATUS_FILTERS = new Set<EventStatusFilter>(
   STATUS_FILTER_OPTIONS.filter(o => o.defaultOn).map(o => o.key),
 )
 
+const PER_PAGE_OPTIONS = [12, 24, 48, 100] as const
+const PER_PAGE_STORAGE_KEY = 'events_per_page'
+
+function readStoredPerPage(): number {
+  if (typeof window === 'undefined') return 12
+  try {
+    const n = Number(localStorage.getItem(PER_PAGE_STORAGE_KEY))
+    return (PER_PAGE_OPTIONS as readonly number[]).includes(n) ? n : 12
+  } catch {
+    return 12
+  }
+}
+
 type DeleteLink = { channel: ChannelKey; eventId: string | number }
 
+/** True when remote already gone / never existed — still OK to clear our store. */
+function isRemoteAlreadyGone(status: number, message?: string): boolean {
+  if (status === 404 || status === 410) return true
+  return /not found|does not exist|already (deleted|cancelled|canceled)|no such/i.test(message || '')
+}
+
+/**
+ * Delete on the live channel API. 404/already-gone is treated as success
+ * so stale IDs (synced copies that no longer exist on HT) don't block cleanup.
+ */
 async function deleteOnChannel(channel: ChannelKey, id: string | number): Promise<void> {
   if (channel === 'hightribe') {
     const res = await channelFetch(`/api/hightribe/events/${id}`, { method: 'DELETE' })
-    if (!res.ok) { const d = await res.json() as { message?: string }; throw new Error(d.message || `HTTP ${res.status}`) }
-    return
+    if (res.ok || res.status === 404 || res.status === 410) return
+    const d = await res.json().catch(() => ({})) as { message?: string; error?: string }
+    const msg = d.message || d.error || `HTTP ${res.status}`
+    if (isRemoteAlreadyGone(res.status, msg)) return
+    throw new Error(msg)
   }
   if (channel === 'luma') {
     const res = await channelFetch('/api/luma/events/cancel', {
@@ -51,14 +78,39 @@ async function deleteOnChannel(channel: ChannelKey, id: string | number): Promis
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ event_id: String(id), should_refund: true }),
     })
-    const raw = await res.json() as { status?: string; message?: string; error?: string }
-    if (!res.ok || raw.status === 'error') {
-      throw new Error(raw.message || raw.error || `HTTP ${res.status}`)
-    }
-    return
+    const raw = await res.json().catch(() => ({})) as { status?: string; message?: string; error?: string }
+    if (res.ok && raw.status !== 'error') return
+    if (res.status === 404 || res.status === 410) return
+    const msg = raw.message || raw.error || `HTTP ${res.status}`
+    if (isRemoteAlreadyGone(res.status, msg)) return
+    throw new Error(msg)
   }
   const res = await channelFetch(`/api/eventbrite/events/${id}`, { method: 'DELETE' })
-  if (!res.ok) { const d = await res.json() as { error_description?: string }; throw new Error(d.error_description || `HTTP ${res.status}`) }
+  if (res.ok || res.status === 404 || res.status === 410) return
+  const d = await res.json().catch(() => ({})) as { error_description?: string; error?: string }
+  const msg = d.error_description || d.error || `HTTP ${res.status}`
+  if (isRemoteAlreadyGone(res.status, msg)) return
+  throw new Error(msg)
+}
+
+/** Always remove from our DB/local store. Remote 404 is OK (already gone). */
+async function deleteEventEverywhere(channel: ChannelKey, id: string | number): Promise<void> {
+  let remoteError: string | null = null
+  try {
+    await deleteOnChannel(channel, id)
+  } catch (err) {
+    remoteError = err instanceof Error ? err.message : 'channel delete failed'
+  }
+
+  const removed = await deleteStoredEvent(channel, id)
+  // Prefer clearing our store so the Events list stays accurate even if HT is stale.
+  if (!removed && remoteError) {
+    throw new Error(remoteError)
+  }
+  if (remoteError) {
+    // Store cleared; soft-warn via console only — don't block bulk deletes on HT 404s.
+    console.warn(`[delete] ${channel} ${id}: remote ${remoteError} (cleared from store)`)
+  }
 }
 
 // ─── Hightribe ───────────────────────────────────────────────────────────────
@@ -134,7 +186,10 @@ function matchesStatusFilters(tags: EventStatusFilter[], selected: Set<EventStat
   return tags.some(tag => selected.has(tag))
 }
 
-function filterUnifiedEvents(events: UnifiedEvent[], query: string): UnifiedEvent[] {
+function filterUnifiedEvents<T extends UnifiedEvent & { channels?: ChannelKey[] }>(
+  events: T[],
+  query: string,
+): T[] {
   if (!query.trim()) return events
   const q = query.trim().toLowerCase()
   return events.filter(evt => matchesEventSearch(
@@ -142,11 +197,11 @@ function filterUnifiedEvents(events: UnifiedEvent[], query: string): UnifiedEven
     evt.title,
     evt.location,
     evt.status,
-    CH_LABELS[evt.channel],
+    ...(evt.channels || [evt.channel]).map(ch => CH_LABELS[ch]),
   ))
 }
 
-function filterByStatus(events: UnifiedEvent[], selected: Set<EventStatusFilter>): UnifiedEvent[] {
+function filterByStatus<T extends UnifiedEvent>(events: T[], selected: Set<EventStatusFilter>): T[] {
   return events.filter(evt => matchesStatusFilters(evt.lifecycleTags, selected))
 }
 
@@ -168,6 +223,137 @@ type UnifiedEvent = {
   status?: string
   lifecycleTags: EventStatusFilter[]
   syncSource: SyncSource
+}
+
+type GroupedEvent = UnifiedEvent & {
+  channels: ChannelKey[]
+  channelIds: Partial<Record<ChannelKey, string | number>>
+  channelStatuses: Partial<Record<ChannelKey, string | undefined>>
+}
+
+type RegistryMaster = {
+  id: string
+  title: string
+  channels: Partial<Record<ChannelKey, { eventId: string; url?: string }>>
+}
+
+const CHANNEL_ORDER: ChannelKey[] = ['hightribe', 'luma', 'eventbrite']
+
+function dayKey(ms: number): string {
+  if (!ms) return ''
+  const d = new Date(ms)
+  if (Number.isNaN(d.getTime())) return ''
+  return `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`
+}
+
+function titleDateKey(evt: UnifiedEvent): string {
+  const title = evt.title.trim().toLowerCase().replace(/\s+/g, ' ')
+  const day = dayKey(evt.sortMs)
+  return day ? `${title}::${day}` : title
+}
+
+function mergeMembers(members: UnifiedEvent[]): GroupedEvent {
+  const sorted = [...members].sort((a, b) => {
+    // Prefer the channel with more complete data / earlier start
+    if (!a.sortMs && !b.sortMs) return CHANNEL_ORDER.indexOf(a.channel) - CHANNEL_ORDER.indexOf(b.channel)
+    if (!a.sortMs) return 1
+    if (!b.sortMs) return -1
+    if (a.sortMs !== b.sortMs) return a.sortMs - b.sortMs
+    return CHANNEL_ORDER.indexOf(a.channel) - CHANNEL_ORDER.indexOf(b.channel)
+  })
+  const primary = sorted[0]
+  const channelSet = new Set(members.map(m => m.channel))
+  const channels = CHANNEL_ORDER.filter(ch => channelSet.has(ch))
+  const channelIds: Partial<Record<ChannelKey, string | number>> = {}
+  const channelStatuses: Partial<Record<ChannelKey, string | undefined>> = {}
+  for (const m of members) {
+    channelIds[m.channel] = m.id
+    channelStatuses[m.channel] = m.status
+  }
+  const bestImage = members.find(m => m.image)?.image
+  const bestLocation = members.find(m => m.location)?.location
+  const bestUrl = members.find(m => m.url)?.url
+  const lifecycleTags = Array.from(new Set(members.flatMap(m => m.lifecycleTags))) as EventStatusFilter[]
+
+  return {
+    ...primary,
+    key: members.map(m => m.key).join('|'),
+    image: bestImage || primary.image,
+    location: bestLocation || primary.location,
+    url: bestUrl || primary.url,
+    channels,
+    channelIds,
+    channelStatuses,
+    lifecycleTags,
+  }
+}
+
+/**
+ * Collapse the same event published on multiple channels into one row.
+ * Uses registry links first (authoritative), then title+date fuzzy match.
+ */
+function groupUnifiedEvents(
+  events: UnifiedEvent[],
+  registry: RegistryMaster[] = [],
+): GroupedEvent[] {
+  const byKey = new Map(events.map(e => [e.key, e]))
+  const used = new Set<string>()
+  const result: GroupedEvent[] = []
+
+  // 1) Registry-linked publishes → one card with all channel tags
+  for (const master of registry) {
+    const members: UnifiedEvent[] = []
+    for (const ch of CHANNEL_ORDER) {
+      const ref = master.channels[ch]
+      if (!ref?.eventId) continue
+      const key = `${ch}-${ref.eventId}`
+      const evt = byKey.get(key)
+      if (evt && !used.has(evt.key)) {
+        members.push(evt)
+        used.add(evt.key)
+      }
+    }
+    if (members.length === 0) continue
+    result.push(mergeMembers(members))
+  }
+
+  // 2) Remaining events → group by title + start day (cross-channel publish without registry)
+  const fuzzy = new Map<string, UnifiedEvent[]>()
+  for (const evt of events) {
+    if (used.has(evt.key)) continue
+    const k = titleDateKey(evt)
+    const arr = fuzzy.get(k)
+    if (arr) arr.push(evt)
+    else fuzzy.set(k, [evt])
+  }
+  for (const members of fuzzy.values()) {
+    // Only merge across channels — never collapse same-channel duplicates here
+    const byChannel = new Map<ChannelKey, UnifiedEvent[]>()
+    for (const m of members) {
+      const arr = byChannel.get(m.channel) || []
+      arr.push(m)
+      byChannel.set(m.channel, arr)
+    }
+    if (byChannel.size === 1) {
+      // Same channel + same title/day → show once (dedupe sync noise)
+      const only = [...byChannel.values()][0]
+      const sorted = [...only].sort((a, b) => (a.sortMs || 0) - (b.sortMs || 0))
+      result.push(mergeMembers([sorted[0]]))
+      continue
+    }
+    // One member per channel (earliest), then merge
+    const cross: UnifiedEvent[] = []
+    for (const ch of CHANNEL_ORDER) {
+      const list = byChannel.get(ch)
+      if (!list?.length) continue
+      const sorted = [...list].sort((a, b) => (a.sortMs || 0) - (b.sortMs || 0))
+      cross.push(sorted[0])
+      for (const extra of sorted.slice(1)) result.push(mergeMembers([extra]))
+    }
+    result.push(mergeMembers(cross))
+  }
+
+  return result
 }
 
 function htToUnified(evt: HtEvent): UnifiedEvent {
@@ -260,7 +446,7 @@ function EmptyState({ searchQuery, filtersActive }: { searchQuery?: string; filt
         {searchQuery?.trim()
           ? `Nothing matches "${searchQuery.trim()}". Try a different title or location.`
           : filtersActive
-            ? 'Try adding Expired, Draft, or Cancelled filters above.'
+            ? 'Try Expired, Draft, or Cancelled above.'
             : 'Create an event or sync from your connected channels in Settings.'}
       </p>
     </div>
@@ -321,18 +507,56 @@ function DeleteDialog({
   )
 }
 
+function BulkDeleteDialog({
+  count, titles, deleting, onConfirm, onCancel,
+}: {
+  count: number
+  titles: string[]
+  deleting: boolean
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  const preview = titles.slice(0, 5)
+  const extra = count - preview.length
+  return (
+    <div className="events-delete-overlay">
+      <div className="events-delete-panel">
+        <div className="events-delete-title">Delete {count} events?</div>
+        <div className="events-delete-text">
+          Selected events will be removed from <b style={{ color: 'var(--ink)' }}>every channel</b> they are published on.
+        </div>
+        <ul className="events-bulk-preview">
+          {preview.map((t) => (
+            <li key={t}>{t}</li>
+          ))}
+          {extra > 0 && <li>+{extra} more…</li>}
+        </ul>
+        <div className="events-delete-actions">
+          <button type="button" className="events-delete-cancel" onClick={onCancel} disabled={deleting}>
+            Cancel
+          </button>
+          <button type="button" className="events-delete-confirm" onClick={onConfirm} disabled={deleting}>
+            {deleting ? 'Deleting…' : `Delete ${count} events`}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── EventCard ────────────────────────────────────────────────────────────────
 function EventCard({
-  image, title, dateStr, channel, badgeColor, location, url, status,
-  detailHref, onEdit, onDelete, onSync,
+  image, title, dateStr, channels, channelStatuses, location, url,
+  detailHref, selected, onToggleSelect, onEdit, onDelete, onSync,
 }: {
-  image?: string; title: string; dateStr: string; channel: ChannelKey; badgeColor: string
-  location?: string; url?: string; status?: string; detailHref?: string
+  image?: string; title: string; dateStr: string; channels: ChannelKey[]
+  channelStatuses: Partial<Record<ChannelKey, string | undefined>>
+  location?: string; url?: string; detailHref?: string
+  selected?: boolean
+  onToggleSelect?: () => void
   onEdit?: () => void; onDelete?: () => void; onSync?: () => void
 }) {
-  const channelName = CHANNEL_META[channel].name
-  const isLive = status === 'published' || status === 'live'
-
+  const primaryChannel = channels[0] || 'eventbrite'
   const cardBody = (
     <>
       <div className="event-card__media">
@@ -351,22 +575,47 @@ function EventCard({
           {location && <span className="event-card__meta-item">📍 {location}</span>}
         </div>
         <div className="event-card__badges">
-          <span className="event-card__channel-badge">
-            <ChannelLogo channel={channel} size={16} />
-            {channelName}
-          </span>
-          {status && (
-            <span className={`event-card__status-badge ${isLive ? 'event-card__status-badge--live' : 'event-card__status-badge--muted'}`}>
-              {status}
-            </span>
-          )}
+          {channels.map((ch) => {
+            const st = (channelStatuses[ch] || '').toLowerCase()
+            const isLive = st === 'published' || st === 'live'
+            const showStatus = st && st !== 'active'
+            return (
+              <span
+                key={ch}
+                className="event-card__channel-badge"
+                style={{
+                  ['--ch-badge' as string]: CHANNEL_META[ch].color,
+                }}
+              >
+                <ChannelLogo channel={ch} size={16} />
+                {CHANNEL_META[ch].name}
+                {showStatus && (
+                  <span className={`event-card__status-badge ${isLive ? 'event-card__status-badge--live' : 'event-card__status-badge--muted'}`}>
+                    {channelStatuses[ch]}
+                  </span>
+                )}
+              </span>
+            )
+          })}
         </div>
       </div>
     </>
   )
 
   return (
-    <article className="event-card" style={{ '--card-accent': badgeColor } as React.CSSProperties}>
+    <article
+      className={`event-card${selected ? ' event-card--selected' : ''}`}
+      style={{ '--card-accent': CHANNEL_META[primaryChannel].color } as React.CSSProperties}
+    >
+      <label className="event-card__select" onClick={(e) => e.stopPropagation()}>
+        <input
+          type="checkbox"
+          checked={!!selected}
+          onChange={() => onToggleSelect?.()}
+          aria-label={`Select ${title}`}
+        />
+      </label>
+
       <div className="event-card__accent" aria-hidden="true" />
 
       {detailHref ? (
@@ -395,7 +644,7 @@ function EventCard({
             View ↗
           </a>
         )}
-        {onSync && (
+        {onSync && channels.length < 3 && (
           <button
             type="button"
             className="event-card__btn event-card__btn--sync"
@@ -419,7 +668,7 @@ export default function EventsPage() {
     () => new Set(DEFAULT_STATUS_FILTERS),
   )
   const [page, setPage] = useState(1)
-  const perPage = 12
+  const [perPage, setPerPage] = useState(12) // hydrated from localStorage on mount
   const [createOpen, setCreateOpen] = useState(false)
   const [editModal, setEditModal] = useState<{
     open: boolean; channel: ChannelKey; eventId: string | number
@@ -435,6 +684,8 @@ export default function EventsPage() {
   const [deleteLinks, setDeleteLinks] = useState<DeleteLink[]>([])
   const [deleteAlso, setDeleteAlso] = useState<Partial<Record<ChannelKey, boolean>>>({})
   const [deleting, setDeleting] = useState(false)
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
 
   // Hightribe state
   const [htAllEvents, setHtAllEvents] = useState<HtEvent[]>([])
@@ -451,7 +702,24 @@ export default function EventsPage() {
   const [ebLoading, setEbLoading] = useState(false)
   const [ebSyncing, setEbSyncing] = useState(false)
 
+  // Registry links — used to merge publish copies into one card
+  const [registryMasters, setRegistryMasters] = useState<RegistryMaster[]>([])
+
   const htAvailable = !isEwentcastSignupUser() || !!getEwentcastAccount()?.ht_connected
+
+  const loadRegistry = useCallback(async () => {
+    try {
+      const res = await fetch('/api/registry', { headers: { Accept: 'application/json' } })
+      if (!res.ok) {
+        setRegistryMasters([])
+        return
+      }
+      const data = await res.json() as { events?: RegistryMaster[] }
+      setRegistryMasters(data.events || [])
+    } catch {
+      setRegistryMasters([])
+    }
+  }, [])
 
   const loadHtEventsFromDb = useCallback(async () => {
     if (!htAvailable) {
@@ -473,8 +741,8 @@ export default function EventsPage() {
     if (!htAvailable) return
     setHtSyncing(true)
     try {
-      const { events } = await syncChannelDataToDb('hightribe')
-      toastRef.current.success(events > 0 ? `Synced ${events} events from Hightribe` : 'Hightribe sync complete')
+      const result = await syncChannelDataToDb('hightribe')
+      toastRef.current.success(formatEventSyncMessage(result))
       await loadHtEventsFromDb()
     } catch (err) {
       toastRef.current.error(err instanceof Error ? err.message : 'Hightribe sync failed')
@@ -498,8 +766,8 @@ export default function EventsPage() {
   const syncLumaEvents = useCallback(async () => {
     setLumaSyncing(true)
     try {
-      const { events, bookings } = await syncChannelDataToDb('luma')
-      toastRef.current.success(`Synced ${events} events, ${bookings} bookings`)
+      const result = await syncChannelDataToDb('luma')
+      toastRef.current.success(formatEventSyncMessage(result))
       await loadLumaEventsFromDb()
     } catch (err) {
       toastRef.current.error(err instanceof Error ? err.message : 'Luma sync failed')
@@ -523,8 +791,8 @@ export default function EventsPage() {
   const syncEbEvents = useCallback(async () => {
     setEbSyncing(true)
     try {
-      const { events, bookings } = await syncChannelDataToDb('eventbrite')
-      toastRef.current.success(`Synced ${events} events, ${bookings} bookings`)
+      const result = await syncChannelDataToDb('eventbrite')
+      toastRef.current.success(formatEventSyncMessage(result))
       await loadEbEventsFromDb()
     } catch (err) {
       toastRef.current.error(err instanceof Error ? err.message : 'Eventbrite sync failed')
@@ -538,8 +806,9 @@ export default function EventsPage() {
       loadHtEventsFromDb(),
       loadLumaEventsFromDb(),
       loadEbEventsFromDb(),
+      loadRegistry(),
     ])
-  }, [loadHtEventsFromDb, loadLumaEventsFromDb, loadEbEventsFromDb])
+  }, [loadHtEventsFromDb, loadLumaEventsFromDb, loadEbEventsFromDb, loadRegistry])
 
   const syncAllEvents = useCallback(async () => {
     const tasks: Promise<void>[] = [syncLumaEvents(), syncEbEvents()]
@@ -555,8 +824,13 @@ export default function EventsPage() {
     return items
   }, [htAvailable, htAllEvents, lumaEvents, ebEvents])
 
+  const groupedEvents = useMemo(
+    () => groupUnifiedEvents(mergedEvents, registryMasters),
+    [mergedEvents, registryMasters],
+  )
+
   const allEvents = useMemo(() => {
-    const searched = filterUnifiedEvents(mergedEvents, searchQuery)
+    const searched = filterUnifiedEvents(groupedEvents, searchQuery)
     const filtered = filterByStatus(searched, statusFilters)
     return filtered.sort((a, b) => {
       const aExpired = isPrimarilyExpired(a)
@@ -567,7 +841,7 @@ export default function EventsPage() {
       if (!b.sortMs) return -1
       return a.sortMs - b.sortMs
     })
-  }, [mergedEvents, searchQuery, statusFilters])
+  }, [groupedEvents, searchQuery, statusFilters])
 
   const filtersDifferFromDefault = useMemo(() => {
     if (statusFilters.size !== DEFAULT_STATUS_FILTERS.size) return true
@@ -579,14 +853,8 @@ export default function EventsPage() {
 
   function toggleStatusFilter(key: EventStatusFilter) {
     setStatusFilters(prev => {
-      const next = new Set(prev)
-      if (next.has(key)) {
-        if (next.size === 1) return prev
-        next.delete(key)
-      } else {
-        next.add(key)
-      }
-      return next
+      if (prev.size === 1 && prev.has(key)) return prev
+      return new Set([key])
     })
   }
 
@@ -594,9 +862,55 @@ export default function EventsPage() {
   const safePage = Math.min(Math.max(1, page), lastPage)
   const pagedEvents = allEvents.slice((safePage - 1) * perPage, safePage * perPage)
 
-  const totalCount = mergedEvents.length
+  const selectedOnPage = pagedEvents.filter(e => selectedKeys.has(e.key))
+  const allPageSelected = pagedEvents.length > 0 && selectedOnPage.length === pagedEvents.length
+  const somePageSelected = selectedOnPage.length > 0 && !allPageSelected
+  const selectedEvents = useMemo(
+    () => allEvents.filter(e => selectedKeys.has(e.key)),
+    [allEvents, selectedKeys],
+  )
+
+  function toggleSelect(key: string) {
+    setSelectedKeys(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  function toggleSelectPage() {
+    setSelectedKeys(prev => {
+      const next = new Set(prev)
+      if (allPageSelected) {
+        for (const e of pagedEvents) next.delete(e.key)
+      } else {
+        for (const e of pagedEvents) next.add(e.key)
+      }
+      return next
+    })
+  }
+
+  function clearSelection() {
+    setSelectedKeys(new Set())
+  }
+
+  const totalCount = groupedEvents.length
   const loading = htLoading || lumaLoading || ebLoading
   const syncing = htSyncing || lumaSyncing || ebSyncing
+
+  useEffect(() => {
+    setSelectedKeys(prev => {
+      const valid = new Set(allEvents.map(e => e.key))
+      let changed = false
+      const next = new Set<string>()
+      for (const k of prev) {
+        if (valid.has(k)) next.add(k)
+        else changed = true
+      }
+      return changed ? next : prev
+    })
+  }, [allEvents])
 
   // Load linked copies when delete dialog opens
   useEffect(() => {
@@ -667,7 +981,7 @@ export default function EventsPage() {
     const errors: string[] = []
     for (const t of targets) {
       try {
-        await deleteOnChannel(t.channel, t.eventId)
+        await deleteEventEverywhere(t.channel, t.eventId)
         if (t.channel === 'hightribe') {
           setHtAllEvents(ev => ev.filter(e => String(e.id) !== String(t.eventId)))
         }
@@ -701,6 +1015,97 @@ export default function EventsPage() {
     setDeleteTarget(null)
   }
 
+  async function resolveDeleteTargets(evt: GroupedEvent): Promise<DeleteLink[]> {
+    const links: DeleteLink[] = []
+    const seen = new Set<string>()
+
+    for (const ch of evt.channels) {
+      const id = evt.channelIds[ch] ?? (ch === evt.channel ? evt.id : undefined)
+      if (id == null) continue
+      const k = `${ch}:${id}`
+      if (seen.has(k)) continue
+      seen.add(k)
+      links.push({ channel: ch, eventId: id })
+    }
+
+    try {
+      const res = await fetch(
+        `/api/registry?channel=${evt.channel}&eventId=${encodeURIComponent(String(evt.id))}`,
+      )
+      if (res.ok) {
+        const data = await res.json() as {
+          master?: { id: string }
+          links?: Partial<Record<ChannelKey, { eventId: string }>>
+        }
+        for (const ch of CHANNEL_ORDER) {
+          const ref = data.links?.[ch]
+          if (!ref?.eventId) continue
+          const k = `${ch}:${ref.eventId}`
+          if (seen.has(k)) continue
+          seen.add(k)
+          links.push({ channel: ch, eventId: ref.eventId })
+        }
+      }
+    } catch { /* ignore */ }
+
+    return links
+  }
+
+  async function handleBulkDelete() {
+    if (selectedEvents.length === 0) return
+    setDeleting(true)
+    const errors: string[] = []
+    let deletedCount = 0
+
+    for (const evt of selectedEvents) {
+      const targets = await resolveDeleteTargets(evt)
+      for (const t of targets) {
+        try {
+          await deleteEventEverywhere(t.channel, t.eventId)
+          if (t.channel === 'hightribe') {
+            setHtAllEvents(ev => ev.filter(e => String(e.id) !== String(t.eventId)))
+          } else if (t.channel === 'luma') {
+            setLumaEvents(ev => ev.filter(e => e.api_id !== String(t.eventId)))
+          } else {
+            setEbEvents(ev => ev.filter(e => e.id !== String(t.eventId)))
+          }
+        } catch (err) {
+          errors.push(`${evt.title} · ${CH_LABELS[t.channel]}: ${err instanceof Error ? err.message : 'failed'}`)
+        }
+      }
+
+      try {
+        const res = await fetch(
+          `/api/registry?channel=${evt.channel}&eventId=${encodeURIComponent(String(evt.id))}`,
+        )
+        if (res.ok) {
+          const data = await res.json() as { master?: { id: string } }
+          if (data.master?.id) {
+            await fetch('/api/registry', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'delete', masterId: data.master.id }),
+            })
+          }
+        }
+      } catch { /* non-fatal */ }
+
+      deletedCount++
+    }
+
+    if (errors.length) toastRef.current.error(errors.slice(0, 3).join(' · '))
+    else toastRef.current.success(`Deleted ${deletedCount} event${deletedCount === 1 ? '' : 's'}`)
+
+    setDeleting(false)
+    setBulkDeleteOpen(false)
+    setSelectedKeys(new Set())
+    void loadRegistry()
+  }
+
+  useEffect(() => {
+    setPerPage(readStoredPerPage())
+  }, [])
+
   useEffect(() => {
     void loadAllEvents()
     // Mount-only initial load — callbacks are stable; avoid re-fetch loops on re-render.
@@ -709,11 +1114,16 @@ export default function EventsPage() {
 
   useEffect(() => {
     setPage(1)
-  }, [searchQuery, statusFilters])
+  }, [searchQuery, statusFilters, perPage])
 
   useEffect(() => {
     if (page !== safePage) setPage(safePage)
   }, [page, safePage])
+
+  function changePerPage(value: number) {
+    setPerPage(value)
+    try { localStorage.setItem(PER_PAGE_STORAGE_KEY, String(value)) } catch { /* ignore */ }
+  }
 
   function openCreate() { setCreateOpen(true) }
   function closeCreate() {
@@ -760,7 +1170,7 @@ export default function EventsPage() {
         onPublished={() => onSaved(editModal.channel)}
       />
 
-      {deleteTarget && !deleting && (
+      {deleteTarget && !deleting && !bulkDeleteOpen && (
         <DeleteDialog
           title={deleteTarget.title}
           sourceChannel={deleteTarget.channel}
@@ -771,7 +1181,16 @@ export default function EventsPage() {
           onCancel={() => setDeleteTarget(null)}
         />
       )}
-      {deleting && (
+      {bulkDeleteOpen && (
+        <BulkDeleteDialog
+          count={selectedEvents.length}
+          titles={selectedEvents.map(e => e.title)}
+          deleting={deleting}
+          onConfirm={() => void handleBulkDelete()}
+          onCancel={() => { if (!deleting) setBulkDeleteOpen(false) }}
+        />
+      )}
+      {deleting && !bulkDeleteOpen && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000, color:'#211B16', fontSize:'15px' }}>
           Deleting…
         </div>
@@ -837,14 +1256,50 @@ export default function EventsPage() {
       )}
 
       <div className="events-toolbar">
-        <span className="events-toolbar-count">
-          {searchQuery.trim() || filtersDifferFromDefault ? (
-            <><strong>{allEvents.length}</strong> shown · <strong>{totalCount}</strong> total</>
-          ) : (
-            <><strong>{allEvents.length}</strong> active {allEvents.length === 1 ? 'event' : 'events'}</>
+        <div className="events-toolbar-left">
+          {allEvents.length > 0 && (
+            <label className="events-select-all">
+              <input
+                type="checkbox"
+                checked={allPageSelected}
+                ref={(el) => {
+                  if (el) el.indeterminate = somePageSelected
+                }}
+                onChange={toggleSelectPage}
+                aria-label="Select all events on this page"
+              />
+              <span>{allPageSelected ? 'Clear page' : 'Select page'}</span>
+            </label>
           )}
-        </span>
+          <span className="events-toolbar-count">
+            {searchQuery.trim() || filtersDifferFromDefault ? (
+              <><strong>{allEvents.length}</strong> shown · <strong>{totalCount}</strong> total</>
+            ) : (
+              <><strong>{allEvents.length}</strong> active {allEvents.length === 1 ? 'event' : 'events'}</>
+            )}
+          </span>
+        </div>
         <div className="events-toolbar-actions">
+          {selectedKeys.size > 0 && (
+            <>
+              <button
+                type="button"
+                className="events-refresh-btn events-refresh-btn--danger"
+                onClick={() => setBulkDeleteOpen(true)}
+                disabled={loading || syncing || deleting}
+              >
+                Delete ({selectedKeys.size})
+              </button>
+              <button
+                type="button"
+                className="events-refresh-btn"
+                onClick={clearSelection}
+                disabled={deleting}
+              >
+                Clear
+              </button>
+            </>
+          )}
           <button
             type="button"
             className="events-refresh-btn"
@@ -879,42 +1334,63 @@ export default function EventsPage() {
                 image={evt.image}
                 title={evt.title}
                 dateStr={evt.dateStr}
-                channel={evt.channel}
-                badgeColor={CHANNEL_META[evt.channel].color}
+                channels={evt.channels}
+                channelStatuses={evt.channelStatuses}
                 location={evt.location}
                 url={evt.url}
-                status={evt.status}
-                detailHref={`/events/${evt.channel}/${encodeURIComponent(String(evt.id))}`}
+                selected={selectedKeys.has(evt.key)}
+                onToggleSelect={() => toggleSelect(evt.key)}
+                detailHref={`/events/e/${encodeEventRef(evt.channel, evt.id)}`}
                 onEdit={() => openEdit(evt.channel, evt.id)}
                 onDelete={() => setDeleteTarget({ channel: evt.channel, id: evt.id, title: evt.title })}
                 onSync={() => setSyncEvent({ id: evt.id, title: evt.title, source: evt.syncSource })}
               />
             ))}
           </div>
-          {lastPage > 1 && (
-            <div className="events-pagination">
-              <button
-                type="button"
-                className="events-page-btn"
-                onClick={() => setPage(p => Math.max(1, p - 1))}
-                disabled={safePage <= 1 || loading}
+          <div className="events-pagination">
+            <label className="events-per-page">
+              <span>Show</span>
+              <select
+                value={perPage}
+                onChange={e => changePerPage(Number(e.target.value))}
+                aria-label="Events per page"
               >
-                ← Prev
-              </button>
+                {PER_PAGE_OPTIONS.map(n => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+              <span>per page</span>
+            </label>
+
+            {lastPage > 1 ? (
+              <>
+                <button
+                  type="button"
+                  className="events-page-btn"
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={safePage <= 1 || loading}
+                >
+                  ← Prev
+                </button>
+                <span className="events-page-info">
+                  Page {safePage} / {lastPage}
+                  {allEvents.length > 0 && <span style={{ marginLeft: '6px' }}>· {allEvents.length} events</span>}
+                </span>
+                <button
+                  type="button"
+                  className="events-page-btn"
+                  onClick={() => setPage(p => Math.min(lastPage, p + 1))}
+                  disabled={safePage >= lastPage || loading}
+                >
+                  Next →
+                </button>
+              </>
+            ) : (
               <span className="events-page-info">
-                Page {safePage} / {lastPage}
-                {allEvents.length > 0 && <span style={{ marginLeft: '6px' }}>· {allEvents.length} events</span>}
+                {allEvents.length} {allEvents.length === 1 ? 'event' : 'events'}
               </span>
-              <button
-                type="button"
-                className="events-page-btn"
-                onClick={() => setPage(p => Math.min(lastPage, p + 1))}
-                disabled={safePage >= lastPage || loading}
-              >
-                Next →
-              </button>
-            </div>
-          )}
+            )}
+          </div>
         </>
       )}
     </div>

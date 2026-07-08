@@ -40,12 +40,14 @@ eventsRouter.get('/:channel', requireAuth, async (req: AuthedRequest, res) => {
 eventsRouter.post('/:channel/sync', requireAuth, async (req: AuthedRequest, res) => {
   const channel = parseChannel(req.params.channel)
   if (!channel) return res.status(400).json({ error: 'invalid channel' })
-  const body = req.body as { events?: Array<Record<string, unknown>> }
+  const body = req.body as { events?: Array<Record<string, unknown>>; prune?: boolean }
   if (!Array.isArray(body.events)) {
     return res.status(400).json({ error: 'events array required' })
   }
   try {
-    const result = await upsertChannelEvents(channel, req.user!.id, body.events)
+    const result = await upsertChannelEvents(channel, req.user!.id, body.events, {
+      prune: body.prune !== false,
+    })
     const events = await listChannelEvents(channel, req.user!.id)
     return res.json({ ...result, events })
   } catch (err) {

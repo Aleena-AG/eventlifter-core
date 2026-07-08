@@ -1,4 +1,4 @@
-import type { RowDataPacket } from 'mysql2'
+import type { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2'
 import { useDatabase } from '../config'
 import { getPool, query } from '../db/pool'
 import {
@@ -6,6 +6,7 @@ import {
   localDeleteEvent,
   localGetEvent,
   localListEvents,
+  localPruneEvents,
   localResolveUserIdFromEvent,
   localUpsertEvents,
   type LocalEventRow,
@@ -150,11 +151,50 @@ export async function resolveUserIdFromChannelEvent(
   return rows[0]?.user_id != null ? Number(rows[0].user_id) : null
 }
 
+function collectExternalIds(
+  channel: ChannelName,
+  events: Array<Record<string, unknown>>,
+): string[] {
+  const ids: string[] = []
+  for (const raw of events) {
+    const n = normalizeEvent(channel, raw)
+    if (n.external_id) ids.push(n.external_id)
+  }
+  return ids
+}
+
+async function pruneChannelEventsDb(
+  channel: ChannelName,
+  userId: number,
+  keepExternalIds: string[],
+  conn?: PoolConnection,
+): Promise<number> {
+  const table = TABLE[channel]
+  const executor = conn ?? getPool()
+  if (keepExternalIds.length === 0) {
+    const [result] = await executor.query<ResultSetHeader>(
+      `DELETE FROM ${table} WHERE user_id = ?`,
+      [userId],
+    )
+    return result.affectedRows ?? 0
+  }
+  const placeholders = keepExternalIds.map(() => '?').join(',')
+  const [result] = await executor.query<ResultSetHeader>(
+    `DELETE FROM ${table} WHERE user_id = ? AND external_id NOT IN (${placeholders})`,
+    [userId, ...keepExternalIds],
+  )
+  return result.affectedRows ?? 0
+}
+
 export async function upsertChannelEvents(
   channel: ChannelName,
   userId: number,
   events: Array<Record<string, unknown>>,
-): Promise<{ upserted: number }> {
+  options?: { prune?: boolean },
+): Promise<{ upserted: number; pruned: number }> {
+  const keepExternalIds = collectExternalIds(channel, events)
+  const shouldPrune = options?.prune === true
+
   if (!useDatabase()) {
     const now = new Date().toISOString()
     const rows = events.map((raw) => {
@@ -174,12 +214,16 @@ export async function upsertChannelEvents(
       }
     }).filter((r) => r.external_id)
     const upserted = localUpsertEvents(channel, userId, rows)
-    return { upserted }
+    const pruned = shouldPrune
+      ? localPruneEvents(channel, userId, new Set(keepExternalIds))
+      : 0
+    return { upserted, pruned }
   }
 
   const pool = getPool()
   const now = new Date()
   let upserted = 0
+  let pruned = 0
 
   const conn = await pool.getConnection()
   try {
@@ -241,6 +285,9 @@ export async function upsertChannelEvents(
 
       upserted++
     }
+    if (shouldPrune) {
+      pruned = await pruneChannelEventsDb(channel, userId, keepExternalIds, conn)
+    }
     await conn.commit()
   } catch (err) {
     await conn.rollback()
@@ -249,7 +296,7 @@ export async function upsertChannelEvents(
     conn.release()
   }
 
-  return { upserted }
+  return { upserted, pruned }
 }
 
 function normalizeEvent(channel: ChannelName, raw: Record<string, unknown>) {
