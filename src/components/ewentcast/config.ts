@@ -7,7 +7,9 @@ export const CH_META: Record<ChannelKey, { name: string; color: string; auth: st
   luma: { name: 'Luma', color: LUMA_COLOR, auth: 'API key', cap: 'Two-way sync · Luma Plus', base: 'lu.ma/', signin: 'Sign in to Luma for your key' },
 }
 
-export const ALL_CHANNELS: ChannelKey[] = ['hightribe', 'eventbrite', 'luma']
+// Display order: Eventbrite & Luma lead, Hightribe intentionally last (kept less
+// prominent in channel chips, dots and copy).
+export const ALL_CHANNELS: ChannelKey[] = ['eventbrite', 'luma', 'hightribe']
 
 export const WIZARD_STEPS = ['Create event', 'Publish', 'Dashboard'] as const
 

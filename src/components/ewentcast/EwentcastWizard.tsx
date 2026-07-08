@@ -92,6 +92,7 @@ export function EwentcastWizard({
   const [conns, setConns] = useState<Record<ChannelKey, boolean>>({
     hightribe: false, eventbrite: false, luma: false,
   })
+  const [connsLoaded, setConnsLoaded] = useState(false)
 
   useEffect(() => {
     if (!isEdit || !editChannel || editEventId == null || editEventId === '') return
@@ -172,6 +173,7 @@ export function EwentcastWizard({
         if (!isEdit) setTargets(connectedChannelsFromMap(map))
       })
       .catch(() => {})
+      .finally(() => { if (!cancelled) setConnsLoaded(true) })
     return () => { cancelled = true }
   }, [isEdit])
 
@@ -489,11 +491,41 @@ export function EwentcastWizard({
       )
     }
 
+    const noneConnected = !isEdit && connsLoaded && connCount === 0
+    const someConnected = !isEdit && connsLoaded && connCount > 0 && connCount < ALL_CHANNELS.length
+
     return (
       <div className="ew-view">
         <div className="ew-view-body">
-     
-     
+
+        {!isEdit && (
+          <div className="ew-publish-headline">
+            Publish your event to <b>Eventbrite</b>, <b>Luma</b>
+            <span className="ew-publish-headline-muted"> &amp; Hightribe</span>
+          </div>
+        )}
+
+        {noneConnected && (
+          <div className="ew-connect-note ew-connect-note--warn" role="status">
+            <span className="ew-connect-note-icon" aria-hidden="true">🔌</span>
+            <div className="ew-connect-note-body">
+              <strong>No channel connected.</strong> You can build your event, but it won’t publish
+              until at least one channel is connected.
+            </div>
+            <Link href="/channels" className="ew-connect-note-link">Connect channels →</Link>
+          </div>
+        )}
+        {someConnected && (
+          <div className="ew-connect-note" role="status">
+            <span className="ew-connect-note-icon" aria-hidden="true">✓</span>
+            <div className="ew-connect-note-body">
+              <strong>{connCount} of {ALL_CHANNELS.length} channels connected.</strong> Connect the
+              rest if you want to publish to all {ALL_CHANNELS.length}.
+            </div>
+            <Link href="/channels" className="ew-connect-note-link">Manage channels →</Link>
+          </div>
+        )}
+
         <div className="ew-pubto">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <span className="label">{isEdit ? 'CHANNEL' : 'PUBLISH TO'}</span>
