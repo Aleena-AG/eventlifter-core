@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import Link from 'next/link'
-import { useSearchParams, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { channelFetch } from '@/lib/channel-fetch'
 import { getEwentcastAccount, isEwentcastSignupUser } from '@/lib/ewentcast-session'
 import { deleteStoredEvent, listStoredEvents } from '@/lib/channel-events-store'
@@ -662,14 +662,12 @@ function EventCard({
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function EventsPage() {
   const router = useRouter()
-  const searchParams = useSearchParams()
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilters, setStatusFilters] = useState<Set<EventStatusFilter>>(
     () => new Set(DEFAULT_STATUS_FILTERS),
   )
   const [page, setPage] = useState(1)
   const [perPage, setPerPage] = useState(12) // hydrated from localStorage on mount
-  const [createOpen, setCreateOpen] = useState(false)
   const [editModal, setEditModal] = useState<{
     open: boolean; channel: ChannelKey; eventId: string | number
   }>({ open: false, channel: 'hightribe', eventId: '' })
@@ -1125,19 +1123,6 @@ export default function EventsPage() {
     try { localStorage.setItem(PER_PAGE_STORAGE_KEY, String(value)) } catch { /* ignore */ }
   }
 
-  function openCreate() { setCreateOpen(true) }
-  function closeCreate() {
-    setCreateOpen(false)
-    router.replace('/events', { scroll: false })
-  }
-
-  useEffect(() => {
-    if (searchParams.get('create') === '1') setCreateOpen(true)
-  }, [searchParams])
-
-  function onPublished() {
-    void loadAllEvents()
-  }
   function openEdit(channel: ChannelKey, id: string|number) {
     setEditModal({ open: true, channel, eventId: id })
   }
@@ -1154,12 +1139,6 @@ export default function EventsPage() {
       <Toast toasts={toasts} onRemove={removeToast} />
 
       <SyncModal open={!!syncEvent} event={syncEvent} onClose={() => setSyncEvent(null)} />
-
-      <CreateEventWizardModal
-        open={createOpen}
-        onClose={closeCreate}
-        onPublished={onPublished}
-      />
 
       <CreateEventWizardModal
         open={editModal.open}
@@ -1202,7 +1181,7 @@ export default function EventsPage() {
           <h1>Events</h1>
           <p>All your events from Hightribe, Luma, and Eventbrite in one place.</p>
         </div>
-        <button type="button" className="events-create-btn" onClick={openCreate}>
+        <button type="button" className="events-create-btn" onClick={() => router.push('/create')}>
           <span className="events-create-btn__icon" aria-hidden="true">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
               <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />

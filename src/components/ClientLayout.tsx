@@ -27,7 +27,6 @@ const BARE_PATHS = new Set([
   '/login',
   '/signup',
   '/subscribe',
-  '/create',
   '/forgot-password',
   '/reset-password',
   '/sso/return',

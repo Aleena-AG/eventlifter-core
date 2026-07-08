@@ -1,5 +1,15 @@
-import { redirect } from 'next/navigation'
+'use client'
+
+import { useRouter } from 'next/navigation'
+import { EwentcastWizard } from '@/components/ewentcast/EwentcastWizard'
+import './ewentcast.css'
 
 export default function CreatePage() {
-  redirect('/events?create=1')
+  const router = useRouter()
+
+  return (
+    <div className="ew-page-shell">
+      <EwentcastWizard onDone={() => router.push('/events')} />
+    </div>
+  )
 }

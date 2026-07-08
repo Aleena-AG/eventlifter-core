@@ -11,7 +11,7 @@ import { SidebarNavIcon } from '@/components/SidebarNavIcon'
 
 const NAV_LINKS = [
   { href: '/dashboard', label: 'Dashboard', icon: 'dashboard' as const },
-  { href: '/events?create=1', label: 'Create Event', icon: 'create' as const },
+  { href: '/create', label: 'Create Event', icon: 'create' as const },
   { href: '/channels', label: 'Channels', icon: 'channels' as const },
   { href: '/events', label: 'Events', icon: 'events' as const },
   { href: '/billing', label: 'Billing', icon: 'billing' as const, ewentcastOnly: true as const },
@@ -21,7 +21,7 @@ const NAV_LINKS = [
 function isNavActive(pathname: string, href: string): boolean {
   const base = href.split('?')[0]
   if (base === '/dashboard') return pathname === '/dashboard'
-  if (href.includes('create=1')) return pathname === '/create'
+  if (base === '/create') return pathname === '/create'
   return pathname === base || pathname.startsWith(`${base}/`)
 }
 
