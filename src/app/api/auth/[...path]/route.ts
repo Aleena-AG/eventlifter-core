@@ -24,19 +24,27 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
   const sub = path.join('/')
 
   if (sub === 'me') {
-    const session = await requireSession(req)
-    if (isErrorResponse(session)) return session
+    try {
+      const session = await requireSession(req)
+      if (isErrorResponse(session)) return session
 
-    const me = await getMe(session.token)
-    if (!me) {
-      return NextResponse.json({ status: false, message: 'Unauthorized' }, { status: 401 })
+      const me = await getMe(session.token)
+      if (!me) {
+        return NextResponse.json({ status: false, message: 'Unauthorized' }, { status: 401 })
+      }
+      return NextResponse.json({
+        status: true,
+        user: me.user,
+        ewentcast: me.account,
+        ht_link_token: me.ht_link_token,
+      })
+    } catch (err) {
+      console.error('[GET /api/auth/me]', err instanceof Error ? err.message : err)
+      return NextResponse.json(
+        { status: false, message: 'Service temporarily unavailable' },
+        { status: 503 },
+      )
     }
-    return NextResponse.json({
-      status: true,
-      user: me.user,
-      ewentcast: me.account,
-      ht_link_token: me.ht_link_token,
-    })
   }
 
   return NextResponse.json({ status: false, message: 'Not found' }, { status: 404 })

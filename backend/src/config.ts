@@ -50,7 +50,13 @@ export function stripeConfigured(): boolean {
 }
 
 export function dbConfigured(): boolean {
-  return !!(config.db.host && config.db.user && config.db.password && config.db.database)
+  return !!(config.db.host && config.db.user && config.db.database)
+}
+
+/** When false, no MySQL pool is opened — data uses local JSON files under data/. */
+export function useDatabase(): boolean {
+  if (process.env.CHANNEL_MANAGER_USE_DB === 'false') return false
+  return dbConfigured()
 }
 
 /** Local dev only — never bypasses billing in production. */

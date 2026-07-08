@@ -11,8 +11,8 @@ import { syncChannelDataToDb } from '@/lib/channel-data-sync'
 
 export async function syncAllConnectedChannels(
   settings: ChannelSettingsView,
-): Promise<Array<{ channel: ChannelKey; events: number; bookings: number }>> {
-  const tasks: Array<Promise<{ channel: ChannelKey; events: number; bookings: number }>> = []
+): Promise<Array<{ channel: ChannelKey; events: number; pruned: number; bookings: number }>> {
+  const tasks: Array<Promise<{ channel: ChannelKey; events: number; pruned: number; bookings: number }>> = []
 
   if (isHightribeChannelConnected()) {
     tasks.push(

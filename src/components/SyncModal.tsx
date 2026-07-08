@@ -248,6 +248,7 @@ export function SyncModal({ open, event, onClose }: Props) {
     hightribe: false, luma: false, eventbrite: false,
   })
   const [connectionsLoading, setConnectionsLoading] = useState(false)
+  const [existingLinks, setExistingLinks] = useState<Partial<Record<ChannelKey, { eventId: string; url?: string }>>>({})
 
   useEffect(() => {
     if (!open) return
@@ -259,12 +260,24 @@ export function SyncModal({ open, event, onClose }: Props) {
     return () => { cancelled = true }
   }, [open, event?.id])
 
+  useEffect(() => {
+    if (!open || !event) { setExistingLinks({}); return }
+    let cancelled = false
+    fetch(`/api/registry?channel=${event.source}&eventId=${encodeURIComponent(String(event.id))}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { links?: Partial<Record<ChannelKey, { eventId: string; url?: string }>> } | null) => {
+        if (!cancelled) setExistingLinks(data?.links || {})
+      })
+      .catch(() => { if (!cancelled) setExistingLinks({}) })
+    return () => { cancelled = true }
+  }, [open, event?.id, event?.source])
+
   if (!open || !event) return null
 
   const source = event.source
 
   const toggleChannel = (ch: ChannelKey) => {
-    if (ch === source || publishing || done) return
+    if (ch === source || publishing || done || existingLinks[ch]) return
     setSelected((s) => ({ ...s, [ch]: !s[ch] }))
   }
 
@@ -277,7 +290,8 @@ export function SyncModal({ open, event, onClose }: Props) {
   }
 
   const handlePublish = async () => {
-    const targets = (Object.keys(selected) as ChannelKey[]).filter((k) => selected[k] && k !== source)
+    const targets = (Object.keys(selected) as ChannelKey[])
+      .filter((k) => selected[k] && k !== source && !existingLinks[k])
     if (targets.length === 0) return
 
     setPublishing(true)
@@ -610,17 +624,18 @@ export function SyncModal({ open, event, onClose }: Props) {
           {CHANNELS.filter(c => c.key !== source).map(({ key, label, icon, color, configured, note, settingsHref }) => {
             const result = results[key]
             const isSelected = selected[key]
+            const alreadyPublished = existingLinks[key]
 
             return (
               <div
                 key={key}
-                onClick={() => configured && toggleChannel(key)}
+                onClick={() => !alreadyPublished && configured && toggleChannel(key)}
                 style={{
-                  border: `1px solid ${result?.status === 'success' ? 'rgba(63,185,80,0.4)' : result?.status === 'error' ? 'rgba(248,81,73,0.4)' : isSelected ? color + '4d' : '#E8DFD0'}`,
+                  border: `1px solid ${alreadyPublished || result?.status === 'success' ? 'rgba(63,185,80,0.4)' : result?.status === 'error' ? 'rgba(248,81,73,0.4)' : isSelected ? color + '4d' : '#E8DFD0'}`,
                   borderRadius: '8px',
                   padding: '14px 16px',
-                  background: isSelected && !result ? color + '0d' : '#F1EADC',
-                  cursor: configured && !publishing && !done ? 'pointer' : 'default',
+                  background: alreadyPublished ? 'rgba(63,185,80,0.06)' : isSelected && !result ? color + '0d' : '#F1EADC',
+                  cursor: !alreadyPublished && configured && !publishing && !done ? 'pointer' : 'default',
                   opacity: !configured ? 0.5 : 1,
                   transition: 'all 0.15s',
                 }}
@@ -629,19 +644,19 @@ export function SyncModal({ open, event, onClose }: Props) {
                   {/* Checkbox */}
                   <div style={{
                     width: '18px', height: '18px', borderRadius: '4px',
-                    border: `2px solid ${isSelected ? color : '#E8DFD0'}`,
-                    background: isSelected ? color : 'transparent',
+                    border: `2px solid ${alreadyPublished ? '#4E7A4B' : isSelected ? color : '#E8DFD0'}`,
+                    background: alreadyPublished ? '#4E7A4B' : isSelected ? color : 'transparent',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     flexShrink: 0, fontSize: '12px', color: '#fff',
                   }}>
-                    {isSelected ? '✓' : ''}
+                    {alreadyPublished || isSelected ? '✓' : ''}
                   </div>
 
                   <span style={{ fontSize: '16px' }}>{icon}</span>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: '14px', fontWeight: 500, color: '#211B16' }}>{label}</div>
-                    <div style={{ fontSize: '12px', color: result?.status === 'error' ? '#C2502E' : result?.status === 'success' ? '#4E7A4B' : '#8C7F6D', marginTop: '2px' }}>
-                      {result ? result.message : (
+                    <div style={{ fontSize: '12px', color: alreadyPublished || result?.status === 'success' ? '#4E7A4B' : result?.status === 'error' ? '#C2502E' : '#8C7F6D', marginTop: '2px' }}>
+                      {alreadyPublished ? `Already published (ID: ${alreadyPublished.eventId})` : result ? result.message : (
                         <>
                           {note}
                           {!configured && !connectionsLoading && (

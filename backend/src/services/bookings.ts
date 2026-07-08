@@ -1,5 +1,7 @@
 import type { ResultSetHeader, RowDataPacket } from 'mysql2'
+import { useDatabase } from '../config'
 import { getPool, query } from '../db/pool'
+import { localDeleteAllBookings, localListBookings, localUpsertBookings } from '../db/local-store'
 import type { ChannelName } from './events'
 
 export interface StoredBooking {
@@ -122,7 +124,28 @@ ON DUPLICATE KEY UPDATE
   synced_at = VALUES(synced_at),
   updated_at = VALUES(updated_at)`
 
+function mapLocalLite(row: import('../db/local-store').LocalBookingRow): StoredBooking {
+  return {
+    id: row.id,
+    user_id: row.user_id,
+    channel: row.channel,
+    external_id: row.external_id,
+    event_external_id: row.event_external_id,
+    event_title: row.event_title,
+    guest_name: row.guest_name,
+    guest_email: row.guest_email,
+    status: row.status,
+    ticket_count: row.ticket_count,
+    registered_at: row.registered_at,
+    payload: {},
+    synced_at: row.synced_at,
+  }
+}
+
 export async function listAllUserBookings(userId: number): Promise<StoredBooking[]> {
+  if (!useDatabase()) {
+    return localListBookings(userId).map(mapLocalLite)
+  }
   const rows = await query<RowDataPacket[]>(
     `SELECT ${LIST_COLUMNS} FROM channel_bookings WHERE user_id = ? ORDER BY registered_at DESC`,
     [userId],
@@ -134,6 +157,9 @@ export async function listChannelBookings(
   channel: ChannelName,
   userId: number,
 ): Promise<StoredBooking[]> {
+  if (!useDatabase()) {
+    return localListBookings(userId).filter((b) => b.channel === channel).map(mapLocalLite)
+  }
   const rows = await query<RowDataPacket[]>(
     `SELECT ${LIST_COLUMNS} FROM channel_bookings
      WHERE user_id = ? AND channel = ?
@@ -154,6 +180,30 @@ export async function upsertWebhookBooking(input: {
   registeredAt: Date
   status?: string
 }): Promise<boolean> {
+  if (!useDatabase()) {
+    const now = new Date().toISOString()
+    localUpsertBookings(input.userId, input.channel, [{
+      external_id: input.externalId.slice(0, 191),
+      event_external_id: input.eventExternalId.slice(0, 128),
+      event_title: input.eventTitle.slice(0, 500),
+      guest_name: input.guestName.slice(0, 500),
+      guest_email: input.guestEmail.toLowerCase().slice(0, 320),
+      status: (input.status || 'confirmed').slice(0, 64),
+      ticket_count: 1,
+      registered_at: input.registeredAt.toISOString(),
+      payload_json: {
+        _source: 'webhook',
+        channel: input.channel,
+        event_id: input.eventExternalId,
+        email: input.guestEmail,
+        name: input.guestName,
+        registered_at: input.registeredAt.toISOString(),
+      },
+      synced_at: now,
+    }])
+    return true
+  }
+
   const now = new Date()
   const payload = {
     _source: 'webhook',
@@ -189,6 +239,28 @@ export async function upsertChannelBookings(
   userId: number,
   bookings: Array<Record<string, unknown>>,
 ): Promise<{ upserted: number }> {
+  if (!useDatabase()) {
+    const now = new Date().toISOString()
+    const rows = bookings.map((raw) => {
+      const n = normalizeBooking(channel, raw)
+      if (!n) return null
+      return {
+        external_id: n.external_id,
+        event_external_id: n.event_external_id,
+        event_title: n.event_title,
+        guest_name: n.guest_name,
+        guest_email: n.guest_email,
+        status: n.status,
+        ticket_count: n.ticket_count,
+        registered_at: n.registered_at.toISOString(),
+        payload_json: raw,
+        synced_at: now,
+      }
+    }).filter((r): r is NonNullable<typeof r> => r != null)
+    const upserted = localUpsertBookings(userId, channel, rows)
+    return { upserted }
+  }
+
   const pool = getPool()
   const now = new Date()
   let upserted = 0
@@ -222,6 +294,9 @@ export async function deleteAllChannelBookings(
   userId: number,
   channel: ChannelName,
 ): Promise<number> {
+  if (!useDatabase()) {
+    return localDeleteAllBookings(userId, channel)
+  }
   const [result] = await getPool().query<ResultSetHeader>(
     'DELETE FROM channel_bookings WHERE user_id = ? AND channel = ?',
     [userId, channel],

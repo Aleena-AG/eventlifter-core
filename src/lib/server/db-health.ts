@@ -1,8 +1,16 @@
 import type { RowDataPacket } from 'mysql2'
-import { config, dbConfigured } from '../../../backend/src/config'
+import { config, dbConfigured, useDatabase } from '../../../backend/src/config'
 import { getPool } from '../../../backend/src/db/pool'
 
 export async function runDbHealthCheck() {
+  if (!useDatabase()) {
+    return {
+      ok: true as const,
+      mode: 'local' as const,
+      store: 'data/local-app-store.json',
+    }
+  }
+
   if (!dbConfigured()) {
     return { ok: false as const, error: 'Database env vars are not configured' }
   }

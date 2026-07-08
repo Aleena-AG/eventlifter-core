@@ -14,7 +14,6 @@ const NAV_LINKS = [
   { href: '/events?create=1', label: 'Create Event', icon: 'create' as const },
   { href: '/channels', label: 'Channels', icon: 'channels' as const },
   { href: '/events', label: 'Events', icon: 'events' as const },
-  { href: '/bookings', label: 'Bookings', icon: 'bookings' as const },
   { href: '/billing', label: 'Billing', icon: 'billing' as const, ewentcastOnly: true as const },
   { href: '/settings', label: 'Settings', icon: 'settings' as const },
 ]

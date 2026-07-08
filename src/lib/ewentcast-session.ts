@@ -155,6 +155,7 @@ export async function fetchAuthMe(): Promise<{
     clearAuth()
     return null
   }
+  if (res.status === 503) return null
   if (!res.ok) return null
 
   const data = await res.json() as {

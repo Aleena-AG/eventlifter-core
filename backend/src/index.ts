@@ -1,6 +1,6 @@
 import cors from 'cors'
 import express from 'express'
-import { config, dbConfigured } from './config'
+import { config, useDatabase } from './config'
 import { isEmailConfigured } from './services/email'
 import { runMigrations } from './db/migrate'
 import { healthRouter } from './routes/health'
@@ -30,13 +30,12 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
 })
 
 async function start() {
-  if (!dbConfigured()) {
-    console.error('Missing CHANNEL_MANAGER_DB_* environment variables')
-    process.exit(1)
+  if (useDatabase()) {
+    const migration = await runMigrations()
+    console.log(`Migrations applied: ${migration.applied.join(', ') || 'none'}; imported=${migration.imported}`)
+  } else {
+    console.log('MySQL disabled — using local file store (data/local-app-store.json)')
   }
-
-  const migration = await runMigrations()
-  console.log(`Migrations applied: ${migration.applied.join(', ') || 'none'}; imported=${migration.imported}`)
 
   app.listen(config.port, () => {
     console.log(`Ewentcast backend listening on http://127.0.0.1:${config.port}`)

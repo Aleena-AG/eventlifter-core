@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { resolveAppSettings } from '@/lib/channel-settings-server'
+import { SessionRequiredError, resolveAppSettings } from '@/lib/channel-settings-server'
 import { effectiveEventbriteRedirectUri, eventbriteRedirectUriFromRequest } from '@/lib/app-url'
 import { loadSettings, saveSettings } from '@/lib/settings-store'
 
@@ -13,7 +13,18 @@ async function handler(
 ) {
   const { path: pathSegments } = await params
   const pathStr = pathSegments.join('/')
-  const settings = await resolveAppSettings(req.headers.get('authorization'))
+
+  let settings
+  try {
+    settings = await resolveAppSettings(req.headers.get('authorization'))
+  } catch (e) {
+    if (e instanceof SessionRequiredError) {
+      return NextResponse.json({ error: e.message }, { status: 401 })
+    }
+    const msg = e instanceof Error ? e.message : String(e)
+    return NextResponse.json({ error: msg }, { status: 503 })
+  }
+
   const s = settings.eventbrite
   const redirectUri = effectiveEventbriteRedirectUri(
     s.redirectUri,
