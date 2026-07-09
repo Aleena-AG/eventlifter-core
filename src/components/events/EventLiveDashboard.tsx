@@ -16,13 +16,14 @@ function Swatch({ color, size = 10 }: { color: string; size?: number }) {
 
 function formatMoney(amount: number, currency: string): string {
   try {
-    return new Intl.NumberFormat(undefined, {
+    return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: currency || 'USD',
+      currencyDisplay: 'narrowSymbol',
       maximumFractionDigits: amount % 1 === 0 ? 0 : 2,
     }).format(amount)
   } catch {
-    return `${currency} ${amount.toLocaleString()}`
+    return `$${amount.toLocaleString()}`
   }
 }
 

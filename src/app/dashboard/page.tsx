@@ -33,13 +33,14 @@ const KPI_CARDS = [
 
 function formatMoney(amount: number): string {
   try {
-    return new Intl.NumberFormat(undefined, {
+    return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
+      currencyDisplay: 'narrowSymbol',
       maximumFractionDigits: amount % 1 === 0 ? 0 : 2,
     }).format(amount)
   } catch {
-    return `USD ${amount.toLocaleString()}`
+    return `$${amount.toLocaleString()}`
   }
 }
 
