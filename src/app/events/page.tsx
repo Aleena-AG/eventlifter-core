@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { channelFetch } from '@/lib/channel-fetch'
 import { getEwentcastAccount, isEwentcastSignupUser } from '@/lib/ewentcast-session'
 import { deleteStoredEvent, listStoredEvents } from '@/lib/channel-events-store'
-import { syncChannelDataToDb, formatEventSyncMessage } from '@/lib/channel-data-sync'
+import { syncChannelDataToDb, formatEventSyncMessage, consumeEventsListRefresh } from '@/lib/channel-data-sync'
 import { storedToEbEvent, storedToHtEvent, storedToLumaEvent } from '@/lib/channel-db-mappers'
 import type { HtEventListItem } from '@/lib/hightribe-events'
 import { Toast, useToast } from '@/components/Toast'
@@ -1134,6 +1134,22 @@ export default function EventsPage() {
   }, [])
 
   useEffect(() => {
+    const reloadIfStale = () => {
+      if (consumeEventsListRefresh()) void loadAllEvents()
+    }
+    reloadIfStale()
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') reloadIfStale()
+    }
+    window.addEventListener('focus', reloadIfStale)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.removeEventListener('focus', reloadIfStale)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [loadAllEvents])
+
+  useEffect(() => {
     setPage(1)
   }, [searchQuery, statusFilters, perPage])
 
@@ -1161,12 +1177,12 @@ export default function EventsPage() {
     })
   }
 
-  function onSaved(updatedChannels?: ChannelKey[]) {
+  async function onSaved(updatedChannels?: ChannelKey[]) {
     const channels = updatedChannels?.length ? updatedChannels : [editModal.channel]
     const labels = channels.map((ch) => CH_LABELS[ch]).join(', ')
     toastRef.current.success(`Event updated on ${labels}!`)
     setEditModal((f) => ({ ...f, open: false }))
-    void loadAllEvents()
+    await loadAllEvents()
   }
 
   return (

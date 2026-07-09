@@ -57,6 +57,72 @@ async function fetchEventbriteEventRows(): Promise<Array<Record<string, unknown>
   return events as Array<Record<string, unknown>>
 }
 
+export const EVENTS_LIST_REFRESH_KEY = 'ew-events-list-refresh'
+
+/** Tell the Events page to reload from the local store on next visit/focus. */
+export function markEventsListStale(): void {
+  try {
+    sessionStorage.setItem(EVENTS_LIST_REFRESH_KEY, String(Date.now()))
+  } catch {
+    // ignore
+  }
+}
+
+export function consumeEventsListRefresh(): boolean {
+  try {
+    const flag = sessionStorage.getItem(EVENTS_LIST_REFRESH_KEY)
+    if (!flag) return false
+    sessionStorage.removeItem(EVENTS_LIST_REFRESH_KEY)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Fetch fresh copies of specific events from channel APIs and upsert into our store. */
+export async function refreshStoredEventsForChannels(
+  targets: Partial<Record<ChannelKey, string | number>>,
+): Promise<void> {
+  const entries = (['hightribe', 'luma', 'eventbrite'] as ChannelKey[])
+    .map((ch) => ({ ch, id: targets[ch] }))
+    .filter((e): e is { ch: ChannelKey; id: string | number } => e.id != null && e.id !== '')
+
+  await Promise.all(entries.map(async ({ ch, id }) => {
+    try {
+      let raw: Record<string, unknown> | null = null
+
+      if (ch === 'hightribe') {
+        const res = await channelFetch(`/api/hightribe/events/${id}`)
+        if (res.ok) {
+          const data = await res.json() as Record<string, unknown>
+          raw = (data.data as Record<string, unknown>) || data
+          if (raw && raw.id == null) raw = { ...raw, id }
+        }
+      } else if (ch === 'luma') {
+        const res = await channelFetch(
+          `/api/luma/events?api_id=${encodeURIComponent(String(id))}`,
+        )
+        if (res.ok) {
+          const data = await res.json() as {
+            data?: Record<string, unknown>
+            event?: Record<string, unknown>
+          }
+          raw = data.data || data.event || null
+        }
+      } else {
+        const res = await channelFetch(`/api/eventbrite/events/${id}`)
+        if (res.ok) raw = await res.json() as Record<string, unknown>
+      }
+
+      if (raw && Object.keys(raw).length > 0) {
+        await syncStoredEvents(ch, [raw], { prune: false })
+      }
+    } catch {
+      // best-effort — full channel sync can recover later
+    }
+  }))
+}
+
 /** Pull events + bookings from channel APIs and persist to MySQL. */
 export async function syncChannelDataToDb(
   channel: ChannelKey,
