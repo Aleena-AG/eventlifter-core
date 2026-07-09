@@ -264,8 +264,10 @@ export async function updateChannelEvent(
   }
 
   if (ch === 'luma') {
+    const id = String(eventId)
     const body: Record<string, unknown> = {
-      api_id: eventId,
+      event_id: id,
+      api_id: id,
       name: ev.title,
       start_at: startUtc,
       end_at: endUtc,

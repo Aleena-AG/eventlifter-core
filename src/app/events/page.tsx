@@ -1340,7 +1340,11 @@ export default function EventsPage() {
                 selected={selectedKeys.has(evt.key)}
                 onToggleSelect={() => toggleSelect(evt.key)}
                 detailHref={`/events/e/${encodeEventRef(evt.channel, evt.id)}`}
-                onEdit={() => openEdit(evt.channel, evt.id)}
+                onEdit={() => {
+                  const ch = evt.channel
+                  const id = evt.channelIds[ch] ?? evt.id
+                  openEdit(ch, id)
+                }}
                 onDelete={() => setDeleteTarget({ channel: evt.channel, id: evt.id, title: evt.title })}
                 onSync={() => setSyncEvent({ id: evt.id, title: evt.title, source: evt.syncSource })}
               />

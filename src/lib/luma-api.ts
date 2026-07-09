@@ -108,6 +108,21 @@ function guestsQueryForEvent(eventId: string): Record<string, string> {
   return { event_id: eventId, event_api_id: eventId }
 }
 
+function resolveEventId(source: Record<string, unknown>): string {
+  return String(source.event_id || source.event_api_id || source.api_id || source.id || '').trim()
+}
+
+function withEventIdFields(body: Record<string, unknown>): Record<string, unknown> {
+  const eventId = resolveEventId(body)
+  if (!eventId) return body
+  return {
+    ...body,
+    event_id: eventId,
+    event_api_id: eventId,
+    api_id: body.api_id ?? eventId,
+  }
+}
+
 /** List guests for one event — current + legacy Luma API paths, with pagination. */
 export async function listEventGuests(
   settings: AppSettings,
@@ -267,7 +282,9 @@ export async function proxyLumaPath(
   }
 
   if (path === 'events' && method === 'PUT') {
-    return { data: await lumaRequest(settings, 'POST', '/v1/events/update', { body }), status: 200 }
+    const b = withEventIdFields({ ...((body || {}) as Record<string, unknown>) })
+    if (!resolveEventId(b)) throw new LumaApiError('event_id required', 400)
+    return { data: await lumaRequest(settings, 'POST', '/v1/events/update', { body: b }), status: 200 }
   }
 
   if (path === 'events/create' && method === 'POST') {
@@ -318,7 +335,9 @@ export async function proxyLumaPath(
   }
 
   if (path === 'ticket-types' && method === 'PUT') {
-    return { data: await lumaRequest(settings, 'POST', '/v1/event/ticket-types/update', { body }), status: 200 }
+    const b = withEventIdFields({ ...((body || {}) as Record<string, unknown>) })
+    if (!resolveEventId(b)) throw new LumaApiError('event_id required', 400)
+    return { data: await lumaRequest(settings, 'POST', '/v1/event/ticket-types/update', { body: b }), status: 200 }
   }
 
   if (path === 'guests' && method === 'GET') {
