@@ -110,7 +110,7 @@ export function EwentcastWizard({
     setLoadingEvent(true)
     setLoadError(null)
     setTargets(editTargetChannels)
-    loadEventFormData(editChannel, editEventId)
+    loadEventFormData(editChannel, editEventId, editChannelIds)
       .then(data => { setEv(data); setCoverFile(null); setLoadingEvent(false) })
       .catch(err => {
         setLoadError(err instanceof Error ? err.message : 'Failed to load event')

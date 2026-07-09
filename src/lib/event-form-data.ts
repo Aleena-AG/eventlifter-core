@@ -4,6 +4,7 @@ import { getStoredEvent, type ChannelName } from '@/lib/channel-events-store'
 import { canonicalizeCountry, COUNTRIES } from '@/components/ewentcast/location-data'
 import type { ChannelKey } from '@/lib/types'
 import type { EventFormData } from '@/lib/publish-event'
+import { extractHightribeTags, extractLumaTags, formatTagsInput } from '@/lib/event-tags'
 
 function stripMs(s: string): string {
   return s.replace(/\.\d{3}Z$/, 'Z')
@@ -213,9 +214,35 @@ function inferPlaceFromAddress(address?: string): {
 function mapPublishStatus(raw?: string | null, isPublic?: boolean | null): string {
   const s = String(raw || '').trim().toLowerCase()
   if (/draft|unpublished|pending/.test(s)) return 'Draft'
-  if (/published|live|public|active/.test(s)) return 'Published'
+  // Hightribe often returns "active" without publish_status — defer to is_public.
+  if (s === 'active' || s === '') {
+    if (isPublic === false) return 'Draft'
+    if (isPublic === true) return 'Published'
+    return 'Draft'
+  }
+  if (/published|live|public/.test(s)) return 'Published'
   if (isPublic === false) return 'Draft'
   if (isPublic === true) return 'Published'
+  return 'Draft'
+}
+
+function mapLumaPublishStatus(e: Record<string, unknown>, raw: Record<string, unknown>): string {
+  const fromStatus = mapPublishStatus(String(e.status || raw.status || ''))
+  if (fromStatus === 'Published') return 'Published'
+
+  const vis = String(e.visibility || raw.visibility || '').toLowerCase()
+  if (vis === 'public') return 'Published'
+
+  const entry = (e.entry || raw.entry) as Record<string, unknown> | undefined
+  const calendarStatus = String(
+    e.calendar_status || raw.calendar_status
+    || e.approval_status || raw.approval_status
+    || entry?.status
+    || '',
+  ).toLowerCase()
+  if (/approved|published|live/.test(calendarStatus)) return 'Published'
+  if (/pending|rejected|draft/.test(calendarStatus)) return 'Draft'
+
   return 'Draft'
 }
 
@@ -303,6 +330,29 @@ interface NormEvent {
   maxPerOrder?: number
   htTicketId?: string
   htTicketName?: string
+  tags?: string[]
+}
+
+function resolveTicketTypeForForm(n: NormEvent): string {
+  const t = String(n.ticketType || '').trim()
+  if (t === 'Paid' || t === 'Free' || t === 'Donation') return t
+  if (n.ticketPrice != null) return n.ticketPrice > 0 ? 'Paid' : 'Free'
+  return ''
+}
+
+function parseHightribeTicketPricing(ticket: Record<string, unknown>): { price?: number; type?: string } {
+  if (
+    ticket.is_free === true
+    || ticket.free === true
+    || String(ticket.type || ticket.ticket_type || '').toLowerCase() === 'free'
+  ) {
+    return { price: 0, type: 'Free' }
+  }
+  const p = parseMoney(ticket.price)
+    ?? parseMoney(ticket.discount_price)
+    ?? parseMoney(ticket.amount)
+  if (p == null) return {}
+  return { price: p, type: p <= 0 ? 'Free' : 'Paid' }
 }
 
 function normToForm(n: NormEvent): EventFormData {
@@ -331,7 +381,7 @@ function normToForm(n: NormEvent): EventFormData {
     description: n.description,
     coverUrl: n.coverImage || '',
     category: 'Music',
-    tags: '',
+    tags: formatTagsInput(n.tags),
     date: start.date,
     time: start.time,
     endDate: end.date,
@@ -347,7 +397,7 @@ function normToForm(n: NormEvent): EventFormData {
     lat: n.lat != null ? String(n.lat) : '',
     lng: n.lng != null ? String(n.lng) : '',
     onlineUrl: n.onlineUrl || '',
-    ticketType: n.ticketType || (n.ticketPrice != null && n.ticketPrice > 0 ? 'Paid' : n.ticketPrice === 0 ? 'Free' : ''),
+    ticketType: resolveTicketTypeForForm(n),
     price: n.ticketPrice != null ? String(n.ticketPrice) : '',
     currency: 'USD',
     capacity: n.capacity != null ? String(n.capacity) : '150',
@@ -403,9 +453,8 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
     const ticketsRaw = (Array.isArray(e.tickets) ? e.tickets : Array.isArray(raw.tickets) ? raw.tickets : []) as Array<Record<string, unknown>>
     const ticket = ticketsRaw[0]
     const ticketSetting = (e.ticket_setting || e.ticketSetting || {}) as Record<string, unknown>
-    const rawPrice = ticket ? parseMoney(ticket.price) : undefined
-    // Prefer base ticket.price for edit — don't guess Free when price is missing.
-    const effectivePrice = rawPrice
+    const htPricing = ticket ? parseHightribeTicketPricing(ticket) : {}
+    const effectivePrice = htPricing.price
     const ticketQty = ticket ? parseInt(String(ticket.quantity ?? ''), 10) : undefined
     const address = optStr(loc?.address) || venueLabel
     const inferred = inferPlaceFromAddress(address)
@@ -451,7 +500,7 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
         e.host_name, e.organizer_name, e.host, e.organizer,
         raw.host_name, raw.organizer_name, e.user, e.creator,
       ),
-      ticketType: effectivePrice != null && effectivePrice <= 0 ? 'Free' : effectivePrice != null ? 'Paid' : undefined,
+      ticketType: htPricing.type,
       ticketPrice: effectivePrice,
       salesStartUtc: ticket
         ? (() => {
@@ -469,6 +518,7 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
       maxPerOrder: parseInt(String(ticketSetting.max_qty ?? ticketSetting.maxQty ?? ''), 10) || undefined,
       htTicketId: ticket?.id != null ? String(ticket.id) : undefined,
       htTicketName: ticket?.name != null ? String(ticket.name) : undefined,
+      tags: extractHightribeTags(e, raw),
     }
   }
 
@@ -525,11 +575,12 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
       lng: norm.lng,
       requireApproval: !!(e.require_rsvp_approval),
       capacity: typeof e.capacity === 'number' ? e.capacity : undefined,
-      status: mapPublishStatus(String(e.status || raw.status || '')),
+      status: mapLumaPublishStatus(e, { ...raw, ...e }),
       visibility: mapVisibility(String(e.visibility || raw.visibility || '')),
       hostName: pickHostName(e.host, e.host_name, e.organizer, hosts, e.hosts, raw.host, raw.hosts),
       ticketType,
       ticketPrice,
+      tags: extractLumaTags({ ...e, ...raw }),
       salesStartUtc: ticket
         ? (() => {
             const s = optStr(ticket.valid_start_at) || optStr(ticket.sales_start)
@@ -642,15 +693,28 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
 }
 
 /** Load edit form data from stored cache; refresh tickets from channel APIs when possible. */
+function ticketListFromResponse(
+  raw: Record<string, unknown>,
+  keys: string[],
+): Array<Record<string, unknown>> {
+  const inner = raw.data && typeof raw.data === 'object'
+    ? raw.data as Record<string, unknown>
+    : raw
+  for (const key of keys) {
+    const list = inner[key]
+    if (Array.isArray(list)) return list as Array<Record<string, unknown>>
+  }
+  return []
+}
+
 async function loadHightribeTickets(eventId: string | number): Promise<Array<Record<string, unknown>>> {
   try {
     const res = await channelFetch(
       `/api/hightribe/tickets?ticketable_type=event&ticketable_id=${encodeURIComponent(String(eventId))}`,
     )
     if (!res.ok) return []
-    const raw = await res.json() as { data?: { tickets?: Array<Record<string, unknown>> } }
-    const list = raw.data?.tickets
-    return Array.isArray(list) ? list : []
+    const raw = await res.json() as Record<string, unknown>
+    return ticketListFromResponse(raw, ['tickets'])
   } catch {
     return []
   }
@@ -660,8 +724,8 @@ async function loadEventbriteTickets(eventId: string | number): Promise<Array<Re
   try {
     const res = await channelFetch(`/api/eventbrite/events/${eventId}/ticket_classes`)
     if (!res.ok) return []
-    const raw = await res.json() as { ticket_classes?: Array<Record<string, unknown>> }
-    return Array.isArray(raw.ticket_classes) ? raw.ticket_classes : []
+    const raw = await res.json() as Record<string, unknown>
+    return ticketListFromResponse(raw, ['ticket_classes'])
   } catch {
     return []
   }
@@ -673,34 +737,29 @@ async function loadLumaTickets(eventId: string | number): Promise<Array<Record<s
       `/api/luma/ticket-types?event_id=${encodeURIComponent(String(eventId))}`,
     )
     if (!res.ok) return []
-    const raw = await res.json() as {
-      ticket_types?: Array<Record<string, unknown>>
-      entries?: Array<Record<string, unknown>>
-      data?: {
-        ticket_types?: Array<Record<string, unknown>>
-        entries?: Array<Record<string, unknown>>
-      }
-    }
-    const list =
-      raw.ticket_types
-      || raw.entries
-      || raw.data?.ticket_types
-      || raw.data?.entries
-    return Array.isArray(list) ? list : []
+    const raw = await res.json() as Record<string, unknown>
+    return ticketListFromResponse(raw, ['ticket_types', 'entries'])
   } catch {
     return []
   }
+}
+
+async function enrichNormWithTickets(norm: NormEvent, channel: ChannelKey, eventId: string | number) {
+  const tickets = channel === 'hightribe'
+    ? await loadHightribeTickets(eventId)
+    : channel === 'luma'
+      ? await loadLumaTickets(eventId)
+      : await loadEventbriteTickets(eventId)
+  if (tickets[0]) applyTicketToNorm(norm, tickets[0], channel)
 }
 
 function applyTicketToNorm(norm: NormEvent, ticket: Record<string, unknown>, channel: ChannelKey) {
   if (channel === 'hightribe') {
     if (ticket.id != null) norm.htTicketId = String(ticket.id)
     if (ticket.name != null) norm.htTicketName = String(ticket.name)
-    const p = parseMoney(ticket.price)
-    if (p != null) {
-      norm.ticketPrice = p
-      norm.ticketType = p <= 0 ? 'Free' : 'Paid'
-    }
+    const pricing = parseHightribeTicketPricing(ticket)
+    if (pricing.price != null) norm.ticketPrice = pricing.price
+    if (pricing.type) norm.ticketType = pricing.type
     const qty = parseInt(String(ticket.quantity ?? ''), 10)
     if (Number.isFinite(qty) && qty > 0) norm.capacity = qty
     const salesStart = optStr(ticket.sales_start) || optStr(ticket.start_sale_date) || optStr(ticket.valid_start_at)
@@ -770,18 +829,22 @@ function mergeStoredMeta(norm: NormEvent, stored: Awaited<ReturnType<typeof getS
   if (stored.end_at && (!norm.endUtc || Number.isNaN(new Date(norm.endUtc).getTime()))) {
     norm.endUtc = stripMs(stored.end_at)
   }
-}
-
-async function enrichTickets(norm: NormEvent, channel: ChannelKey, eventId: string | number) {
-  if (channel === 'eventbrite') {
-    const tickets = await loadEventbriteTickets(eventId)
-    if (tickets[0]) applyTicketToNorm(norm, tickets[0], 'eventbrite')
-  } else if (channel === 'luma') {
-    const tickets = await loadLumaTickets(eventId)
-    if (tickets[0]) applyTicketToNorm(norm, tickets[0], 'luma')
-  } else if (channel === 'hightribe') {
-    const tickets = await loadHightribeTickets(eventId)
-    if (tickets[0]) applyTicketToNorm(norm, tickets[0], 'hightribe')
+  if ((!norm.status || norm.status === 'Draft') && stored.status) {
+    norm.status = mapPublishStatus(stored.status)
+  }
+  if (!norm.tags?.length && stored.payload && typeof stored.payload === 'object') {
+    const p = stored.payload as Record<string, unknown>
+    const lumaTags = extractLumaTags(p)
+    const htTags = extractHightribeTags(p, p)
+    const merged = lumaTags.length ? lumaTags : htTags
+    if (merged.length) norm.tags = merged
+  }
+  if (!norm.ticketType && stored.payload && typeof stored.payload === 'object') {
+    const p = stored.payload as Record<string, unknown>
+    if (p.is_free === true) {
+      norm.ticketType = 'Free'
+      norm.ticketPrice = 0
+    }
   }
 }
 
@@ -798,7 +861,6 @@ async function loadEventbriteFullDescription(eventId: string | number): Promise<
     // fall through to structured content
   }
 
-  // Fallback: pull text modules from structured content when /description/ is empty.
   try {
     const res = await channelFetch(
       `/api/eventbrite/events/${eventId}/structured_content/?purpose=listing`,
@@ -820,7 +882,9 @@ async function loadEventbriteFullDescription(eventId: string | number): Promise<
 
 async function loadEventbriteEventFresh(eventId: string | number): Promise<Record<string, unknown> | null> {
   try {
-    const res = await channelFetch(`/api/eventbrite/events/${eventId}?expand=venue`)
+    const res = await channelFetch(
+      `/api/eventbrite/events/${encodeURIComponent(String(eventId))}?expand=venue,ticket_classes`,
+    )
     if (!res.ok) return null
     const raw = await res.json() as Record<string, unknown>
     const fullDesc = await loadEventbriteFullDescription(eventId)
@@ -847,17 +911,94 @@ async function loadLumaEventFresh(eventId: string | number): Promise<Record<stri
   }
 }
 
-export async function loadEventFormData(channel: ChannelKey, eventId: string | number): Promise<EventFormData> {
+async function fetchChannelPublishStatus(
+  ch: ChannelKey,
+  id: string | number,
+): Promise<string | undefined> {
+  try {
+    const stored = await getStoredEvent(ch as ChannelName, String(id))
+    if (stored?.status) {
+      const mapped = mapPublishStatus(stored.status)
+      if (mapped === 'Published') return 'Published'
+    }
+    if (ch === 'eventbrite') {
+      const fresh = await loadEventbriteEventFresh(id)
+      if (fresh && mapPublishStatus(String(fresh.status || '')) === 'Published') {
+        return 'Published'
+      }
+    } else if (ch === 'hightribe') {
+      const res = await channelFetch(`/api/hightribe/events/${id}`)
+      if (res.ok) {
+        const envelope = await res.json() as { data?: Record<string, unknown> }
+        const e = (envelope.data && typeof envelope.data === 'object' ? envelope.data : envelope) as Record<string, unknown>
+        const mapped = mapPublishStatus(
+          String(e.publish_status || e.status || ''),
+          typeof e.is_public === 'boolean' ? e.is_public : null,
+        )
+        if (mapped === 'Published') return 'Published'
+      }
+    } else if (ch === 'luma') {
+      const fresh = await loadLumaEventFresh(id)
+      if (fresh) {
+        const e = unwrapLumaEvent(fresh.event ? { event: fresh } : { event: fresh })
+        if (mapLumaPublishStatus(e, fresh) === 'Published') return 'Published'
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return undefined
+}
+
+async function enrichPublishStatusFromLinked(
+  form: EventFormData,
+  linkedChannels: Partial<Record<ChannelKey, string | number>> | undefined,
+  primaryChannel: ChannelKey,
+): Promise<void> {
+  if (String(form.status || '').toLowerCase() === 'published') return
+  if (!linkedChannels) return
+
+  for (const ch of ['eventbrite', 'hightribe', 'luma'] as ChannelKey[]) {
+    if (ch === primaryChannel) continue
+    const id = linkedChannels[ch]
+    if (id == null) continue
+    const status = await fetchChannelPublishStatus(ch, id)
+    if (status === 'Published') {
+      form.status = 'Published'
+      return
+    }
+  }
+}
+
+async function finalizeFormLoad(
+  norm: NormEvent,
+  channel: ChannelKey,
+  eventId: string | number,
+  linkedChannels?: Partial<Record<ChannelKey, string | number>>,
+): Promise<EventFormData> {
+  await enrichNormWithTickets(norm, channel, eventId)
+  const stored = await getStoredEvent(channel as ChannelName, String(eventId))
+  mergeStoredMeta(norm, stored)
+  const form = normToForm(norm)
+  await enrichPublishStatusFromLinked(form, linkedChannels, channel)
+  return form
+}
+
+export async function loadEventFormData(
+  channel: ChannelKey,
+  eventId: string | number,
+  linkedChannels?: Partial<Record<ChannelKey, string | number>>,
+): Promise<EventFormData> {
   if (channel === 'hightribe') {
     try {
       const res = await channelFetch(`/api/hightribe/events/${eventId}`)
       if (res.ok) {
-        const fresh = await res.json() as Record<string, unknown>
-        const norm = normFromPayload(channel, fresh)
-        await enrichTickets(norm, 'hightribe', eventId)
-        const stored = await getStoredEvent(channel as ChannelName, String(eventId))
-        mergeStoredMeta(norm, stored)
-        return normToForm(norm)
+        const envelope = await res.json() as { data?: Record<string, unknown> }
+        const payload = envelope.data && typeof envelope.data === 'object'
+          ? envelope.data
+          : envelope
+        const norm = normFromPayload(channel, payload)
+        return finalizeFormLoad(norm, channel, eventId, linkedChannels)
       }
     } catch {
       // fall back to stored copy
@@ -868,10 +1009,7 @@ export async function loadEventFormData(channel: ChannelKey, eventId: string | n
     const fresh = await loadEventbriteEventFresh(eventId)
     if (fresh) {
       const norm = normFromPayload(channel, fresh)
-      await enrichTickets(norm, 'eventbrite', eventId)
-      const stored = await getStoredEvent(channel as ChannelName, String(eventId))
-      mergeStoredMeta(norm, stored)
-      return normToForm(norm)
+      return finalizeFormLoad(norm, channel, eventId, linkedChannels)
     }
   }
 
@@ -879,10 +1017,7 @@ export async function loadEventFormData(channel: ChannelKey, eventId: string | n
     const fresh = await loadLumaEventFresh(eventId)
     if (fresh) {
       const norm = normFromPayload(channel, fresh)
-      await enrichTickets(norm, 'luma', eventId)
-      const stored = await getStoredEvent(channel as ChannelName, String(eventId))
-      mergeStoredMeta(norm, stored)
-      return normToForm(norm)
+      return finalizeFormLoad(norm, channel, eventId, linkedChannels)
     }
   }
 
@@ -896,10 +1031,7 @@ export async function loadEventFormData(channel: ChannelKey, eventId: string | n
     if (fullDesc) payload._full_description = fullDesc
   }
   const norm = normFromPayload(channel, payload)
-  mergeStoredMeta(norm, stored)
-  await enrichTickets(norm, channel, eventId)
-
-  return normToForm(norm)
+  return finalizeFormLoad(norm, channel, eventId, linkedChannels)
 }
 
 export { normToForm }
