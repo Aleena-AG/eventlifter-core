@@ -122,7 +122,7 @@ export const DEFAULT_EVENT: Record<string, string | boolean> = {
   city: '',
   region: '',
   postal: '',
-  country: 'United States',
+  country: '',
   lat: '',
   lng: '',
   onlineUrl: '',

@@ -6,7 +6,7 @@ import { syncStoredEvents } from '@/lib/channel-events-store'
 import type { ChannelKey } from '@/lib/types'
 import { buildEbTicketClass, ebTicketQuantity } from '@/lib/eventbrite-ticket'
 import { resolveEbTimezone } from '@/lib/eventbrite-timezone'
-import { zonedDateTimeToUtcIso } from '@/lib/event-datetime'
+import { normalizeTimeZone, utcIsoToZonedParts, zonedDateTimeToUtcIso } from '@/lib/event-datetime'
 import { parseTagsInput, syncLumaEventTags } from '@/lib/event-tags'
 import { unwrapLumaEvent } from '@/lib/luma-event-utils'
 import {
@@ -146,36 +146,13 @@ function formatEbError(
 
 /** Convert a UTC ISO timestamp into calendar date/time fields in the event timezone. */
 function utcToTzParts(isoUtc: string, tz: string): { date: string; time: string } {
-  const d = new Date(isoUtc)
-  if (Number.isNaN(d.getTime())) {
-    const now = new Date()
-    const pad = (n: number) => String(n).padStart(2, '0')
-    return {
-      date: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
-      time: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
-    }
-  }
-  try {
-    const fmt = new Intl.DateTimeFormat('en-CA', {
-      timeZone: tz || 'UTC',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hourCycle: 'h23',
-    })
-    const parts = Object.fromEntries(fmt.formatToParts(d).map(p => [p.type, p.value]))
-    return {
-      date: `${parts.year}-${parts.month}-${parts.day}`,
-      time: `${parts.hour}:${parts.minute}`,
-    }
-  } catch {
-    const pad = (n: number) => String(n).padStart(2, '0')
-    return {
-      date: `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`,
-      time: `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`,
-    }
+  const parts = utcIsoToZonedParts(isoUtc, tz)
+  if (parts.date) return parts
+  const now = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return {
+    date: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
+    time: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
   }
 }
 
@@ -291,6 +268,13 @@ function buildHightribeEventBody(
   const tagList = parseTagsInput(ev.tags)
   if (tagList.length) {
     body.highlights = tagList
+  }
+  const refundPolicy = String(ev.refundPolicy || '').trim()
+  const faq = String(ev.faq || '').trim()
+  const policies = [refundPolicy, ...(faq ? faq.split(/\n\n+/).map(s => s.trim()).filter(Boolean) : [])]
+    .filter(Boolean)
+  if (policies.length) {
+    body.policies = policies
   }
   if (online) {
     body.location = {
@@ -474,7 +458,7 @@ async function updateEventbriteTickets(eventId: string | number, ev: EventFormDa
   const ticketClassId = listData.ticket_classes?.[0]?.id
   if (!ticketClassId) return
 
-  const tz = String(ev.timezone || 'UTC')
+  const tz = normalizeTimeZone(String(ev.timezone || 'UTC'))
   const salesStart = String(ev.salesStart || '').trim()
   const salesEnd = String(ev.salesEnd || '').trim()
   const tc = buildEbTicketClass({
@@ -558,7 +542,7 @@ async function syncLumaTickets(eventId: string | number, ev: EventFormData): Pro
     ...(maxCapacity != null ? { max_capacity: maxCapacity } : {}),
   }
 
-  const tz = String(ev.timezone || 'UTC')
+  const tz = normalizeTimeZone(String(ev.timezone || 'UTC'))
   const salesStart = String(ev.salesStart || '').trim()
   const salesEnd = String(ev.salesEnd || '').trim()
   if (salesStart) {
@@ -613,7 +597,7 @@ export async function publishToChannel(
   const fmt = String(ev.format || 'In person')
   const online = isOnline(fmt)
   const inPerson = isInPerson(fmt)
-  const tz = String(ev.timezone || 'UTC')
+  const tz = normalizeTimeZone(String(ev.timezone || 'UTC'))
   const startUtc = toIso(String(ev.date), String(ev.time), tz)
   const endUtc = toIso(String(ev.endDate || ev.date), String(ev.endTime || ev.time), tz)
   const cap = ebTicketQuantity(ev.capacity as string | number | undefined)
@@ -797,7 +781,7 @@ export async function updateChannelEvent(
   const fmt = String(ev.format || 'In person')
   const online = fmt === 'Online' || fmt === 'Hybrid'
   const inPerson = fmt === 'In person' || fmt === 'Hybrid'
-  const tz = String(ev.timezone || 'UTC')
+  const tz = normalizeTimeZone(String(ev.timezone || 'UTC'))
   const startUtc = toIso(String(ev.date), String(ev.time), tz)
   const endUtc = toIso(String(ev.endDate || ev.date), String(ev.endTime || ev.time), tz)
   const coverUrl = String(ev.coverUrl || '')
@@ -1038,7 +1022,7 @@ async function persistPublishedEvent(
   ref: { eventId: string; url?: string },
 ): Promise<void> {
   if (!ref.eventId) return
-  const tz = String(ev.timezone || 'UTC')
+  const tz = normalizeTimeZone(String(ev.timezone || 'UTC'))
   const startUtc = toIso(String(ev.date), String(ev.time), tz)
   const endUtc = toIso(String(ev.endDate || ev.date), String(ev.endTime || ev.time), tz)
   const cover = String(ev.coverUrl || '')
@@ -1052,6 +1036,12 @@ async function persistPublishedEvent(
   const lat = ev.lat ? parseFloat(String(ev.lat)) : undefined
   const lng = ev.lng ? parseFloat(String(ev.lng)) : undefined
   const hasPlace = !!(ev.venue || ev.address || ev.city)
+  const refundPolicy = String(ev.refundPolicy || '').trim()
+  const faq = String(ev.faq || '').trim()
+  const hostExtras = {
+    ...(refundPolicy ? { _refund_policy: refundPolicy } : {}),
+    ...(faq ? { _faq: faq } : {}),
+  }
 
   if (ch === 'luma') {
     const url = ref.url ? (/^https?:\/\//i.test(ref.url) ? ref.url : `https://${ref.url}`) : ''
@@ -1069,6 +1059,7 @@ async function persistPublishedEvent(
       status: htStatus === 'published' ? 'published' : 'draft',
       visibility: String(ev.visibility || 'Public').toLowerCase() === 'public' ? 'public' : 'private',
       host: hostName || undefined,
+      ...hostExtras,
       meeting_url: online ? (ev.onlineUrl || undefined) : undefined,
       ...(inPerson && hasPlace ? {
         geo_address_json: {
@@ -1098,6 +1089,7 @@ async function persistPublishedEvent(
         ? { text: ebSummary, html: toEbHtml(ebSummary) }
         : undefined,
       ...(ebDesc ? { _full_description: ebDesc } : {}),
+      ...hostExtras,
       start: { utc: startUtc },
       end: { utc: endUtc },
       url: ref.url || '',
@@ -1138,6 +1130,18 @@ async function persistPublishedEvent(
       is_public: htIsPublic(ev),
       host_name: hostName || undefined,
       organizer_name: hostName || undefined,
+      ...(() => {
+        const refundPolicy = String(ev.refundPolicy || '').trim()
+        const faq = String(ev.faq || '').trim()
+        const policies = [refundPolicy, ...(faq ? faq.split(/\n\n+/).map(s => s.trim()).filter(Boolean) : [])]
+          .filter(Boolean)
+        if (!policies.length && !refundPolicy && !faq) return {}
+        return {
+          ...(policies.length ? { policies } : {}),
+          ...(refundPolicy ? { _refund_policy: refundPolicy } : {}),
+          ...(faq ? { _faq: faq } : {}),
+        }
+      })(),
       location: online && !inPerson
         ? { type: 'online', location: 'Online', address: 'Online', city: 'Online', online_url: ev.onlineUrl || undefined }
         : inPerson && hasPlace

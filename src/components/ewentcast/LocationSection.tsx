@@ -414,10 +414,13 @@ export function LocationSection({ ev, setField }: Props) {
   const [mapError, setMapError] = useState('')
   const [mapsReady, setMapsReady] = useState(false)
   const [resolving, setResolving] = useState(false)
-  const seedQuery = [ev.address, ev.city, ev.region, ev.country]
-    .map(v => String(v || '').trim())
-    .filter(Boolean)
-    .join(', ')
+  // Map search = address only. Venue name stays in its own field — never here.
+  const buildPlaceQuery = () =>
+    [ev.address, ev.city, ev.region, ev.country]
+      .map(v => String(v || '').trim())
+      .filter(Boolean)
+      .join(', ')
+  const seedQuery = buildPlaceQuery()
   const [query, setQuery] = useState(seedQuery)
   const [hits, setHits] = useState<SearchHit[]>([])
   const [searching, setSearching] = useState(false)
@@ -430,37 +433,48 @@ export function LocationSection({ ev, setField }: Props) {
   const lng = ev.lng ? parseFloat(String(ev.lng)) : null
 
   // When edit form loads (or address fields hydrate), seed the map search box once.
+  // Never auto-search that seed — only search after the user types.
+  // Never include Venue name in this box.
   useEffect(() => {
-    const next = [ev.address, ev.city, ev.region, ev.country]
-      .map(v => String(v || '').trim())
-      .filter(Boolean)
-      .join(', ')
+    const next = buildPlaceQuery()
     if (!next || next === seededFromEvRef.current) return
     // Don't clobber an in-progress user search
-    if (query && query !== seedQuery && query !== seededFromEvRef.current) return
+    if (
+      query
+      && query !== seedQuery
+      && query !== seededFromEvRef.current
+      && !skipSearchRef.current
+    ) return
     seededFromEvRef.current = next
     skipSearchRef.current = true
+    setHits([])
+    setSearchedEmpty(false)
     setQuery(next)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ev.address, ev.city, ev.region, ev.country, query, seedQuery])
 
   const applyGeocodeResult = (
     result: GoogleGeocodeResult,
-    opts?: { venueName?: string; keepQuery?: string },
+    opts?: { venueName?: string; keepQuery?: string; fillMissingOnly?: boolean },
   ) => {
+    const fillMissingOnly = !!opts?.fillMissingOnly
+    const has = (key: keyof EventFormData | string) => !!String(ev[key as string] ?? '').trim()
     const venueName = (opts?.venueName || '').trim()
-    const label = opts?.keepQuery?.trim() || (venueName
-      ? [venueName, readablePlaceLabel(result)].filter(Boolean).join(' — ')
-      : readablePlaceLabel(result))
-    if (label) {
+    // Search box = place/address only. Venue stays in the Venue name field.
+    const label = opts?.keepQuery?.trim() || readablePlaceLabel(result)
+    if (label && !fillMissingOnly) {
       skipSearchRef.current = true
+      seededFromEvRef.current = label
       setQuery(label)
     }
 
-    if (venueName) setField('venue', venueName)
+    if (venueName && (!fillMissingOnly || !has('venue'))) setField('venue', venueName)
 
     const countryName = componentOf(result, 'country')
     const canonCountry = countryName ? (matchCountry(countryName) || countryName) : country
-    if (countryName) setField('country', canonCountry)
+    if (countryName && (!fillMissingOnly || !has('country'))) {
+      setField('country', canonCountry)
+    }
 
     const cityName =
       componentOf(result, 'locality') ||
@@ -468,22 +482,23 @@ export function LocationSection({ ev, setField }: Props) {
       componentOf(result, 'administrative_area_level_2') ||
       componentOf(result, 'sublocality') ||
       ''
-    if (cityName) {
+    if (cityName && (!fillMissingOnly || !has('city'))) {
       setField('city', cityName)
       setCustomCity(!citiesForCountry(canonCountry).some(c => c.name === cityName))
     }
 
     const region = componentOf(result, 'administrative_area_level_1')
-    if (region) setField('region', region)
+    if (region && (!fillMissingOnly || !has('region'))) setField('region', region)
 
     const postal = componentOf(result, 'postal_code')
-    if (postal) setField('postal', postal)
+    if (postal && (!fillMissingOnly || !has('postal'))) setField('postal', postal)
 
     const streetNumber = componentOf(result, 'street_number')
     const route = componentOf(result, 'route')
     const street = [streetNumber, route].filter(Boolean).join(' ')
-    if (street) setField('address', street)
-    else if (cityName || region) {
+    if (street && (!fillMissingOnly || !has('address'))) {
+      setField('address', street)
+    } else if (!fillMissingOnly && (cityName || region)) {
       // Avoid leaving a Plus Code in the street field for remote pins
       const currentAddress = String(ev.address || '')
       if (!currentAddress || isPlusCodeText(currentAddress)) {
@@ -501,7 +516,7 @@ export function LocationSection({ ev, setField }: Props) {
       if (status !== googleRef.current!.maps.GeocoderStatus.OK || !results?.length) return
       const best = pickBestGeocodeResult(results)
       if (!best) return
-      // Keep an already-chosen venue name (e.g. "Venus Hill") in the search box / field
+      // Keep Venue name field; do not paste it into the map search box.
       const keepVenue = (venueName || String(ev.venue || '')).trim()
       applyGeocodeResult(
         best,
@@ -639,58 +654,10 @@ export function LocationSection({ ev, setField }: Props) {
     googleRef.current = null
   }, [])
 
-  // On edit load, Luma/HT often return a single address blob without region/postal/lat.
-  // Geocode once to fill the missing structured fields.
-  const fillKeyRef = useRef('')
-  useEffect(() => {
-    if (!showPhysical || !mapsReady || !geocoderRef.current || !googleRef.current) return
-    const needsFill =
-      !String(ev.region || '').trim()
-      || !String(ev.postal || '').trim()
-      || !String(ev.lat || '').trim()
-      || !String(ev.lng || '').trim()
-      || !String(ev.venue || '').trim()
-    if (!needsFill) return
-
-    const address = [ev.venue, ev.address, ev.city, ev.region, ev.postal, ev.country]
-      .map(v => String(v || '').trim())
-      .filter(Boolean)
-      .join(', ')
-    if (address.length < 5) return
-    if (fillKeyRef.current === address) return
-    fillKeyRef.current = address
-
-    const geocoder = geocoderRef.current
-    const g = googleRef.current
-    geocoder.geocode({ address }, (results, status) => {
-      if (status !== g.maps.GeocoderStatus.OK || !results?.length) return
-      const best = pickBestGeocodeResult(results)
-      if (!best) return
-      const loc = best.geometry?.location
-      if (loc && (!ev.lat || !ev.lng)) {
-        const la = loc.lat()
-        const ln = loc.lng()
-        setField('lat', la.toFixed(6))
-        setField('lng', ln.toFixed(6))
-        const map = mapRef.current
-        if (map && g) {
-          map.setCenter({ lat: la, lng: ln })
-          map.setZoom(13)
-          attachMarker(g, map, la, ln)
-        }
-      }
-      applyGeocodeResult(best)
-      // Prefer keeping an existing venue name if the user/API already set one
-      if (!String(ev.venue || '').trim()) {
-        const name =
-          componentOf(best, 'point_of_interest')
-          || componentOf(best, 'premise')
-          || componentOf(best, 'establishment')
-        if (name) setField('venue', name)
-      }
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showPhysical, mapsReady, ev.address, ev.city, ev.country, ev.venue, ev.region, ev.postal, ev.lat, ev.lng])
+  // Do not auto-geocode on edit. Incomplete venue names ("golden time") plus a
+  // country guess invent wrong cities (NJ/FL). Only show a pin when lat/lng
+  // already came from the channel / a user pick.
+  // (Map centering for existing coords is handled in the effect above.)
 
   const doSearch = (q: string) => {
     const trimmed = q.trim()
@@ -730,7 +697,7 @@ export function LocationSection({ ev, setField }: Props) {
         },
         (results, status) => {
           if (gen !== searchGenRef.current) return
-          const mapResults = (list: GoogleGeocodeResult[]) =>
+          const mapResults = (list: GoogleGeocodeResult[]): SearchHit[] =>
             list
               .slice(0, 5)
               .map((r, i) => {
@@ -745,7 +712,7 @@ export function LocationSection({ ev, setField }: Props) {
                   result: r,
                 } satisfies SearchHit
               })
-              .filter((h): h is SearchHit => !!h)
+              .filter((h): h is NonNullable<typeof h> => h != null)
 
           if (status === g.maps.GeocoderStatus.OK && results?.length) {
             const hits = mapResults(results)
@@ -869,6 +836,8 @@ export function LocationSection({ ev, setField }: Props) {
       skipSearchRef.current = false
       return
     }
+    // Seeded edit query must not open autocomplete (wrong country matches).
+    if (query && query === seededFromEvRef.current) return
     const id = setTimeout(() => {
       doSearch(query)
     }, 350)
