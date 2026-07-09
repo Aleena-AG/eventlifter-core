@@ -198,7 +198,10 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
 
     return NextResponse.json({ status: false, message: 'Not found' }, { status: 404 })
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Request failed'
+    const raw = err instanceof Error ? err.message : 'Request failed'
+    const message = /ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|Too many connections/i.test(raw)
+      ? 'Database connection failed. Please try again in a moment.'
+      : raw
     if (message.includes('already exists')) {
       return NextResponse.json({ status: false, message }, { status: 422 })
     }
