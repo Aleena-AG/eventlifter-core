@@ -127,7 +127,7 @@ function sortBookings(items: BookingListItem[], key: SortKey, dir: SortDir): Boo
   return sorted
 }
 
-function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
+function DetailRow({ label, value }: { label: string; value?: React.ReactNode }) {
   if (value == null || value === '' || value === '—') return null
   return (
     <div className="bookings-detail-row">
@@ -294,7 +294,7 @@ function SortHeader({
   )
 }
 
-function SortHeader({
+function BookingCard({
   booking: b,
   onView,
 }: {
