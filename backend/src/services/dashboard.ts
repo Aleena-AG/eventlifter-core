@@ -8,6 +8,9 @@ export interface DashboardChannelStats {
   events: number
   bookings: number
   tickets: number
+  /** Estimated / reported revenue for this channel. */
+  revenue: number
+  currency: string
 }
 
 export interface DashboardEventItem {
@@ -31,6 +34,8 @@ export interface DashboardStatsPayload {
   totalEvents: number
   totalBookings: number
   totalTickets: number
+  totalRevenue: number
+  revenueCurrency: string
   unifiedAttendees: number
   recent: DashboardEventItem[]
   recentBookings: Array<{
@@ -55,6 +60,151 @@ function priceLabelFor(channel: ChannelName, isFree: unknown): string {
   if (channel === 'hightribe') return 'Hightribe'
   if (channel === 'luma') return 'Luma'
   return isFree ? 'Free' : 'Eventbrite'
+}
+
+function asRecord(v: unknown): Record<string, unknown> | null {
+  return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null
+}
+
+function parseMoney(v: unknown): number | null {
+  if (typeof v === 'number' && Number.isFinite(v)) return v
+  if (typeof v === 'string' && v.trim()) {
+    const n = parseFloat(v)
+    return Number.isFinite(n) ? n : null
+  }
+  return null
+}
+
+function parseEbCost(raw: unknown): number {
+  if (raw == null) return 0
+  const str = String(raw)
+  const minorMatch = str.match(/(\d+)\s*$/)
+  if (minorMatch && /[A-Z]{3}/i.test(str)) {
+    return parseInt(minorMatch[1], 10) / 100
+  }
+  const major = parseMoney(raw)
+  if (major == null) return 0
+  return major > 1000 ? major / 100 : major
+}
+
+/** Pull amount + currency from a stored booking payload (channel-specific shapes). */
+function revenueFromBookingPayload(
+  channel: ChannelName,
+  payload: Record<string, unknown>,
+  ticketCount: number,
+): { amount: number; currency: string | null } {
+  if (channel === 'hightribe') {
+    const amount = parseMoney(payload.total_price ?? payload.totalPrice ?? payload.amount) ?? 0
+    const currency = payload.currency != null ? String(payload.currency) : null
+    return { amount: Math.max(0, amount), currency }
+  }
+
+  if (channel === 'eventbrite') {
+    const costs = asRecord(payload.costs)
+    const gross = asRecord(costs?.gross)
+    const major = parseMoney(gross?.major_value ?? costs?.gross)
+    if (major != null) {
+      return {
+        amount: Math.max(0, major),
+        currency: String(gross?.currency || payload.currency || 'USD'),
+      }
+    }
+    const order = asRecord(payload.order) || asRecord(payload.barcodes && asRecord((payload.barcodes as unknown[])?.[0]))
+    const orderCosts = asRecord(order?.costs)
+    const orderGross = asRecord(orderCosts?.gross)
+    const orderMajor = parseMoney(orderGross?.major_value)
+    if (orderMajor != null) {
+      return {
+        amount: Math.max(0, orderMajor),
+        currency: String(orderGross?.currency || 'USD'),
+      }
+    }
+    return { amount: 0, currency: payload.currency != null ? String(payload.currency) : null }
+  }
+
+  if (channel === 'luma') {
+    const cents = parseMoney(
+      payload.amount_cents ?? payload.price_cents ?? payload.cents ?? asRecord(payload.payment)?.amount_cents,
+    )
+    if (cents != null) {
+      return {
+        amount: Math.max(0, cents / 100),
+        currency: String(payload.currency || asRecord(payload.payment)?.currency || 'USD'),
+      }
+    }
+    const major = parseMoney(payload.amount ?? payload.price ?? payload.total_price)
+    return {
+      amount: Math.max(0, major ?? 0),
+      currency: payload.currency != null ? String(payload.currency) : null,
+    }
+  }
+
+  return { amount: 0, currency: null }
+}
+
+/** Unit ticket price from a stored event payload — used when booking has no amount. */
+function unitPriceFromEventPayload(
+  channel: ChannelName,
+  payload: Record<string, unknown>,
+): { price: number; currency: string; isFree: boolean } {
+  if (channel === 'hightribe') {
+    const root = asRecord(payload.data) || payload
+    const tickets = Array.isArray(root.tickets)
+      ? root.tickets
+      : Array.isArray(payload.tickets)
+        ? payload.tickets
+        : []
+    const ticket = asRecord(tickets[0])
+    const price = Math.max(0, parseMoney(ticket?.price) ?? 0)
+    return {
+      price,
+      currency: String(ticket?.currency || root.currency || 'USD'),
+      isFree: price <= 0,
+    }
+  }
+
+  if (channel === 'eventbrite') {
+    const currency = String(payload.currency || 'USD').toUpperCase()
+    if (payload.is_free === true) return { price: 0, currency, isFree: true }
+    const ticketClasses = Array.isArray(payload.ticket_classes)
+      ? payload.ticket_classes
+      : Array.isArray(payload.ticket_class)
+        ? payload.ticket_class
+        : []
+    const paid = ticketClasses.map((t) => asRecord(t)).find((t) => t && !t.free && (t.cost != null || t.actual_cost != null))
+    if (paid) {
+      const price = parseEbCost(paid.cost ?? paid.actual_cost)
+      return { price: Math.max(0, price), currency, isFree: price <= 0 }
+    }
+    return { price: 0, currency, isFree: !!payload.is_free }
+  }
+
+  if (channel === 'luma') {
+    const event = asRecord(payload.event) || payload
+    const ticketTypes = Array.isArray(event.ticket_types)
+      ? event.ticket_types
+      : Array.isArray(payload.ticket_types)
+        ? payload.ticket_types
+        : []
+    const first = asRecord(ticketTypes[0])
+    const cents = parseMoney(first?.cents ?? first?.price_cents ?? first?.amount_cents)
+    const major = parseMoney(first?.price ?? first?.amount)
+    let price = 0
+    if (cents != null) price = cents / 100
+    else if (major != null) price = major
+    const isFree = price <= 0 || !!first?.is_free || String(first?.type || '').toLowerCase() === 'free'
+    return {
+      price: isFree ? 0 : Math.max(0, price),
+      currency: String(first?.currency || event.currency || 'USD'),
+      isFree,
+    }
+  }
+
+  return { price: 0, currency: 'USD', isFree: false }
+}
+
+function emptyChannelStats(): DashboardChannelStats {
+  return { events: 0, bookings: 0, tickets: 0, revenue: 0, currency: 'USD' }
 }
 
 function mapEventRow(row: {
@@ -107,22 +257,84 @@ function buildBookingTrend(
   return points
 }
 
+function applyBookingRevenue(
+  channels: Record<ChannelName, DashboardChannelStats>,
+  channel: ChannelName,
+  ticketCount: number,
+  payload: Record<string, unknown>,
+  eventPriceByKey: Map<string, { price: number; currency: string; isFree: boolean }>,
+  eventExternalId: string | null,
+  eventTitle: string,
+) {
+  channels[channel].bookings += 1
+  channels[channel].tickets += ticketCount
+
+  const fromPayload = revenueFromBookingPayload(channel, payload, ticketCount)
+  let amount = fromPayload.amount
+  let currency = fromPayload.currency
+
+  if (amount <= 0) {
+    const byId = eventExternalId
+      ? eventPriceByKey.get(`${channel}:id:${eventExternalId}`)
+      : undefined
+    const byTitle = eventPriceByKey.get(`${channel}:title:${eventTitle.trim().toLowerCase()}`)
+    const pricing = byId || byTitle
+    if (pricing && !pricing.isFree && pricing.price > 0) {
+      amount = pricing.price * ticketCount
+      currency = pricing.currency
+    }
+  }
+
+  if (currency) channels[channel].currency = currency.toUpperCase()
+  channels[channel].revenue = Math.round((channels[channel].revenue + Math.max(0, amount)) * 100) / 100
+}
+
+function summarizeTotals(channels: Record<ChannelName, DashboardChannelStats>) {
+  const totalEvents = CHANNELS.reduce((sum, ch) => sum + channels[ch].events, 0)
+  const totalBookings = CHANNELS.reduce((sum, ch) => sum + channels[ch].bookings, 0)
+  const totalTickets = CHANNELS.reduce((sum, ch) => sum + channels[ch].tickets, 0)
+  const totalRevenue =
+    Math.round(CHANNELS.reduce((sum, ch) => sum + channels[ch].revenue, 0) * 100) / 100
+  const revenueCurrency =
+    CHANNELS.map((ch) => channels[ch]).find((c) => c.revenue > 0)?.currency ||
+    CHANNELS.map((ch) => channels[ch]).find((c) => !!c.currency)?.currency ||
+    'USD'
+  return { totalEvents, totalBookings, totalTickets, totalRevenue, revenueCurrency }
+}
+
 export async function getDashboardStatsForUser(userId: number): Promise<DashboardStatsPayload> {
   const channels: Record<ChannelName, DashboardChannelStats> = {
-    hightribe: { events: 0, bookings: 0, tickets: 0 },
-    luma: { events: 0, bookings: 0, tickets: 0 },
-    eventbrite: { events: 0, bookings: 0, tickets: 0 },
+    hightribe: emptyChannelStats(),
+    luma: emptyChannelStats(),
+    eventbrite: emptyChannelStats(),
   }
 
   if (!useDatabase()) {
+    const eventPriceByKey = new Map<string, { price: number; currency: string; isFree: boolean }>()
     for (const ch of CHANNELS) {
-      channels[ch].events = localListEvents(ch, userId).length
+      const events = localListEvents(ch, userId)
+      channels[ch].events = events.length
+      for (const row of events) {
+        const pricing = unitPriceFromEventPayload(ch, row.payload_json || {})
+        eventPriceByKey.set(`${ch}:id:${row.external_id}`, pricing)
+        eventPriceByKey.set(`${ch}:title:${String(row.title || '').trim().toLowerCase()}`, pricing)
+        if (pricing.currency) channels[ch].currency = pricing.currency
+      }
     }
+
     const bookingRows = localListBookings(userId)
     for (const row of bookingRows) {
-      channels[row.channel].bookings += 1
-      channels[row.channel].tickets += row.ticket_count ?? 1
+      applyBookingRevenue(
+        channels,
+        row.channel,
+        row.ticket_count ?? 1,
+        row.payload_json || {},
+        eventPriceByKey,
+        row.event_external_id,
+        row.event_title,
+      )
     }
+
     const unifiedAttendees = new Set(bookingRows.map((b) => b.guest_email.toLowerCase())).size
     const recent = CHANNELS.flatMap((ch) =>
       localListEvents(ch, userId).map((row) =>
@@ -147,15 +359,9 @@ export async function getDashboardStatsForUser(userId: number): Promise<Dashboar
       registeredAt: row.registered_at,
     }))
 
-    const totalEvents = CHANNELS.reduce((sum, ch) => sum + channels[ch].events, 0)
-    const totalBookings = CHANNELS.reduce((sum, ch) => sum + channels[ch].bookings, 0)
-    const totalTickets = CHANNELS.reduce((sum, ch) => sum + channels[ch].tickets, 0)
-
     return {
       channels,
-      totalEvents,
-      totalBookings,
-      totalTickets,
+      ...summarizeTotals(channels),
       unifiedAttendees,
       recent,
       recentBookings,
@@ -163,43 +369,60 @@ export async function getDashboardStatsForUser(userId: number): Promise<Dashboar
     }
   }
 
-  const eventCounts = await Promise.all(
+  const eventPriceByKey = new Map<string, { price: number; currency: string; isFree: boolean }>()
+  await Promise.all(
     CHANNELS.map(async (ch) => {
       const table = EVENT_TABLE[ch]
       const rows = await query<RowDataPacket[]>(
-        `SELECT COUNT(*) AS cnt FROM ${table} WHERE user_id = ?`,
+        `SELECT external_id, title, payload_json FROM ${table} WHERE user_id = ?`,
         [userId],
       )
-      return { ch, cnt: Number(rows[0]?.cnt || 0) }
+      channels[ch].events = rows.length
+      for (const row of rows) {
+        const payload =
+          typeof row.payload_json === 'string'
+            ? (JSON.parse(row.payload_json) as Record<string, unknown>)
+            : ((row.payload_json || {}) as Record<string, unknown>)
+        const pricing = unitPriceFromEventPayload(ch, payload)
+        eventPriceByKey.set(`${ch}:id:${String(row.external_id)}`, pricing)
+        eventPriceByKey.set(
+          `${ch}:title:${String(row.title || '').trim().toLowerCase()}`,
+          pricing,
+        )
+        if (pricing.currency) channels[ch].currency = pricing.currency
+      }
     }),
   )
-  for (const { ch, cnt } of eventCounts) {
-    channels[ch].events = cnt
-  }
 
   let unifiedAttendees = 0
   try {
     const bookingRows = await query<RowDataPacket[]>(
-      `SELECT channel,
-              COUNT(*) AS bookings,
-              COALESCE(SUM(COALESCE(ticket_count, 1)), 0) AS tickets
+      `SELECT channel, event_external_id, event_title, ticket_count, payload_json, guest_email
        FROM channel_bookings
-       WHERE user_id = ?
-       GROUP BY channel`,
+       WHERE user_id = ?`,
       [userId],
     )
+    const emails = new Set<string>()
     for (const row of bookingRows) {
       const ch = row.channel as ChannelName
       if (!channels[ch]) continue
-      channels[ch].bookings = Number(row.bookings || 0)
-      channels[ch].tickets = Number(row.tickets || 0)
+      const payload =
+        typeof row.payload_json === 'string'
+          ? (JSON.parse(row.payload_json) as Record<string, unknown>)
+          : ((row.payload_json || {}) as Record<string, unknown>)
+      applyBookingRevenue(
+        channels,
+        ch,
+        row.ticket_count != null ? Number(row.ticket_count) : 1,
+        payload,
+        eventPriceByKey,
+        row.event_external_id ? String(row.event_external_id) : null,
+        String(row.event_title || ''),
+      )
+      const email = String(row.guest_email || '').toLowerCase().trim()
+      if (email) emails.add(email)
     }
-
-    const uniqueRows = await query<RowDataPacket[]>(
-      `SELECT COUNT(DISTINCT guest_email) AS cnt FROM channel_bookings WHERE user_id = ?`,
-      [userId],
-    )
-    unifiedAttendees = Number(uniqueRows[0]?.cnt || 0)
+    unifiedAttendees = emails.size
   } catch (err) {
     console.warn(
       '[getDashboardStatsForUser] channel_bookings unavailable:',
@@ -290,15 +513,9 @@ export async function getDashboardStatsForUser(userId: number): Promise<Dashboar
     )
   }
 
-  const totalEvents = CHANNELS.reduce((sum, ch) => sum + channels[ch].events, 0)
-  const totalBookings = CHANNELS.reduce((sum, ch) => sum + channels[ch].bookings, 0)
-  const totalTickets = CHANNELS.reduce((sum, ch) => sum + channels[ch].tickets, 0)
-
   return {
     channels,
-    totalEvents,
-    totalBookings,
-    totalTickets,
+    ...summarizeTotals(channels),
     unifiedAttendees,
     recent,
     recentBookings,

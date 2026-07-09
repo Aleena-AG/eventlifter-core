@@ -9,6 +9,8 @@ export interface ChannelStats {
   events: number
   tickets: number
   bookings: number
+  revenue: number
+  currency: string
   configured: boolean
 }
 
@@ -41,6 +43,8 @@ export interface DashboardStats {
   totalEvents: number
   totalTickets: number
   totalBookings: number
+  totalRevenue: number
+  revenueCurrency: string
   unifiedAttendees: number
   recent: DashboardRecentEvent[]
   recentBookings: DashboardBooking[]
@@ -75,34 +79,44 @@ export async function loadDashboardStats(settings: {
   })
   if (res.ok) {
     const data = await res.json() as {
-      channels: Record<ChannelKey, { events: number; bookings: number; tickets: number }>
+      channels: Record<ChannelKey, {
+        events: number
+        bookings: number
+        tickets: number
+        revenue?: number
+        currency?: string
+      }>
       totalEvents: number
       totalBookings: number
       totalTickets: number
+      totalRevenue?: number
+      revenueCurrency?: string
       unifiedAttendees: number
       recent: DashboardRecentEvent[]
       recentBookings: DashboardBooking[]
       bookingTrend?: DashboardBookingTrendPoint[]
     }
 
+    const withChannelDefaults = (ch: ChannelKey, configured: boolean): ChannelStats => ({
+      events: data.channels[ch]?.events ?? 0,
+      bookings: data.channels[ch]?.bookings ?? 0,
+      tickets: data.channels[ch]?.tickets ?? 0,
+      revenue: data.channels[ch]?.revenue ?? 0,
+      currency: data.channels[ch]?.currency || data.revenueCurrency || 'USD',
+      configured,
+    })
+
     return {
       channels: {
-        hightribe: {
-          ...data.channels.hightribe,
-          configured: isHightribeChannelConnected(),
-        },
-        luma: {
-          ...data.channels.luma,
-          configured: lumaConfigured,
-        },
-        eventbrite: {
-          ...data.channels.eventbrite,
-          configured: ebConfigured,
-        },
+        hightribe: withChannelDefaults('hightribe', isHightribeChannelConnected()),
+        luma: withChannelDefaults('luma', lumaConfigured),
+        eventbrite: withChannelDefaults('eventbrite', ebConfigured),
       },
       totalEvents: data.totalEvents,
       totalTickets: data.totalTickets,
       totalBookings: data.totalBookings,
+      totalRevenue: data.totalRevenue ?? 0,
+      revenueCurrency: data.revenueCurrency || 'USD',
       unifiedAttendees: data.unifiedAttendees,
       recent: data.recent,
       recentBookings: data.recentBookings,
@@ -118,9 +132,30 @@ export async function loadDashboardStats(settings: {
   ])
 
   const channels: Record<ChannelKey, ChannelStats> = {
-    hightribe: { events: htRows.length, tickets: 0, bookings: 0, configured: isHightribeChannelConnected() },
-    luma: { events: lumaRows.length, tickets: 0, bookings: 0, configured: lumaConfigured },
-    eventbrite: { events: ebRows.length, tickets: 0, bookings: 0, configured: ebConfigured },
+    hightribe: {
+      events: htRows.length,
+      tickets: 0,
+      bookings: 0,
+      revenue: 0,
+      currency: 'USD',
+      configured: isHightribeChannelConnected(),
+    },
+    luma: {
+      events: lumaRows.length,
+      tickets: 0,
+      bookings: 0,
+      revenue: 0,
+      currency: 'USD',
+      configured: lumaConfigured,
+    },
+    eventbrite: {
+      events: ebRows.length,
+      tickets: 0,
+      bookings: 0,
+      revenue: 0,
+      currency: 'USD',
+      configured: ebConfigured,
+    },
   }
 
   const recent = [
@@ -152,6 +187,8 @@ export async function loadDashboardStats(settings: {
     totalEvents,
     totalTickets: 0,
     totalBookings: 0,
+    totalRevenue: 0,
+    revenueCurrency: 'USD',
     unifiedAttendees: 0,
     recent,
     recentBookings: [],

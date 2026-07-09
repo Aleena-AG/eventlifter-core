@@ -27,9 +27,21 @@ const CH_META: Record<ChannelKey, { label: string; color: string }> = {
 const KPI_CARDS = [
   { key: 'events', label: 'Total Events', icon: '📅', accent: '#10b981', bg: 'rgba(16, 185, 129, 0.12)' },
   { key: 'tickets', label: 'Tickets Sold', icon: '🎟', accent: '#ff4b2b', bg: 'rgba(255, 75, 43, 0.12)' },
-  { key: 'bookings', label: 'Total Bookings', icon: '✓', accent: '#10b981', bg: 'rgba(16, 185, 129, 0.12)' },
+  { key: 'revenue', label: 'Revenue', icon: '💰', accent: '#f59e0b', bg: 'rgba(245, 158, 11, 0.12)' },
   { key: 'attendees', label: 'Unique Attendees', icon: '👥', accent: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.12)' },
 ] as const
+
+function formatMoney(amount: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: currency || 'USD',
+      maximumFractionDigits: amount % 1 === 0 ? 0 : 2,
+    }).format(amount)
+  } catch {
+    return `${currency} ${amount.toLocaleString()}`
+  }
+}
 
 type EventPhase = 'ongoing' | 'upcoming' | 'past'
 
@@ -411,19 +423,30 @@ export default function DashboardPage() {
     { key: 'hightribe' as const, on: htConfigured },
   ].filter((c) => c.on)
 
+  const totalBookings = stats?.totalBookings ?? 0
+  const totalTickets = stats?.totalTickets ?? 0
+  const uniqueAttendees = stats?.unifiedAttendees ?? 0
+  const totalRevenue = stats?.totalRevenue ?? 0
+  const revenueCurrency = stats?.revenueCurrency || 'USD'
+
   const kpiValues: Record<(typeof KPI_CARDS)[number]['key'], string | number> = {
     events: stats?.totalEvents ?? 0,
-    tickets: stats?.totalTickets ?? 0,
-    bookings: stats?.totalBookings ?? 0,
-    attendees: stats?.unifiedAttendees ?? 0,
+    tickets: totalTickets,
+    revenue: formatMoney(totalRevenue, revenueCurrency),
+    attendees: uniqueAttendees,
   }
+  const kpiHints: Record<(typeof KPI_CARDS)[number]['key'], string> = {
+    events: `${connectedChannels.length}/3 channels connected`,
+    tickets: totalBookings > 0 ? `${totalBookings} bookings` : 'across all channels',
+    revenue: totalRevenue > 0 ? 'all channels combined' : 'free or unpaid so far',
+    attendees: totalBookings > 0 ? `${totalBookings} total bookings` : 'deduped by email',
+  }
+
   const recentOrders = (stats?.recentBookings ?? []).slice(0, 3)
   const bookingTrend = stats?.bookingTrend ?? []
   const trendMax = Math.max(1, ...bookingTrend.map((p) => p.count))
   const trendTotal = bookingTrend.reduce((s, p) => s + p.count, 0)
 
-  const totalBookings = stats?.totalBookings ?? 0
-  const uniqueAttendees = stats?.unifiedAttendees ?? 0
   const repeatRate =
     totalBookings > 0 && uniqueAttendees > 0
       ? Math.max(0, Math.round(((totalBookings - uniqueAttendees) / totalBookings) * 100))
@@ -483,7 +506,10 @@ export default function DashboardPage() {
                 }}
               >
                 <div className="dash-kpi-label">{kpi.label}</div>
-                <div className="dash-kpi-value">{kpiValues[kpi.key]}</div>
+                <div className={`dash-kpi-value${kpi.key === 'revenue' ? ' dash-kpi-value--money' : ''}`}>
+                  {kpiValues[kpi.key]}
+                </div>
+                <p className="dash-kpi-hint">{kpiHints[kpi.key]}</p>
                 <span className="dash-kpi-icon" aria-hidden="true">
                   {kpi.icon}
                 </span>
