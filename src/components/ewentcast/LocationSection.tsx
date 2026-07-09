@@ -59,6 +59,7 @@ type GoogleGeocoder = {
 
 type GoogleGeocodeResult = {
   formatted_address?: string
+  types?: string[]
   address_components?: Array<{
     long_name: string
     short_name: string
@@ -166,6 +167,68 @@ function componentOf(
   return useShort ? c.short_name : c.long_name
 }
 
+function isPlusCodeText(value?: string): boolean {
+  if (!value) return false
+  // e.g. "85JJXG7C+HJ" or "85JJXG7C+HJ Wyoming, USA"
+  return /^[A-Z0-9]{4,}\+[A-Z0-9]{2,}/i.test(value.trim())
+}
+
+function resultHasPlusCode(result: GoogleGeocodeResult): boolean {
+  if (result.types?.includes('plus_code')) return true
+  if (result.address_components?.some(c => c.types.includes('plus_code'))) return true
+  return isPlusCodeText(result.formatted_address)
+}
+
+/** Prefer street / locality results over Plus Codes for the search label. */
+function pickBestGeocodeResult(results: GoogleGeocodeResult[]): GoogleGeocodeResult | null {
+  if (!results.length) return null
+  const preference = [
+    'street_address',
+    'premise',
+    'subpremise',
+    'route',
+    'neighborhood',
+    'sublocality',
+    'locality',
+    'postal_town',
+    'administrative_area_level_2',
+    'administrative_area_level_1',
+    'country',
+  ]
+  for (const type of preference) {
+    const hit = results.find(r => !resultHasPlusCode(r) && r.types?.includes(type))
+    if (hit) return hit
+  }
+  const nonPlus = results.find(r => !resultHasPlusCode(r))
+  return nonPlus || results[0]
+}
+
+function readablePlaceLabel(result: GoogleGeocodeResult): string {
+  const streetNumber = componentOf(result, 'street_number')
+  const route = componentOf(result, 'route')
+  const street = [streetNumber, route].filter(Boolean).join(' ')
+  const city =
+    componentOf(result, 'locality') ||
+    componentOf(result, 'postal_town') ||
+    componentOf(result, 'sublocality') ||
+    componentOf(result, 'administrative_area_level_2')
+  const region = componentOf(result, 'administrative_area_level_1')
+  const country = componentOf(result, 'country')
+
+  const fromParts = [street, city, region, country].filter(Boolean).join(', ')
+  if (fromParts && !isPlusCodeText(fromParts)) return fromParts
+
+  const formatted = (result.formatted_address || '').trim()
+  if (formatted && !isPlusCodeText(formatted)) {
+    // Strip a leading Plus Code if Google prepended one
+    const cleaned = formatted.replace(/^[A-Z0-9]{4,}\+[A-Z0-9]{2,}\s*/i, '').trim()
+    if (cleaned) return cleaned.split(',').slice(0, 3).join(', ').trim()
+    return formatted.split(',').slice(0, 3).join(', ').trim()
+  }
+
+  return [city, region, country].filter(Boolean).join(', ') || formatted
+}
+
 function AllDots() {
   return (
     <span className="ew-dots">
@@ -222,9 +285,10 @@ export function LocationSection({ ev, setField }: Props) {
   const lng = ev.lng ? parseFloat(String(ev.lng)) : null
 
   const applyGeocodeResult = (result: GoogleGeocodeResult) => {
-    if (result.formatted_address) {
+    const label = readablePlaceLabel(result)
+    if (label) {
       skipSearchRef.current = true
-      setQuery(result.formatted_address.split(',').slice(0, 3).join(', ').trim())
+      setQuery(label)
     }
 
     const countryName = componentOf(result, 'country')
@@ -252,6 +316,13 @@ export function LocationSection({ ev, setField }: Props) {
     const route = componentOf(result, 'route')
     const street = [streetNumber, route].filter(Boolean).join(' ')
     if (street) setField('address', street)
+    else if (cityName || region) {
+      // Avoid leaving a Plus Code in the street field for remote pins
+      const currentAddress = String(ev.address || '')
+      if (!currentAddress || isPlusCodeText(currentAddress)) {
+        setField('address', [cityName, region].filter(Boolean).join(', '))
+      }
+    }
   }
 
   const reverseGeocode = (la: number, ln: number) => {
@@ -260,8 +331,9 @@ export function LocationSection({ ev, setField }: Props) {
     setResolving(true)
     geocoder.geocode({ location: { lat: la, lng: ln } }, (results, status) => {
       setResolving(false)
-      if (status !== googleRef.current!.maps.GeocoderStatus.OK || !results?.[0]) return
-      applyGeocodeResult(results[0])
+      if (status !== googleRef.current!.maps.GeocoderStatus.OK || !results?.length) return
+      const best = pickBestGeocodeResult(results)
+      if (best) applyGeocodeResult(best)
     })
   }
 
