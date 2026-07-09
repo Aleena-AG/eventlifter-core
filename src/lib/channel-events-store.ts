@@ -1,7 +1,7 @@
 'use client'
 
 import type { ChannelKey } from '@/lib/types'
-import { authHeader } from '@/lib/auth'
+import { channelFetch } from '@/lib/channel-fetch'
 
 export type ChannelName = 'luma' | 'eventbrite' | 'hightribe'
 
@@ -35,8 +35,8 @@ export interface StoredChannelBooking {
 
 export async function listStoredEvents(channel: ChannelName): Promise<StoredChannelEvent[]> {
   try {
-    const res = await fetch(`/api/events/${channel}`, {
-      headers: { Authorization: authHeader(), Accept: 'application/json' },
+    const res = await channelFetch(`/api/events/${channel}`, {
+      headers: { Accept: 'application/json' },
     })
     if (!res.ok) return []
     const data = await res.json() as { events?: StoredChannelEvent[] }
@@ -47,8 +47,8 @@ export async function listStoredEvents(channel: ChannelName): Promise<StoredChan
 }
 
 export async function listAllStoredBookings(): Promise<StoredChannelBooking[]> {
-  const res = await fetch('/api/events/bookings', {
-    headers: { Authorization: authHeader(), Accept: 'application/json' },
+  const res = await channelFetch('/api/events/bookings', {
+    headers: { Accept: 'application/json' },
   })
   if (!res.ok) return []
   const data = await res.json() as { bookings?: StoredChannelBooking[] }
@@ -59,9 +59,9 @@ export async function getStoredEvent(
   channel: ChannelName,
   externalId: string,
 ): Promise<StoredChannelEvent | null> {
-  const res = await fetch(
+  const res = await channelFetch(
     `/api/events/${channel}?external_id=${encodeURIComponent(String(externalId))}`,
-    { headers: { Authorization: authHeader(), Accept: 'application/json' } },
+    { headers: { Accept: 'application/json' } },
   )
   if (!res.ok) return null
   const data = await res.json() as { event?: StoredChannelEvent | null }
@@ -72,10 +72,9 @@ export async function syncStoredBookings(
   channel: ChannelName,
   bookings: Array<Record<string, unknown>>,
 ): Promise<number> {
-  const res = await fetch(`/api/events/${channel}/sync-bookings`, {
+  const res = await channelFetch(`/api/events/${channel}/sync-bookings`, {
     method: 'POST',
     headers: {
-      Authorization: authHeader(),
       'Content-Type': 'application/json',
       Accept: 'application/json',
     },
@@ -91,9 +90,9 @@ export async function syncStoredBookings(
 
 export async function purgeChannelDataFromDb(channel: ChannelName): Promise<void> {
   try {
-    const res = await fetch(`/api/events/${channel}`, {
+    const res = await channelFetch(`/api/events/${channel}`, {
       method: 'DELETE',
-      headers: { Authorization: authHeader(), Accept: 'application/json' },
+      headers: { Accept: 'application/json' },
     })
     if (!res.ok) return
     await res.json().catch(() => undefined)
@@ -108,11 +107,11 @@ export async function deleteStoredEvent(
   externalId: string | number,
 ): Promise<boolean> {
   try {
-    const res = await fetch(
+    const res = await channelFetch(
       `/api/events/${channel}/${encodeURIComponent(String(externalId))}`,
       {
         method: 'DELETE',
-        headers: { Authorization: authHeader(), Accept: 'application/json' },
+        headers: { Accept: 'application/json' },
       },
     )
     if (!res.ok) return false
@@ -128,10 +127,9 @@ export async function syncStoredEvents(
   events: Array<Record<string, unknown>>,
   options?: { prune?: boolean },
 ): Promise<{ upserted: number; pruned: number }> {
-  const res = await fetch(`/api/events/${channel}/sync`, {
+  const res = await channelFetch(`/api/events/${channel}/sync`, {
     method: 'POST',
     headers: {
-      Authorization: authHeader(),
       'Content-Type': 'application/json',
       Accept: 'application/json',
     },

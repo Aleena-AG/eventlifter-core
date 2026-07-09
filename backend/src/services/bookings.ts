@@ -26,7 +26,7 @@ function toIso(v: Date | string | null | undefined): string | null {
 }
 
 const LIST_COLUMNS = `id, user_id, channel, external_id, event_external_id, event_title,
-  guest_name, guest_email, status, ticket_count, registered_at, synced_at`
+  guest_name, guest_email, status, ticket_count, registered_at, synced_at, payload_json`
 
 function mapRowLite(row: RowDataPacket): StoredBooking {
   return {
@@ -137,7 +137,7 @@ function mapLocalLite(row: import('../db/local-store').LocalBookingRow): StoredB
     status: row.status,
     ticket_count: row.ticket_count,
     registered_at: row.registered_at,
-    payload: {},
+    payload: row.payload_json || {},
     synced_at: row.synced_at,
   }
 }
@@ -150,7 +150,7 @@ export async function listAllUserBookings(userId: number): Promise<StoredBooking
     `SELECT ${LIST_COLUMNS} FROM channel_bookings WHERE user_id = ? ORDER BY registered_at DESC`,
     [userId],
   )
-  return rows.map(mapRowLite)
+  return rows.map(mapRow)
 }
 
 export async function listChannelBookings(
@@ -166,7 +166,7 @@ export async function listChannelBookings(
      ORDER BY registered_at DESC`,
     [userId, channel],
   )
-  return rows.map(mapRowLite)
+  return rows.map(mapRow)
 }
 
 export async function upsertWebhookBooking(input: {

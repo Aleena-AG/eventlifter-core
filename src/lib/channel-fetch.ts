@@ -3,6 +3,36 @@
 import { authHeader } from '@/lib/auth'
 import { resolveHtApiAuthHeader } from '@/lib/ewentcast-session'
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function isTransientFetchError(err: unknown): boolean {
+  if (!(err instanceof TypeError)) return false
+  const msg = err.message.toLowerCase()
+  return msg.includes('failed to fetch')
+    || msg.includes('network')
+    || msg.includes('aborted')
+    || msg.includes('suspended')
+}
+
+async function fetchWithRetry(input: string, init?: RequestInit): Promise<Response> {
+  const maxAttempts = 3
+  let lastErr: unknown
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fetch(input, init)
+    } catch (err) {
+      lastErr = err
+      if (!isTransientFetchError(err) || attempt >= maxAttempts) throw err
+      await sleep(250 * attempt)
+    }
+  }
+
+  throw lastErr
+}
+
 /** Attach session (and HT token for Hightribe routes) so server proxies load per-user keys. */
 export async function channelAuthHeaders(
   url: string,
@@ -19,8 +49,21 @@ export async function channelFetch(input: string, init?: RequestInit): Promise<R
     ? Object.fromEntries(init.headers.entries())
     : (init?.headers as Record<string, string> | undefined)
 
-  return fetch(input, {
-    ...init,
-    headers: await channelAuthHeaders(String(input), extraHeaders),
-  })
+  const maxAttempts = 3
+  let lastErr: unknown
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fetch(input, {
+        ...init,
+        headers: await channelAuthHeaders(String(input), extraHeaders),
+      })
+    } catch (err) {
+      lastErr = err
+      if (!isTransientFetchError(err) || attempt >= maxAttempts) throw err
+      await sleep(250 * attempt)
+    }
+  }
+
+  throw lastErr
 }
