@@ -110,7 +110,7 @@ export async function refreshStoredEventsForChannels(
           raw = data.data || data.event || null
         }
       } else {
-        const res = await channelFetch(`/api/eventbrite/events/${id}`)
+        const res = await channelFetch(`/api/eventbrite/events/${id}?expand=venue`)
         if (res.ok) raw = await res.json() as Record<string, unknown>
       }
 

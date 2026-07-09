@@ -16,6 +16,8 @@ export function buildEbTicketClass(input: {
   capacity?: number | string | null
   currency?: string
   price?: number | string | null
+  salesStart?: string | null
+  salesEnd?: string | null
 }): Record<string, unknown> {
   const qty = ebTicketQuantity(input.capacity)
   const name = (input.name || 'General Admission').trim() || 'General Admission'
@@ -34,6 +36,9 @@ export function buildEbTicketClass(input: {
     const cents = Math.round(price * 100)
     tc.cost = `${currency},${cents}`
   }
+
+  if (input.salesStart) tc.sales_start = input.salesStart
+  if (input.salesEnd) tc.sales_end = input.salesEnd
 
   return tc
 }

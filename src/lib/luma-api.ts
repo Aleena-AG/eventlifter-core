@@ -334,10 +334,31 @@ export async function proxyLumaPath(
     return { data: await lumaRequest(settings, 'GET', '/v1/event/ticket-types/list', { query: ticketTypesQuery(query) }), status: 200 }
   }
 
-  if (path === 'ticket-types' && method === 'PUT') {
+  if (path === 'ticket-types' && method === 'POST') {
     const b = withEventIdFields({ ...((body || {}) as Record<string, unknown>) })
     if (!resolveEventId(b)) throw new LumaApiError('event_id required', 400)
-    return { data: await lumaRequest(settings, 'POST', '/v1/event/ticket-types/update', { body: b }), status: 200 }
+    return { data: await lumaRequest(settings, 'POST', '/v1/event/ticket-types/create', { body: b }), status: 201 }
+  }
+
+  if (path === 'ticket-types' && method === 'PUT') {
+    const b = { ...((body || {}) as Record<string, unknown>) }
+    const ticketTypeId = String(
+      b.event_ticket_type_id
+      || b.event_ticket_type_api_id
+      || b.ticket_type_api_id
+      || b.ticket_type_id
+      || b.api_id
+      || b.id
+      || '',
+    ).trim()
+    if (!ticketTypeId) throw new LumaApiError('event_ticket_type_id required', 400)
+    const currency = b.currency != null ? String(b.currency).toLowerCase() : undefined
+    const updateBody: Record<string, unknown> = {
+      ...b,
+      event_ticket_type_id: ticketTypeId,
+      ...(currency ? { currency } : {}),
+    }
+    return { data: await lumaRequest(settings, 'POST', '/v1/event/ticket-types/update', { body: updateBody }), status: 200 }
   }
 
   if (path === 'guests' && method === 'GET') {

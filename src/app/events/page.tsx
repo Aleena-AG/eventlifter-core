@@ -341,10 +341,32 @@ function groupUnifiedEvents(
       if (evt && !used.has(evt.key)) {
         members.push(evt)
         used.add(evt.key)
+      } else if (!evt) {
+        // Channel was published (registry) but isn't in the local store yet —
+        // still show the badge so multi-channel publishes aren't hidden.
+        members.push({
+          key,
+          channel: ch,
+          id: ref.eventId,
+          title: master.title || 'Untitled',
+          sortMs: 0,
+          endMs: 0,
+          dateStr: '',
+          url: ref.url,
+          lifecycleTags: [],
+          syncSource: ch,
+        })
       }
     }
     if (members.length === 0) continue
-    result.push(mergeMembers(members, master.channels))
+    // Prefer a real stored copy as primary (has dates/image); placeholders sort last.
+    const ordered = [...members].sort((a, b) => {
+      const aStored = byKey.has(a.key) ? 0 : 1
+      const bStored = byKey.has(b.key) ? 0 : 1
+      if (aStored !== bStored) return aStored - bStored
+      return (b.sortMs || 0) - (a.sortMs || 0)
+    })
+    result.push(mergeMembers(ordered, master.channels))
   }
 
   // 2) Remaining events → group by title + start day (cross-channel publish without registry)

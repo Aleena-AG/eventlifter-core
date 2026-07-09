@@ -298,15 +298,34 @@ export function LocationSection({ ev, setField }: Props) {
   const [mapError, setMapError] = useState('')
   const [mapsReady, setMapsReady] = useState(false)
   const [resolving, setResolving] = useState(false)
-  const [query, setQuery] = useState('')
+  const seedQuery = [ev.address, ev.city, ev.region, ev.country]
+    .map(v => String(v || '').trim())
+    .filter(Boolean)
+    .join(', ')
+  const [query, setQuery] = useState(seedQuery)
   const [hits, setHits] = useState<SearchHit[]>([])
   const [searching, setSearching] = useState(false)
   const [searchedEmpty, setSearchedEmpty] = useState(false)
-  const skipSearchRef = useRef(false)
+  const skipSearchRef = useRef(!!seedQuery)
   const searchGenRef = useRef(0)
+  const seededFromEvRef = useRef('')
 
   const lat = ev.lat ? parseFloat(String(ev.lat)) : null
   const lng = ev.lng ? parseFloat(String(ev.lng)) : null
+
+  // When edit form loads (or address fields hydrate), seed the map search box once.
+  useEffect(() => {
+    const next = [ev.address, ev.city, ev.region, ev.country]
+      .map(v => String(v || '').trim())
+      .filter(Boolean)
+      .join(', ')
+    if (!next || next === seededFromEvRef.current) return
+    // Don't clobber an in-progress user search
+    if (query && query !== seedQuery && query !== seededFromEvRef.current) return
+    seededFromEvRef.current = next
+    skipSearchRef.current = true
+    setQuery(next)
+  }, [ev.address, ev.city, ev.region, ev.country, query, seedQuery])
 
   const applyGeocodeResult = (result: GoogleGeocodeResult) => {
     const label = readablePlaceLabel(result)
@@ -402,6 +421,16 @@ export function LocationSection({ ev, setField }: Props) {
     if (reverse) reverseGeocode(la, ln)
   }
 
+  // Keep the pin centered when lat/lng arrive after the map is ready (edit load / geocode).
+  useEffect(() => {
+    if (!mapsReady || !mapRef.current || !googleRef.current) return
+    if (lat == null || lng == null || Number.isNaN(lat) || Number.isNaN(lng)) return
+    mapRef.current.setCenter({ lat, lng })
+    mapRef.current.setZoom(13)
+    attachMarker(googleRef.current, mapRef.current, lat, lng)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapsReady, lat, lng])
+
   useEffect(() => {
     if (!showPhysical) return
     let cancelled = false
@@ -473,6 +502,59 @@ export function LocationSection({ ev, setField }: Props) {
     autocompleteRef.current = null
     googleRef.current = null
   }, [])
+
+  // On edit load, Luma/HT often return a single address blob without region/postal/lat.
+  // Geocode once to fill the missing structured fields.
+  const fillKeyRef = useRef('')
+  useEffect(() => {
+    if (!showPhysical || !mapsReady || !geocoderRef.current || !googleRef.current) return
+    const needsFill =
+      !String(ev.region || '').trim()
+      || !String(ev.postal || '').trim()
+      || !String(ev.lat || '').trim()
+      || !String(ev.lng || '').trim()
+      || !String(ev.venue || '').trim()
+    if (!needsFill) return
+
+    const address = [ev.venue, ev.address, ev.city, ev.region, ev.postal, ev.country]
+      .map(v => String(v || '').trim())
+      .filter(Boolean)
+      .join(', ')
+    if (address.length < 5) return
+    if (fillKeyRef.current === address) return
+    fillKeyRef.current = address
+
+    const geocoder = geocoderRef.current
+    const g = googleRef.current
+    geocoder.geocode({ address }, (results, status) => {
+      if (status !== g.maps.GeocoderStatus.OK || !results?.length) return
+      const best = pickBestGeocodeResult(results)
+      if (!best) return
+      const loc = best.geometry?.location
+      if (loc && (!ev.lat || !ev.lng)) {
+        const la = loc.lat()
+        const ln = loc.lng()
+        setField('lat', la.toFixed(6))
+        setField('lng', ln.toFixed(6))
+        const map = mapRef.current
+        if (map && g) {
+          map.setCenter({ lat: la, lng: ln })
+          map.setZoom(13)
+          attachMarker(g, map, la, ln)
+        }
+      }
+      applyGeocodeResult(best)
+      // Prefer keeping an existing venue name if the user/API already set one
+      if (!String(ev.venue || '').trim()) {
+        const name =
+          componentOf(best, 'point_of_interest')
+          || componentOf(best, 'premise')
+          || componentOf(best, 'establishment')
+        if (name) setField('venue', name)
+      }
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showPhysical, mapsReady, ev.address, ev.city, ev.country, ev.venue, ev.region, ev.postal, ev.lat, ev.lng])
 
   const doSearch = (q: string) => {
     const trimmed = q.trim()

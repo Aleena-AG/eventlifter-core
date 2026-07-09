@@ -1,7 +1,7 @@
 import { lumaEventToNorm, unwrapLumaEvent } from '@/lib/luma-event-utils'
 import { channelFetch } from '@/lib/channel-fetch'
 import { getStoredEvent, type ChannelName } from '@/lib/channel-events-store'
-import { canonicalizeCountry } from '@/components/ewentcast/location-data'
+import { canonicalizeCountry, COUNTRIES } from '@/components/ewentcast/location-data'
 import type { ChannelKey } from '@/lib/types'
 import type { EventFormData } from '@/lib/publish-event'
 import { extractHightribeTags, extractLumaTags, formatTagsInput } from '@/lib/event-tags'
@@ -13,6 +13,29 @@ function stripMs(s: string): string {
 function optStr(v: unknown): string | undefined {
   const s = v != null ? String(v).trim() : ''
   return s || undefined
+}
+
+/** Strip Eventbrite HTML (description endpoint / structured content) to plain form text. */
+function htmlToPlainText(html: string): string {
+  return String(html)
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<\/h[1-6]>/gi, '\n')
+    .replace(/<li[^>]*>/gi, '• ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&#x27;/gi, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n[ \t]+/g, '\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 }
 
 function parseCoord(v: unknown): number | undefined {
@@ -45,24 +68,53 @@ function parseEbCost(raw: unknown): number | undefined {
   return major > 1000 ? major / 100 : major
 }
 
-/** Pull city/country from a free-form address when APIs leave them null. */
-function inferPlaceFromAddress(address?: string): { city?: string; country?: string; region?: string } {
+const COUNTRY_NAME_SET = new Set(COUNTRIES.map(c => c.name.toLowerCase()))
+
+/** Pull venue / street / city / region / postal / country from a free-form address. */
+function inferPlaceFromAddress(address?: string): {
+  venueName?: string
+  street?: string
+  city?: string
+  country?: string
+  region?: string
+  postal?: string
+} {
   if (!address) return {}
-  const parts = address.split(',').map(p => p.trim()).filter(Boolean)
+  // Normalize "MN 55070" / "CA 90210" into separate region + postal tokens
+  const normalized = address.replace(
+    /\b([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)\b/g,
+    '$1, $2',
+  )
+  const parts = normalized.split(',').map(p => p.trim()).filter(Boolean)
   if (!parts.length) return {}
 
   let country: string | undefined
+  let countryIdx = -1
   for (let i = parts.length - 1; i >= 0; i--) {
     const part = parts[i]
     const canon = canonicalizeCountry(part)
     const looksLikeCode = /^[A-Za-z]{2}$/.test(part)
     if (looksLikeCode || (canon && canon !== part)) {
       country = canon
+      countryIdx = i
       break
     }
     const byName = canonicalizeCountry(part)
     if (byName && COUNTRY_NAME_SET.has(byName.toLowerCase())) {
       country = byName
+      countryIdx = i
+      break
+    }
+  }
+
+  let postal: string | undefined
+  let postalIdx = -1
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const part = parts[i]
+    // US ZIP, CA/UK-ish postal, or bare 4–10 digit codes
+    if (/^\d{5}(-\d{4})?$/.test(part) || /^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/i.test(part) || /^\d{4,10}$/.test(part)) {
+      postal = part
+      postalIdx = i
       break
     }
   }
@@ -70,44 +122,127 @@ function inferPlaceFromAddress(address?: string): { city?: string; country?: str
   const knownCities = [
     'Karachi', 'Lahore', 'Islamabad', 'Rawalpindi', 'Faisalabad', 'Multan', 'Peshawar', 'Quetta',
     'Dubai', 'Abu Dhabi', 'London', 'New York', 'Los Angeles', 'Chicago', 'Toronto', 'Sydney',
-    'Melbourne', 'Singapore', 'Berlin', 'Paris',
+    'Melbourne', 'Singapore', 'Berlin', 'Paris', 'Saint Francis', 'San Francisco', 'Venice',
+    'Denver', 'Austin', 'Seattle', 'Boston', 'Miami', 'Houston', 'Dallas', 'Phoenix', 'Atlanta',
   ]
+  const REGION_NAMES = new Set([
+    'alabama', 'alaska', 'arizona', 'arkansas', 'california', 'colorado', 'connecticut', 'delaware',
+    'florida', 'georgia', 'hawaii', 'idaho', 'illinois', 'indiana', 'iowa', 'kansas', 'kentucky',
+    'louisiana', 'maine', 'maryland', 'massachusetts', 'michigan', 'minnesota', 'mississippi',
+    'missouri', 'montana', 'nebraska', 'nevada', 'new hampshire', 'new jersey', 'new mexico',
+    'new york', 'north carolina', 'north dakota', 'ohio', 'oklahoma', 'oregon', 'pennsylvania',
+    'rhode island', 'south carolina', 'south dakota', 'tennessee', 'texas', 'utah', 'vermont',
+    'virginia', 'washington', 'west virginia', 'wisconsin', 'wyoming', 'district of columbia',
+    'punjab', 'sindh', 'balochistan', 'khyber pakhtunkhwa', 'islamabad capital territory',
+    'england', 'scotland', 'wales', 'northern ireland', 'ontario', 'quebec', 'british columbia',
+    'alberta', 'dubai', 'abu dhabi',
+  ])
+  const looksLikeRegion = (part: string) =>
+    /^[A-Za-z]{2}$/.test(part) || REGION_NAMES.has(part.toLowerCase())
+
   let city: string | undefined
-  for (const part of parts) {
+  let cityIdx = -1
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]
     const hit = knownCities.find(c =>
       c.toLowerCase() === part.toLowerCase()
       || part.toLowerCase().startsWith(c.toLowerCase() + ' '),
     )
-    if (hit) { city = hit; break }
+    if (hit) { city = hit; cityIdx = i; break }
   }
   if (!city) {
-    const idx = country
-      ? parts.findIndex(p => canonicalizeCountry(p) === country)
-      : -1
-    const candidate = idx > 0 ? parts[idx - 1] : parts.length >= 2 ? parts[parts.length - 2] : undefined
-    if (candidate && candidate.length < 40 && !/^\d/.test(candidate) && canonicalizeCountry(candidate) === candidate) {
+    // Prefer "…, City, Region, Country" → city is two before country when the
+    // token before country looks like a state/region.
+    let candidateIdx = countryIdx > 0 ? countryIdx - 1 : parts.length >= 2 ? parts.length - 2 : -1
+    if (candidateIdx === postalIdx) candidateIdx -= 1
+    if (candidateIdx >= 0 && looksLikeRegion(parts[candidateIdx]) && candidateIdx - 1 !== postalIdx) {
+      const prev = parts[candidateIdx - 1]
+      if (prev && !/^\d/.test(prev) && canonicalizeCountry(prev) === prev && !looksLikeRegion(prev)) {
+        candidateIdx -= 1
+      }
+    }
+    const candidate = candidateIdx >= 0 ? parts[candidateIdx] : undefined
+    if (
+      candidate
+      && candidate.length < 40
+      && !/^\d/.test(candidate)
+      && canonicalizeCountry(candidate) === candidate
+      && !looksLikeRegion(candidate)
+      && !COUNTRY_NAME_SET.has(candidate.toLowerCase())
+    ) {
       city = candidate
+      cityIdx = candidateIdx
     }
   }
 
-  return { city, country }
-}
+  // Region / state: only tokens between city and country (never venue/street).
+  let region: string | undefined
+  if (countryIdx > 0) {
+    const from = cityIdx >= 0 ? cityIdx + 1 : Math.max(0, countryIdx - 2)
+    for (let i = countryIdx - 1; i >= from; i--) {
+      if (i === cityIdx || i === postalIdx) continue
+      const part = parts[i]
+      if (!part || part === city || part === postal) continue
+      if (/\d/.test(part)) continue
+      if (looksLikeRegion(part) || (part.length >= 3 && part.length < 40 && !/^\d/.test(part))) {
+        region = part
+        break
+      }
+    }
+  }
 
-const COUNTRY_NAME_SET = new Set(
-  // filled after import — see canonicalizeCountry usage above
-  ['pakistan', 'united states', 'united kingdom', 'united arab emirates', 'india', 'canada',
-    'australia', 'germany', 'france', 'spain', 'italy', 'netherlands', 'saudi arabia', 'qatar',
-    'turkey', 'singapore', 'malaysia', 'indonesia', 'china', 'japan', 'south korea', 'brazil',
-    'mexico', 'south africa', 'nigeria', 'egypt', 'bangladesh', 'ireland', 'switzerland',
-    'sweden', 'norway', 'denmark', 'belgium', 'portugal', 'poland', 'new zealand'],
-)
+  // Venue = first segment when it looks like a place name (no leading street number)
+  // and there is a following street-like segment.
+  let venueName: string | undefined
+  let street: string | undefined
+  if (parts.length >= 2) {
+    const first = parts[0]
+    const second = parts[1]
+    const firstLooksLikeVenue = first.length > 2 && !/^\d/.test(first) && !/^(apt|suite|unit)\b/i.test(first)
+    const secondLooksLikeStreet = /^\d/.test(second) || /\b(st|street|ave|avenue|rd|road|blvd|lane|ln|dr|drive|way|court|ct)\b/i.test(second)
+    if (firstLooksLikeVenue && secondLooksLikeStreet) {
+      venueName = first
+      street = second
+    } else if (/^\d/.test(first) || /\b(st|street|ave|avenue|rd|road|blvd|lane|ln|dr|drive|way|court|ct)\b/i.test(first)) {
+      street = first
+    }
+  }
+
+  return { venueName, street, city, country, region, postal }
+}
 
 function mapPublishStatus(raw?: string | null, isPublic?: boolean | null): string {
   const s = String(raw || '').trim().toLowerCase()
   if (/draft|unpublished|pending/.test(s)) return 'Draft'
-  if (/published|live|public|active/.test(s)) return 'Published'
+  // Hightribe often returns "active" without publish_status — defer to is_public.
+  if (s === 'active' || s === '') {
+    if (isPublic === false) return 'Draft'
+    if (isPublic === true) return 'Published'
+    return 'Draft'
+  }
+  if (/published|live|public/.test(s)) return 'Published'
   if (isPublic === false) return 'Draft'
   if (isPublic === true) return 'Published'
+  return 'Draft'
+}
+
+function mapLumaPublishStatus(e: Record<string, unknown>, raw: Record<string, unknown>): string {
+  const fromStatus = mapPublishStatus(String(e.status || raw.status || ''))
+  if (fromStatus === 'Published') return 'Published'
+
+  const vis = String(e.visibility || raw.visibility || '').toLowerCase()
+  if (vis === 'public') return 'Published'
+
+  const entry = (e.entry || raw.entry) as Record<string, unknown> | undefined
+  const calendarStatus = String(
+    e.calendar_status || raw.calendar_status
+    || e.approval_status || raw.approval_status
+    || entry?.status
+    || '',
+  ).toLowerCase()
+  if (/approved|published|live/.test(calendarStatus)) return 'Published'
+  if (/pending|rejected|draft/.test(calendarStatus)) return 'Draft'
+
   return 'Draft'
 }
 
@@ -141,6 +276,7 @@ function buildDateStr(date?: string, time?: string): string {
 
 function utcParts(utc: string, tz: string): { date: string; time: string } {
   const d = new Date(utc)
+  if (Number.isNaN(d.getTime())) return { date: '', time: '' }
   try {
     const fmt = new Intl.DateTimeFormat('en-CA', {
       timeZone: tz,
@@ -149,7 +285,10 @@ function utcParts(utc: string, tz: string): { date: string; time: string } {
     })
     const parts = fmt.formatToParts(d)
     const get = (t: string) => parts.find(p => p.type === t)?.value || ''
-    return { date: `${get('year')}-${get('month')}-${get('day')}`, time: `${get('hour')}:${get('minute')}` }
+    // Some runtimes emit "24:00" for midnight — normalize for <input type="time">.
+    let hour = get('hour')
+    if (hour === '24') hour = '00'
+    return { date: `${get('year')}-${get('month')}-${get('day')}`, time: `${hour}:${get('minute')}` }
   } catch {
     const pad = (n: number) => String(n).padStart(2, '0')
     return {
@@ -161,6 +300,7 @@ function utcParts(utc: string, tz: string): { date: string; time: string } {
 
 interface NormEvent {
   title: string
+  summary?: string
   description: string
   startUtc: string
   endUtc: string
@@ -170,6 +310,8 @@ interface NormEvent {
   venueName?: string
   address?: string
   city?: string
+  region?: string
+  postal?: string
   country?: string
   lat?: number
   lng?: number
@@ -182,6 +324,8 @@ interface NormEvent {
   hostName?: string
   ticketType?: string
   ticketPrice?: number
+  salesStartUtc?: string
+  salesEndUtc?: string
   minPerOrder?: number
   maxPerOrder?: number
   htTicketId?: string
@@ -219,9 +363,21 @@ function normToForm(n: NormEvent): EventFormData {
   if (n.isOnline && (n.venueName || n.address || n.city)) format = 'Hybrid'
   else if (n.isOnline) format = 'Online'
 
+  const inferred = inferPlaceFromAddress(n.address)
+  const venue = n.venueName || inferred.venueName || ''
+  // Prefer a clean street line when the stored address is a full "venue, street, city…" blob
+  let address = n.address || ''
+  if (inferred.street && address.includes(',')) {
+    const looksLikeBlob = !n.venueName || address.toLowerCase().startsWith(String(n.venueName).toLowerCase() + ',')
+    if (looksLikeBlob) address = inferred.street
+  }
+
+  const salesStart = n.salesStartUtc ? utcParts(n.salesStartUtc, tz).date : ''
+  const salesEnd = n.salesEndUtc ? utcParts(n.salesEndUtc, tz).date : ''
+
   return {
     title: n.title,
-    summary: '',
+    summary: n.summary || '',
     description: n.description,
     coverUrl: n.coverImage || '',
     category: 'Music',
@@ -232,12 +388,12 @@ function normToForm(n: NormEvent): EventFormData {
     endTime: end.time,
     timezone: tz,
     format,
-    venue: n.venueName || '',
-    address: n.address || '',
-    city: n.city || '',
-    region: '',
-    postal: '',
-    country: canonicalizeCountry(n.country) || '',
+    venue,
+    address,
+    city: n.city || inferred.city || '',
+    region: n.region || inferred.region || '',
+    postal: n.postal || inferred.postal || '',
+    country: canonicalizeCountry(n.country) || inferred.country || '',
     lat: n.lat != null ? String(n.lat) : '',
     lng: n.lng != null ? String(n.lng) : '',
     onlineUrl: n.onlineUrl || '',
@@ -247,8 +403,9 @@ function normToForm(n: NormEvent): EventFormData {
     capacity: n.capacity != null ? String(n.capacity) : '150',
     minPerOrder: n.minPerOrder != null ? String(n.minPerOrder) : '1',
     maxPerOrder: n.maxPerOrder != null ? String(n.maxPerOrder) : '8',
-    salesStart: '',
-    salesEnd: '',
+    // Fall back to the event day range so edit isn't blank when channels omit sales window.
+    salesStart: salesStart || start.date,
+    salesEnd: salesEnd || end.date,
     waitlist: false,
     status: n.status || 'Draft',
     visibility: n.visibility || 'Public',
@@ -292,7 +449,7 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
     const loc = e.location as Record<string, unknown> | undefined
     const startUtc = d?.starts_at ? stripMs(d.starts_at) : buildDateStr(d?.start_date, d?.start_time)
     const endUtc = d?.ends_at ? stripMs(d.ends_at) : buildDateStr(d?.end_date, d?.end_time)
-    const venueLabel = optStr(loc?.location) || optStr(loc?.venue_name)
+    const venueLabel = optStr(loc?.venue_name) || optStr(loc?.location)
     const ticketsRaw = (Array.isArray(e.tickets) ? e.tickets : Array.isArray(raw.tickets) ? raw.tickets : []) as Array<Record<string, unknown>>
     const ticket = ticketsRaw[0]
     const ticketSetting = (e.ticket_setting || e.ticketSetting || {}) as Record<string, unknown>
@@ -301,18 +458,30 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
     const ticketQty = ticket ? parseInt(String(ticket.quantity ?? ''), 10) : undefined
     const address = optStr(loc?.address) || venueLabel
     const inferred = inferPlaceFromAddress(address)
+    // When HT stores venue in `location` and street in `address`, keep them separate.
+    const venueName =
+      optStr(loc?.venue_name)
+      || (optStr(loc?.location) && optStr(loc?.address) && optStr(loc?.location) !== optStr(loc?.address)
+        ? optStr(loc?.location)
+        : undefined)
+      || inferred.venueName
     const city = optStr(loc?.city) || inferred.city
     const country = canonicalizeCountry(optStr(loc?.country)) || inferred.country
+    const region = optStr(loc?.region) || optStr(loc?.state) || inferred.region
+    const postal = optStr(loc?.postal) || optStr(loc?.postal_code) || optStr(loc?.zip) || inferred.postal
     return {
       title: String(e.title || raw.title || ''),
+      summary: optStr(e.summary) || optStr(e.short_description) || optStr(e.overview) || undefined,
       description: String(e.description || e.overview || ''),
       startUtc, endUtc,
       timezone: String(d?.timezone || e.timezone || raw.timezone || 'UTC'),
       coverImage: hightribeCoverUrl(e, raw),
       isOnline: loc?.type === 'online',
-      venueName: venueLabel,
-      address,
+      venueName,
+      address: optStr(loc?.address) || inferred.street || address,
       city,
+      region,
+      postal,
       country,
       lat: parseCoord(loc?.lat),
       lng: parseCoord(loc?.lng),
@@ -333,6 +502,18 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
       ),
       ticketType: htPricing.type,
       ticketPrice: effectivePrice,
+      salesStartUtc: ticket
+        ? (() => {
+            const s = optStr(ticket.sales_start) || optStr(ticket.start_sale_date) || optStr(ticket.valid_start_at)
+            return s ? stripMs(s) : undefined
+          })()
+        : undefined,
+      salesEndUtc: ticket
+        ? (() => {
+            const s = optStr(ticket.sales_end) || optStr(ticket.end_sale_date) || optStr(ticket.valid_end_at)
+            return s ? stripMs(s) : undefined
+          })()
+        : undefined,
       minPerOrder: parseInt(String(ticketSetting.min_qty ?? ticketSetting.minQty ?? ''), 10) || undefined,
       maxPerOrder: parseInt(String(ticketSetting.max_qty ?? ticketSetting.maxQty ?? ''), 10) || undefined,
       htTicketId: ticket?.id != null ? String(ticket.id) : undefined,
@@ -344,34 +525,39 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
   if (channel === 'luma') {
     const e = unwrapLumaEvent(raw.event ? raw : { event: raw })
     const norm = lumaEventToNorm(e)
+    const geo = (e.geo_address_json || {}) as Record<string, unknown>
     const inferred = inferPlaceFromAddress(norm.address)
     const ticketTypes = (
       Array.isArray(e.ticket_types) ? e.ticket_types
         : Array.isArray(raw.ticket_types) ? raw.ticket_types
-          : []
+          : Array.isArray((raw.data as Record<string, unknown> | undefined)?.ticket_types)
+            ? (raw.data as { ticket_types: Array<Record<string, unknown>> }).ticket_types
+            : []
     ) as Array<Record<string, unknown>>
     const ticket = ticketTypes[0]
     let ticketPrice: number | undefined
     let ticketType: string | undefined
     if (ticket) {
+      const typeStr = String(ticket.type || '').toLowerCase()
       const cents = parseMoney(ticket.cents ?? ticket.price_cents ?? ticket.amount_cents)
       const major = parseMoney(ticket.price ?? ticket.amount)
       if (cents != null) ticketPrice = cents / 100
       else if (major != null) ticketPrice = major
-      if (ticketPrice != null) {
-        ticketType = ticketPrice <= 0 || !!ticket.is_free || String(ticket.type || '').toLowerCase() === 'free'
-          ? 'Free' : 'Paid'
-        if (ticketType === 'Free') ticketPrice = 0
-      } else if (
-        ticket.is_free === true
-        || String(ticket.type || '').toLowerCase() === 'free'
-      ) {
+      if (ticket.is_free === true || typeStr === 'free' || (ticketPrice != null && ticketPrice <= 0)) {
         ticketType = 'Free'
         ticketPrice = 0
+      } else if (ticketPrice != null && ticketPrice > 0) {
+        ticketType = 'Paid'
+      } else if (typeStr === 'paid' || typeStr === 'fixed') {
+        ticketType = 'Paid'
       }
     }
+    const hosts = Array.isArray(e.hosts) ? e.hosts
+      : Array.isArray(raw.hosts) ? raw.hosts
+        : []
     return {
       title: norm.title,
+      summary: optStr(e.summary) || optStr(e.short_description) || undefined,
       description: norm.description,
       startUtc: norm.startUtc,
       endUtc: norm.endUtc,
@@ -379,19 +565,34 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
       coverImage: norm.coverImage,
       isOnline: norm.isOnline,
       onlineUrl: norm.onlineUrl,
-      address: norm.address,
-      city: norm.city || inferred.city,
+      venueName: norm.venueName || optStr(geo.description) || inferred.venueName,
+      address: inferred.street || norm.address,
+      city: norm.city || optStr(geo.city) || inferred.city,
+      region: norm.region || optStr(geo.region) || optStr(geo.state) || inferred.region,
+      postal: norm.postal || optStr(geo.postal) || optStr(geo.postal_code) || optStr(geo.zip) || inferred.postal,
       country: canonicalizeCountry(norm.country) || inferred.country,
       lat: norm.lat,
       lng: norm.lng,
       requireApproval: !!(e.require_rsvp_approval),
       capacity: typeof e.capacity === 'number' ? e.capacity : undefined,
-      status: mapPublishStatus(String(e.status || raw.status || '')),
+      status: mapLumaPublishStatus(e, { ...raw, ...e }),
       visibility: mapVisibility(String(e.visibility || raw.visibility || '')),
-      hostName: pickHostName(e.host, e.host_name, e.organizer, e.hosts, raw.host),
+      hostName: pickHostName(e.host, e.host_name, e.organizer, hosts, e.hosts, raw.host, raw.hosts),
       ticketType,
       ticketPrice,
       tags: extractLumaTags({ ...e, ...raw }),
+      salesStartUtc: ticket
+        ? (() => {
+            const s = optStr(ticket.valid_start_at) || optStr(ticket.sales_start)
+            return s ? stripMs(s) : undefined
+          })()
+        : undefined,
+      salesEndUtc: ticket
+        ? (() => {
+            const s = optStr(ticket.valid_end_at) || optStr(ticket.sales_end)
+            return s ? stripMs(s) : undefined
+          })()
+        : undefined,
     }
   }
 
@@ -399,7 +600,8 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
   const start = e.start as Record<string, string> | undefined
   const end = e.end as Record<string, string> | undefined
   const name = e.name as { text?: string } | undefined
-  const desc = e.description as { text?: string } | undefined
+  const desc = e.description as { text?: string; html?: string } | undefined
+  const summaryObj = e.summary as { text?: string; html?: string } | undefined
   const logo = e.logo as { original?: { url?: string }; url?: string } | undefined
   const venue = e.venue as Record<string, unknown> | undefined
   const addr = venue?.address as Record<string, unknown> | undefined
@@ -426,17 +628,44 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
     if (e.is_free) ticketPrice = 0
   }
   const tcQty = tc ? parseInt(String(tc.quantity_total ?? tc.quantity ?? ''), 10) : undefined
+  // On modern Eventbrite events, `description` on the event object is only the
+  // short teaser (same as `summary`). Full body lives at /events/{id}/description/
+  // (summary + structured content) or in structured_content modules.
+  const shortTeaser =
+    optStr(typeof e.summary === 'string' ? e.summary : undefined)
+    || optStr(summaryObj?.text)
+    || (summaryObj?.html ? htmlToPlainText(summaryObj.html) : undefined)
+    || optStr(desc?.text)
+    || (desc?.html ? htmlToPlainText(desc.html) : undefined)
+  const fullFromPayload = optStr(e._full_description as string | undefined)
+  // Prefer full body; if EB returns summary+body HTML, drop a leading summary
+  // duplicate so the Description field isn't just the teaser twice.
+  let descText = fullFromPayload || ''
+  if (descText && shortTeaser) {
+    const trimmed = descText.trim()
+    const teaser = shortTeaser.trim()
+    if (trimmed === teaser) {
+      // /description/ sometimes only echoes the summary when no modules exist.
+      descText = teaser
+    } else if (trimmed.toLowerCase().startsWith(teaser.toLowerCase())) {
+      descText = trimmed.slice(teaser.length).replace(/^\s+/, '')
+    }
+  }
+  if (!descText) descText = shortTeaser || ''
   return {
     title: name?.text || String(e.title || e.id || ''),
-    description: desc?.text || '',
+    summary: shortTeaser || undefined,
+    description: descText,
     startUtc: start?.utc ? stripMs(start.utc) : new Date().toISOString(),
     endUtc: end?.utc ? stripMs(end.utc) : new Date().toISOString(),
     timezone: start?.timezone || String(e.timezone || 'UTC'),
     coverImage: logo?.original?.url || logo?.url,
     isOnline: !!(e.online_event),
-    venueName: optStr(venue?.name),
-    address,
+    venueName: optStr(venue?.name) || inferred.venueName,
+    address: optStr(addr?.address_1) || inferred.street || address,
     city: optStr(addr?.city) || inferred.city,
+    region: optStr(addr?.region) || optStr(addr?.state) || inferred.region,
+    postal: optStr(addr?.postal_code) || optStr(addr?.postal) || optStr(addr?.zip) || inferred.postal,
     country: canonicalizeCountry(optStr(addr?.country)) || inferred.country,
     lat: parseCoord(venue?.latitude) ?? parseCoord(addr?.latitude),
     lng: parseCoord(venue?.longitude) ?? parseCoord(addr?.longitude),
@@ -447,6 +676,18 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
     capacity: Number.isFinite(tcQty) && tcQty! > 0 ? tcQty : undefined,
     ticketType,
     ticketPrice,
+    salesStartUtc: tc
+      ? (() => {
+          const s = optStr(tc.sales_start)
+          return s ? stripMs(s) : undefined
+        })()
+      : undefined,
+    salesEndUtc: tc
+      ? (() => {
+          const s = optStr(tc.sales_end)
+          return s ? stripMs(s) : undefined
+        })()
+      : undefined,
     htTicketName: tc?.name != null ? String(tc.name) : undefined,
   }
 }
@@ -521,6 +762,10 @@ function applyTicketToNorm(norm: NormEvent, ticket: Record<string, unknown>, cha
     if (pricing.type) norm.ticketType = pricing.type
     const qty = parseInt(String(ticket.quantity ?? ''), 10)
     if (Number.isFinite(qty) && qty > 0) norm.capacity = qty
+    const salesStart = optStr(ticket.sales_start) || optStr(ticket.start_sale_date) || optStr(ticket.valid_start_at)
+    const salesEnd = optStr(ticket.sales_end) || optStr(ticket.end_sale_date) || optStr(ticket.valid_end_at)
+    if (salesStart) norm.salesStartUtc = stripMs(salesStart)
+    if (salesEnd) norm.salesEndUtc = stripMs(salesEnd)
     return
   }
   if (channel === 'eventbrite') {
@@ -535,31 +780,40 @@ function applyTicketToNorm(norm: NormEvent, ticket: Record<string, unknown>, cha
     }
     const qty = parseInt(String(ticket.quantity_total ?? ticket.quantity ?? ''), 10)
     if (Number.isFinite(qty) && qty > 0) norm.capacity = qty
+    const ebStart = optStr(ticket.sales_start)
+    const ebEnd = optStr(ticket.sales_end)
+    if (ebStart) norm.salesStartUtc = stripMs(ebStart)
+    if (ebEnd) norm.salesEndUtc = stripMs(ebEnd)
     return
   }
   // luma
   if (ticket.name != null || ticket.label != null) {
     norm.htTicketName = String(ticket.name || ticket.label)
   }
+  const typeStr = String(ticket.type || '').toLowerCase()
   const cents = parseMoney(ticket.cents ?? ticket.price_cents ?? ticket.amount_cents)
   const major = parseMoney(ticket.price ?? ticket.amount)
   let p: number | undefined
   if (cents != null) p = cents / 100
   else if (major != null) p = major
-  if (p != null) {
-    if (p <= 0 || !!ticket.is_free || String(ticket.type || '').toLowerCase() === 'free') {
-      norm.ticketType = 'Free'
-      norm.ticketPrice = 0
-    } else {
-      norm.ticketType = 'Paid'
-      norm.ticketPrice = p
-    }
-  } else if (ticket.is_free === true || String(ticket.type || '').toLowerCase() === 'free') {
+  if (ticket.is_free === true || typeStr === 'free' || (p != null && p <= 0)) {
     norm.ticketType = 'Free'
     norm.ticketPrice = 0
+  } else if (p != null && p > 0) {
+    norm.ticketType = 'Paid'
+    norm.ticketPrice = p
+  } else if (typeStr === 'paid' || typeStr === 'fixed') {
+    norm.ticketType = 'Paid'
+    if (p != null) norm.ticketPrice = p
   }
-  const qty = parseInt(String(ticket.capacity ?? ticket.quantity ?? ''), 10)
+  const qty = parseInt(String(
+    ticket.max_capacity ?? ticket.capacity ?? ticket.quantity ?? '',
+  ), 10)
   if (Number.isFinite(qty) && qty > 0) norm.capacity = qty
+  const salesStart = optStr(ticket.valid_start_at) || optStr(ticket.sales_start)
+  const salesEnd = optStr(ticket.valid_end_at) || optStr(ticket.sales_end)
+  if (salesStart) norm.salesStartUtc = stripMs(salesStart)
+  if (salesEnd) norm.salesEndUtc = stripMs(salesEnd)
 }
 
 function mergeStoredMeta(norm: NormEvent, stored: Awaited<ReturnType<typeof getStoredEvent>>) {
@@ -568,6 +822,15 @@ function mergeStoredMeta(norm: NormEvent, stored: Awaited<ReturnType<typeof getS
   if (!norm.coverImage && stored.cover_url) norm.coverImage = stored.cover_url
   if (stored.timezone && (!norm.timezone || norm.timezone === 'UTC')) {
     norm.timezone = stored.timezone
+  }
+  if (stored.start_at && (!norm.startUtc || Number.isNaN(new Date(norm.startUtc).getTime()))) {
+    norm.startUtc = stripMs(stored.start_at)
+  }
+  if (stored.end_at && (!norm.endUtc || Number.isNaN(new Date(norm.endUtc).getTime()))) {
+    norm.endUtc = stripMs(stored.end_at)
+  }
+  if ((!norm.status || norm.status === 'Draft') && stored.status) {
+    norm.status = mapPublishStatus(stored.status)
   }
   if (!norm.tags?.length && stored.payload && typeof stored.payload === 'object') {
     const p = stored.payload as Record<string, unknown>
@@ -585,7 +848,147 @@ function mergeStoredMeta(norm: NormEvent, stored: Awaited<ReturnType<typeof getS
   }
 }
 
-export async function loadEventFormData(channel: ChannelKey, eventId: string | number): Promise<EventFormData> {
+/** Full HTML description (summary + structured content) as plain text. */
+async function loadEventbriteFullDescription(eventId: string | number): Promise<string | null> {
+  try {
+    const res = await channelFetch(`/api/eventbrite/events/${eventId}/description/`)
+    if (res.ok) {
+      const data = await res.json() as { description?: string }
+      const html = optStr(data.description)
+      if (html) return htmlToPlainText(html)
+    }
+  } catch {
+    // fall through to structured content
+  }
+
+  try {
+    const res = await channelFetch(
+      `/api/eventbrite/events/${eventId}/structured_content/?purpose=listing`,
+    )
+    if (!res.ok) return null
+    const data = await res.json() as {
+      modules?: Array<{ type?: string; data?: { body?: { text?: string } } }>
+    }
+    const parts = (data.modules || [])
+      .filter(m => m?.type === 'text')
+      .map(m => optStr(m.data?.body?.text))
+      .filter(Boolean) as string[]
+    if (!parts.length) return null
+    return htmlToPlainText(parts.join('\n\n'))
+  } catch {
+    return null
+  }
+}
+
+async function loadEventbriteEventFresh(eventId: string | number): Promise<Record<string, unknown> | null> {
+  try {
+    const res = await channelFetch(
+      `/api/eventbrite/events/${encodeURIComponent(String(eventId))}?expand=venue,ticket_classes`,
+    )
+    if (!res.ok) return null
+    const raw = await res.json() as Record<string, unknown>
+    const fullDesc = await loadEventbriteFullDescription(eventId)
+    if (fullDesc) raw._full_description = fullDesc
+    return raw
+  } catch {
+    return null
+  }
+}
+
+async function loadLumaEventFresh(eventId: string | number): Promise<Record<string, unknown> | null> {
+  try {
+    const res = await channelFetch(
+      `/api/luma/events?api_id=${encodeURIComponent(String(eventId))}`,
+    )
+    if (!res.ok) return null
+    const data = await res.json() as {
+      data?: Record<string, unknown>
+      event?: Record<string, unknown>
+    }
+    return data.data || data.event || null
+  } catch {
+    return null
+  }
+}
+
+async function fetchChannelPublishStatus(
+  ch: ChannelKey,
+  id: string | number,
+): Promise<string | undefined> {
+  try {
+    const stored = await getStoredEvent(ch as ChannelName, String(id))
+    if (stored?.status) {
+      const mapped = mapPublishStatus(stored.status)
+      if (mapped === 'Published') return 'Published'
+    }
+    if (ch === 'eventbrite') {
+      const fresh = await loadEventbriteEventFresh(id)
+      if (fresh && mapPublishStatus(String(fresh.status || '')) === 'Published') {
+        return 'Published'
+      }
+    } else if (ch === 'hightribe') {
+      const res = await channelFetch(`/api/hightribe/events/${id}`)
+      if (res.ok) {
+        const envelope = await res.json() as { data?: Record<string, unknown> }
+        const e = (envelope.data && typeof envelope.data === 'object' ? envelope.data : envelope) as Record<string, unknown>
+        const mapped = mapPublishStatus(
+          String(e.publish_status || e.status || ''),
+          typeof e.is_public === 'boolean' ? e.is_public : null,
+        )
+        if (mapped === 'Published') return 'Published'
+      }
+    } else if (ch === 'luma') {
+      const fresh = await loadLumaEventFresh(id)
+      if (fresh) {
+        const e = unwrapLumaEvent(fresh.event ? { event: fresh } : { event: fresh })
+        if (mapLumaPublishStatus(e, fresh) === 'Published') return 'Published'
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return undefined
+}
+
+async function enrichPublishStatusFromLinked(
+  form: EventFormData,
+  linkedChannels: Partial<Record<ChannelKey, string | number>> | undefined,
+  primaryChannel: ChannelKey,
+): Promise<void> {
+  if (String(form.status || '').toLowerCase() === 'published') return
+  if (!linkedChannels) return
+
+  for (const ch of ['eventbrite', 'hightribe', 'luma'] as ChannelKey[]) {
+    if (ch === primaryChannel) continue
+    const id = linkedChannels[ch]
+    if (id == null) continue
+    const status = await fetchChannelPublishStatus(ch, id)
+    if (status === 'Published') {
+      form.status = 'Published'
+      return
+    }
+  }
+}
+
+async function finalizeFormLoad(
+  norm: NormEvent,
+  channel: ChannelKey,
+  eventId: string | number,
+  linkedChannels?: Partial<Record<ChannelKey, string | number>>,
+): Promise<EventFormData> {
+  await enrichNormWithTickets(norm, channel, eventId)
+  const stored = await getStoredEvent(channel as ChannelName, String(eventId))
+  mergeStoredMeta(norm, stored)
+  const form = normToForm(norm)
+  await enrichPublishStatusFromLinked(form, linkedChannels, channel)
+  return form
+}
+
+export async function loadEventFormData(
+  channel: ChannelKey,
+  eventId: string | number,
+  linkedChannels?: Partial<Record<ChannelKey, string | number>>,
+): Promise<EventFormData> {
   if (channel === 'hightribe') {
     try {
       const res = await channelFetch(`/api/hightribe/events/${eventId}`)
@@ -595,29 +998,7 @@ export async function loadEventFormData(channel: ChannelKey, eventId: string | n
           ? envelope.data
           : envelope
         const norm = normFromPayload(channel, payload)
-        await enrichNormWithTickets(norm, channel, eventId)
-        const stored = await getStoredEvent(channel as ChannelName, String(eventId))
-        mergeStoredMeta(norm, stored)
-        return normToForm(norm)
-      }
-    } catch {
-      // fall back to stored copy
-    }
-  }
-
-  if (channel === 'luma') {
-    try {
-      const res = await channelFetch(`/api/luma/events?api_id=${encodeURIComponent(String(eventId))}`)
-      if (res.ok) {
-        const envelope = await res.json() as { data?: Record<string, unknown> }
-        const payload = envelope.data && typeof envelope.data === 'object'
-          ? envelope.data
-          : envelope
-        const norm = normFromPayload(channel, payload)
-        await enrichNormWithTickets(norm, channel, eventId)
-        const stored = await getStoredEvent(channel as ChannelName, String(eventId))
-        mergeStoredMeta(norm, stored)
-        return normToForm(norm)
+        return finalizeFormLoad(norm, channel, eventId, linkedChannels)
       }
     } catch {
       // fall back to stored copy
@@ -625,20 +1006,18 @@ export async function loadEventFormData(channel: ChannelKey, eventId: string | n
   }
 
   if (channel === 'eventbrite') {
-    try {
-      const res = await channelFetch(
-        `/api/eventbrite/events/${encodeURIComponent(String(eventId))}?expand=venue,ticket_classes`,
-      )
-      if (res.ok) {
-        const envelope = await res.json() as Record<string, unknown>
-        const norm = normFromPayload(channel, envelope)
-        await enrichNormWithTickets(norm, channel, eventId)
-        const stored = await getStoredEvent(channel as ChannelName, String(eventId))
-        mergeStoredMeta(norm, stored)
-        return normToForm(norm)
-      }
-    } catch {
-      // fall back to stored copy
+    const fresh = await loadEventbriteEventFresh(eventId)
+    if (fresh) {
+      const norm = normFromPayload(channel, fresh)
+      return finalizeFormLoad(norm, channel, eventId, linkedChannels)
+    }
+  }
+
+  if (channel === 'luma') {
+    const fresh = await loadLumaEventFresh(eventId)
+    if (fresh) {
+      const norm = normFromPayload(channel, fresh)
+      return finalizeFormLoad(norm, channel, eventId, linkedChannels)
     }
   }
 
@@ -646,11 +1025,13 @@ export async function loadEventFormData(channel: ChannelKey, eventId: string | n
   if (!stored) {
     throw new Error('Event not in database. Open Events and use Sync for this channel first.')
   }
-  const norm = normFromPayload(channel, stored.payload)
-  mergeStoredMeta(norm, stored)
-  await enrichNormWithTickets(norm, channel, eventId)
-
-  return normToForm(norm)
+  const payload = { ...stored.payload } as Record<string, unknown>
+  if (channel === 'eventbrite' && !payload._full_description) {
+    const fullDesc = await loadEventbriteFullDescription(eventId)
+    if (fullDesc) payload._full_description = fullDesc
+  }
+  const norm = normFromPayload(channel, payload)
+  return finalizeFormLoad(norm, channel, eventId, linkedChannels)
 }
 
 export { normToForm }

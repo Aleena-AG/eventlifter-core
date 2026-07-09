@@ -8,6 +8,7 @@ import { buildEbTicketClass, ebTicketQuantity } from '@/lib/eventbrite-ticket'
 import { resolveEbTimezone } from '@/lib/eventbrite-timezone'
 import { zonedDateTimeToUtcIso } from '@/lib/event-datetime'
 import { parseTagsInput, syncLumaEventTags } from '@/lib/event-tags'
+import { unwrapLumaEvent } from '@/lib/luma-event-utils'
 import {
   postHtEvent,
   resolveCoverFileForHt,
@@ -19,6 +20,176 @@ export type EventFormData = Record<string, string | boolean>
 
 function toIso(date: string, time: string, tz: string): string {
   return zonedDateTimeToUtcIso(date, time, tz)
+}
+
+/** Keep Eventbrite start/end in the future (EB rejects past start times). */
+function ensureFuture(startUtc: string, endUtc: string): { startUtc: string; endUtc: string } {
+  const startMs = new Date(startUtc).getTime()
+  const endMs = new Date(endUtc).getTime()
+  if (Number.isFinite(startMs) && startMs >= Date.now()) return { startUtc, endUtc }
+  const duration = Math.max(
+    (Number.isFinite(endMs) ? endMs : startMs) - startMs,
+    3600_000,
+  )
+  const newStart = new Date(Date.now() + 30 * 24 * 3600_000)
+  newStart.setSeconds(0, 0)
+  const newEnd = new Date(newStart.getTime() + (Number.isFinite(duration) ? duration : 3600_000))
+  return {
+    startUtc: newStart.toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    endUtc: newEnd.toISOString().replace(/\.\d{3}Z$/, 'Z'),
+  }
+}
+
+function toEbHtml(text: string): string {
+  const t = text.trim()
+  if (!t) return '<p>Untitled Event</p>'
+  if (/<[a-z]/i.test(t)) return t
+  const esc = t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  // Preserve line breaks as separate paragraphs for structured content.
+  return esc
+    .split(/\n+/)
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map(line => `<p>${line}</p>`)
+    .join('') || '<p></p>'
+}
+
+/**
+ * Eventbrite no longer stores the full body on `event.description` (that field
+ * is only the short teaser). Full copy must go through structured content.
+ */
+export async function writeEventbriteStructuredDescription(
+  eventId: string | number,
+  description: string,
+): Promise<void> {
+  const html = toEbHtml(description)
+  if (!html || html === '<p></p>' || html === '<p>Untitled Event</p>') return
+
+  let nextVersion = 1
+  try {
+    const curRes = await channelFetch(
+      `/api/eventbrite/events/${eventId}/structured_content/?purpose=listing`,
+    )
+    if (curRes.ok) {
+      const cur = await curRes.json() as { page_version_number?: string | number }
+      const n = parseInt(String(cur.page_version_number || '0'), 10)
+      if (Number.isFinite(n) && n > 0) nextVersion = n + 1
+    }
+  } catch {
+    // First write — version 1
+  }
+
+  const res = await channelFetch(
+    `/api/eventbrite/events/${eventId}/structured_content/${nextVersion}/`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        modules: [
+          {
+            type: 'text',
+            data: {
+              body: {
+                type: 'text',
+                text: html,
+                alignment: 'left',
+              },
+            },
+          },
+        ],
+        publish: true,
+        purpose: 'listing',
+      }),
+    },
+  )
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as {
+      error_description?: string
+      error?: string
+      error_detail?: Record<string, unknown>
+    }
+    throw new Error(formatEbError(data, res.status))
+  }
+}
+
+/** Short listing teaser for Eventbrite (`summary` / deprecated `description`). */
+function eventbriteSummaryText(ev: EventFormData): string {
+  const summary = String(ev.summary || '').trim()
+  if (summary) return summary.slice(0, 140)
+  // Fall back to first line of the full description so listings aren't blank.
+  const desc = String(ev.description || '').trim()
+  if (!desc) return ''
+  const firstLine = desc.split(/\n+/)[0]?.trim() || desc
+  return firstLine.slice(0, 140)
+}
+
+function formatEbError(
+  data: {
+    error_description?: string
+    error?: string
+    error_detail?: Record<string, unknown>
+  },
+  status: number,
+): string {
+  const detail = data.error_detail
+  let detailMsg = ''
+  if (detail && typeof detail === 'object') {
+    const parts: string[] = []
+    for (const [key, val] of Object.entries(detail)) {
+      if (Array.isArray(val)) parts.push(`${key}: ${val.join(', ')}`)
+      else if (val != null && val !== '') parts.push(`${key}: ${String(val)}`)
+    }
+    detailMsg = parts.join('; ')
+  }
+  return data.error_description || detailMsg || data.error || `HTTP ${status}`
+}
+
+/** Convert a UTC ISO timestamp into calendar date/time fields in the event timezone. */
+function utcToTzParts(isoUtc: string, tz: string): { date: string; time: string } {
+  const d = new Date(isoUtc)
+  if (Number.isNaN(d.getTime())) {
+    const now = new Date()
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return {
+      date: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
+      time: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
+    }
+  }
+  try {
+    const fmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz || 'UTC',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    })
+    const parts = Object.fromEntries(fmt.formatToParts(d).map(p => [p.type, p.value]))
+    return {
+      date: `${parts.year}-${parts.month}-${parts.day}`,
+      time: `${parts.hour}:${parts.minute}`,
+    }
+  } catch {
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return {
+      date: `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`,
+      time: `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`,
+    }
+  }
+}
+
+function extractLumaEventId(raw: Record<string, unknown>): string {
+  const unwrapped = unwrapLumaEvent(raw.data ?? raw)
+  return String(
+    unwrapped.api_id
+    || unwrapped.id
+    || (raw.data as Record<string, unknown> | undefined)?.api_id
+    || (raw.data as Record<string, unknown> | undefined)?.id
+    || raw.api_id
+    || raw.id
+    || '',
+  ).trim()
 }
 
 function isOnline(fmt: string) {
@@ -69,6 +240,12 @@ function htPublishStatus(ev: EventFormData): 'draft' | 'published' {
   return 'draft'
 }
 
+function ebPublishStatus(ev: EventFormData): 'live' | 'draft' {
+  const raw = String(ev.status || '').trim().toLowerCase()
+  if (raw === 'published' || raw === 'live' || raw === 'public') return 'live'
+  return 'draft'
+}
+
 function htIsPublic(ev: EventFormData): boolean {
   const vis = String(ev.visibility || '').trim().toLowerCase()
   if (vis === 'private' || vis === 'unlisted' || vis === 'member-only') return false
@@ -83,11 +260,11 @@ function buildHightribeEventBody(
   startUtc: string,
   endUtc: string,
 ): Record<string, unknown> {
-  const startD = new Date(startUtc)
-  const endD = new Date(endUtc)
-  const pad = (n: number) => String(n).padStart(2, '0')
+  const start = utcToTzParts(startUtc, tz)
+  const end = utcToTzParts(endUtc, tz)
   const status = htPublishStatus(ev)
   const hostName = String(ev.hostName || '').trim()
+  const summary = String(ev.summary || '').trim()
   const body: Record<string, unknown> = {
     title: ev.title,
     description: String(ev.description || ev.title),
@@ -96,12 +273,16 @@ function buildHightribeEventBody(
     is_public: htIsPublic(ev) ? 1 : 0,
     is_business_profile: 0,
     dates: {
-      start_date: `${startD.getFullYear()}-${pad(startD.getMonth() + 1)}-${pad(startD.getDate())}`,
-      start_time: `${pad(startD.getHours())}:${pad(startD.getMinutes())}`,
-      end_date: `${endD.getFullYear()}-${pad(endD.getMonth() + 1)}-${pad(endD.getDate())}`,
-      end_time: `${pad(endD.getHours())}:${pad(endD.getMinutes())}`,
+      start_date: start.date,
+      start_time: start.time,
+      end_date: end.date,
+      end_time: end.time,
       timezone: tz,
     },
+  }
+  if (summary) {
+    body.summary = summary
+    body.overview = summary
   }
   if (hostName) {
     body.host_name = hostName
@@ -123,8 +304,13 @@ function buildHightribeEventBody(
     body.location = {
       type: 'physical',
       location: String(ev.venue || ev.address || 'TBD'),
+      venue_name: String(ev.venue || '') || undefined,
       address: String(ev.address || ev.venue || 'TBD'),
       city: String(ev.city || ev.venue || 'TBD'),
+      region: String(ev.region || '') || undefined,
+      state: String(ev.region || '') || undefined,
+      postal: String(ev.postal || '') || undefined,
+      postal_code: String(ev.postal || '') || undefined,
       country: String(ev.country || '') || undefined,
       lat: ev.lat ? parseFloat(String(ev.lat)) : undefined,
       lng: ev.lng ? parseFloat(String(ev.lng)) : undefined,
@@ -156,6 +342,7 @@ async function publishHightribeChannel(
     }
     if (res.ok) {
       const id = String((data.data as Record<string, unknown>)?.id || '')
+      if (!id) throw new Error('Hightribe did not return an event id')
       const ticketId = String((data.data as { tickets?: Array<{ id?: unknown }> })?.tickets?.[0]?.id || '')
       return { eventId: id, ticketId: ticketId || undefined }
     }
@@ -178,7 +365,9 @@ async function publishHightribeChannel(
   const res = await postHtEvent('/api/hightribe/events', body, 'POST', htCoverFile)
   const data = await res.json() as { data?: { id?: unknown }; message?: string; errors?: Record<string, string[]> }
   if (!res.ok) parseHtResponse(data, res.status)
-  return { eventId: String((data.data as Record<string, unknown>)?.id || '') }
+  const eventId = String((data.data as Record<string, unknown>)?.id || '')
+  if (!eventId) throw new Error('Hightribe did not return an event id')
+  return { eventId }
 }
 
 function buildHightribeTicketsFromForm(ev: EventFormData): {
@@ -285,6 +474,9 @@ async function updateEventbriteTickets(eventId: string | number, ev: EventFormDa
   const ticketClassId = listData.ticket_classes?.[0]?.id
   if (!ticketClassId) return
 
+  const tz = String(ev.timezone || 'UTC')
+  const salesStart = String(ev.salesStart || '').trim()
+  const salesEnd = String(ev.salesEnd || '').trim()
   const tc = buildEbTicketClass({
     name: String(ev.htTicketName || 'General Admission'),
     free: ticketType === 'Free' || ticketType === 'Donation',
@@ -293,6 +485,8 @@ async function updateEventbriteTickets(eventId: string | number, ev: EventFormDa
     price: ticketType === 'Free' || ticketType === 'Donation'
       ? 0
       : parseFloat(String(ev.price || '0')),
+    salesStart: salesStart ? toIso(salesStart, '00:00', tz) : undefined,
+    salesEnd: salesEnd ? toIso(salesEnd, '23:59', tz) : undefined,
   })
 
   const tcRes = await channelFetch(
@@ -307,6 +501,108 @@ async function updateEventbriteTickets(eventId: string | number, ev: EventFormDa
   if (!tcRes.ok) {
     throw new Error(tcData.error_description || tcData.error || `HTTP ${tcRes.status}`)
   }
+}
+
+/** Push ticket pricing to Luma (create default ticket or update existing). */
+async function syncLumaTickets(eventId: string | number, ev: EventFormData): Promise<string | undefined> {
+  const ticketType = String(ev.ticketType || '').trim()
+  // Skip when pricing wasn't loaded — avoid wiping a paid ticket to free.
+  if (!ticketType) return undefined
+
+  const isFree = ticketType === 'Free' || ticketType === 'Donation'
+  const price = isFree ? 0 : parseFloat(String(ev.price || '0'))
+  if (!isFree && (!Number.isFinite(price) || price <= 0)) return undefined
+
+  const cents = Math.round(price * 100)
+  const currency = String(ev.currency || 'USD').toLowerCase() || 'usd'
+  const name = String(ev.htTicketName || 'General Admission').trim() || 'General Admission'
+  const cap = parseInt(String(ev.capacity || ''), 10)
+  const maxCapacity = Number.isFinite(cap) && cap > 0 ? cap : undefined
+
+  const listRes = await channelFetch(
+    `/api/luma/ticket-types?event_id=${encodeURIComponent(String(eventId))}`,
+  )
+  const listRaw = await listRes.json() as {
+    ticket_types?: Array<Record<string, unknown>>
+    entries?: Array<Record<string, unknown>>
+    data?: {
+      ticket_types?: Array<Record<string, unknown>>
+      entries?: Array<Record<string, unknown>>
+      ticket_type?: Record<string, unknown>
+    }
+    status?: string
+    message?: string
+  }
+  if (!listRes.ok || listRaw.status === 'error') {
+    throw new Error(listRaw.message || `Luma ticket list failed (${listRes.status})`)
+  }
+  const existing =
+    listRaw.ticket_types
+    || listRaw.entries
+    || listRaw.data?.ticket_types
+    || listRaw.data?.entries
+    || []
+  const first = Array.isArray(existing) ? existing[0] : undefined
+  const ticketId = first
+    ? String(first.id || first.api_id || first.event_ticket_type_id || '')
+    : ''
+
+  const payload: Record<string, unknown> = {
+    event_id: String(eventId),
+    event_api_id: String(eventId),
+    name,
+    type: isFree ? 'free' : 'paid',
+    ...(isFree
+      ? {}
+      : { cents, currency }),
+    ...(maxCapacity != null ? { max_capacity: maxCapacity } : {}),
+  }
+
+  const tz = String(ev.timezone || 'UTC')
+  const salesStart = String(ev.salesStart || '').trim()
+  const salesEnd = String(ev.salesEnd || '').trim()
+  if (salesStart) {
+    payload.valid_start_at = toIso(salesStart, '00:00', tz)
+  }
+  if (salesEnd) {
+    payload.valid_end_at = toIso(salesEnd, '23:59', tz)
+  }
+
+  if (ticketId) {
+    const res = await channelFetch('/api/luma/ticket-types', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...payload,
+        event_ticket_type_id: ticketId,
+        id: ticketId,
+        api_id: ticketId,
+      }),
+    })
+    const raw = await res.json() as { status?: string; message?: string; error?: string }
+    if (!res.ok || raw.status === 'error') {
+      throw new Error(raw.message || raw.error || `Luma ticket update failed (${res.status})`)
+    }
+    return ticketId
+  }
+
+  const res = await channelFetch('/api/luma/ticket-types', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  const raw = await res.json() as {
+    status?: string
+    message?: string
+    error?: string
+    data?: { ticket_type?: { id?: string; api_id?: string }; id?: string; api_id?: string }
+    ticket_type?: { id?: string; api_id?: string }
+  }
+  if (!res.ok || raw.status === 'error') {
+    throw new Error(raw.message || raw.error || `Luma ticket create failed (${res.status})`)
+  }
+  const created = raw.data?.ticket_type || raw.ticket_type || raw.data
+  return created?.id || created?.api_id || undefined
 }
 
 export async function publishToChannel(
@@ -350,8 +646,11 @@ export async function publishToChannel(
     else if (inPerson && (ev.city || ev.address || ev.venue)) {
       body.geo_address_json = {
         type: 'manual',
-        address: [ev.venue, ev.address, ev.city, ev.country].filter(Boolean).join(', '),
+        description: String(ev.venue || '') || undefined,
+        address: [ev.venue, ev.address, ev.city, ev.region, ev.postal, ev.country].filter(Boolean).join(', '),
         city: ev.city || undefined,
+        region: ev.region || undefined,
+        postal: ev.postal || undefined,
         country: ev.country || undefined,
         latitude: ev.lat ? parseFloat(String(ev.lat)) : undefined,
         longitude: ev.lng ? parseFloat(String(ev.lng)) : undefined,
@@ -362,11 +661,20 @@ export async function publishToChannel(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
-    const raw = await res.json() as { status?: string; data?: { api_id?: string }; message?: string; error?: string }
+    const raw = await res.json() as Record<string, unknown> & {
+      status?: string
+      data?: { api_id?: string; id?: string; url?: string }
+      message?: string
+      error?: string
+    }
     if (!res.ok || raw.status === 'error') throw new Error(raw.message || raw.error || `HTTP ${res.status}`)
-    const eventId = String(raw.data?.api_id || '')
+    const eventId = extractLumaEventId(raw)
+    if (!eventId) throw new Error('Luma did not return an event id')
+    const ticketId = await syncLumaTickets(eventId, ev)
     await syncLumaEventTags(eventId, parseTagsInput(ev.tags))
-    return { eventId, url: `lu.ma/${eventId}` }
+    const unwrapped = unwrapLumaEvent(raw.data ?? raw)
+    const lumaUrl = String(unwrapped.url || raw.data?.url || '')
+    return { eventId, ticketId, url: lumaUrl || `lu.ma/${eventId}` }
   }
 
   // Eventbrite
@@ -382,30 +690,43 @@ export async function publishToChannel(
   const orgId = orgData.organizations?.[0]?.id
   if (!orgId) throw new Error('No Eventbrite organization found')
 
-  const ebTz = await resolveEbTimezone(tz, startUtc, {
+  const { startUtc: ebStart, endUtc: ebEnd } = ensureFuture(startUtc, endUtc)
+  const ebTz = await resolveEbTimezone(tz, ebStart, {
     country: String(ev.country || ''),
     city: String(ev.city || ''),
   })
+  const ebTitle = String(ev.title || 'Untitled Event').trim() || 'Untitled Event'
+  const ebDesc = String(ev.description || '').trim()
+  const ebSummary = eventbriteSummaryText(ev)
 
   const evtRes = await channelFetch(`/api/eventbrite/organizations/${orgId}/events`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       event: {
-        name: { html: ev.title },
-        description: { html: String(ev.description || ev.title) },
-        start: { utc: startUtc, timezone: ebTz },
-        end: { utc: endUtc, timezone: ebTz },
+        name: { html: toEbHtml(ebTitle) },
+        // `description` on the event object is only the short teaser (same as summary).
+        ...(ebSummary ? {
+          summary: ebSummary,
+          description: { html: toEbHtml(ebSummary) },
+        } : {}),
+        start: { utc: ebStart, timezone: ebTz },
+        end: { utc: ebEnd, timezone: ebTz },
         currency: 'USD',
         online_event: online && !inPerson,
         listed: ev.visibility === 'Public',
+        status: ebPublishStatus(ev),
         shareable: true,
       },
     }),
   })
-  const evtData = await evtRes.json() as { id?: string; error_description?: string }
-  if (!evtRes.ok) throw new Error(evtData.error_description || `HTTP ${evtRes.status}`)
+  const evtData = await evtRes.json() as { id?: string; error?: string; error_description?: string }
+  if (!evtRes.ok) throw new Error(evtData.error_description || evtData.error || `HTTP ${evtRes.status}`)
   const eventId = evtData.id!
+  if (!eventId) throw new Error('Eventbrite did not return an event id')
+
+  // Full body lives in structured content, not on event.description.
+  if (ebDesc) await writeEventbriteStructuredDescription(eventId, ebDesc)
 
   if (inPerson && shouldCreateEventbriteVenue(ev, inPerson)) {
     const country = normalizeEbCountry(String(ev.country || ''))!
@@ -418,6 +739,8 @@ export async function publishToChannel(
           address: {
             address_1: String(ev.address || ev.venue || ev.city),
             city: ev.city || undefined,
+            region: ev.region || undefined,
+            postal_code: ev.postal || undefined,
             country,
           },
         },
@@ -435,12 +758,16 @@ export async function publishToChannel(
     }
   }
 
+  const salesStart = String(ev.salesStart || '').trim()
+  const salesEnd = String(ev.salesEnd || '').trim()
   const tc = buildEbTicketClass({
     name: 'General Admission',
     free: ev.ticketType === 'Free',
     capacity: cap,
     currency: 'USD',
     price: ev.ticketType === 'Free' ? 0 : parseFloat(String(ev.price || '0')),
+    salesStart: salesStart ? toIso(salesStart, '00:00', tz) : undefined,
+    salesEnd: salesEnd ? toIso(salesEnd, '23:59', tz) : undefined,
   })
 
   const tcRes = await channelFetch(`/api/eventbrite/events/${eventId}/ticket_classes`, {
@@ -508,8 +835,11 @@ export async function updateChannelEvent(
     else if (inPerson && (ev.city || ev.address || ev.venue)) {
       body.geo_address_json = {
         type: 'manual',
-        address: [ev.venue, ev.address, ev.city, ev.country].filter(Boolean).join(', '),
+        description: String(ev.venue || '') || undefined,
+        address: [ev.venue, ev.address, ev.city, ev.region, ev.postal, ev.country].filter(Boolean).join(', '),
         city: ev.city || undefined,
+        region: ev.region || undefined,
+        postal: ev.postal || undefined,
         country: ev.country || undefined,
         latitude: ev.lat ? parseFloat(String(ev.lat)) : undefined,
         longitude: ev.lng ? parseFloat(String(ev.lng)) : undefined,
@@ -523,39 +853,125 @@ export async function updateChannelEvent(
     const raw = await res.json() as { status?: string; message?: string; error?: string }
     if (!res.ok || raw.status === 'error') throw new Error(raw.message || raw.error || `HTTP ${res.status}`)
     await syncLumaEventTags(id, parseTagsInput(ev.tags))
+    await syncLumaTickets(eventId, ev)
     return
   }
 
-  const ebTz = await resolveEbTimezone(tz, startUtc, {
+  // Match create-path validation: future dates, HTML name/desc, EB timezone,
+  // and summary capped at 140 chars (EB hard limit — longer values 400).
+  // Prefer the event's existing EB timezone when possible — flipping zones on
+  // update is a common ARGUMENTS_ERROR source.
+  let existingTz = ''
+  try {
+    const existingRes = await channelFetch(`/api/eventbrite/events/${eventId}`)
+    if (existingRes.ok) {
+      const existing = await existingRes.json() as {
+        start?: { timezone?: string; utc?: string }
+        end?: { utc?: string }
+      }
+      existingTz = String(existing.start?.timezone || '').trim()
+    }
+  } catch {
+    // ignore — fall through to resolved timezone
+  }
+
+  const { startUtc: ebStart, endUtc: ebEnd } = ensureFuture(startUtc, endUtc)
+  const ebTz = existingTz || await resolveEbTimezone(tz, ebStart, {
     country: String(ev.country || ''),
     city: String(ev.city || ''),
   })
+  const ebTitle = String(ev.title || 'Untitled Event').trim() || 'Untitled Event'
+  const ebDesc = String(ev.description || '').trim()
+  const ebSummary = eventbriteSummaryText(ev)
 
-  const res = await channelFetch(`/api/eventbrite/events/${eventId}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      event: {
-        name: { html: ev.title },
-        description: { html: String(ev.description || ev.title || '') },
-        start: { utc: startUtc, timezone: ebTz },
-        end: { utc: endUtc, timezone: ebTz },
-        online_event: online && !inPerson,
-        listed: String(ev.visibility || 'Public').toLowerCase() === 'public',
-      },
-    }),
-  })
-  const data = await res.json() as {
-    error_description?: string
-    error?: string
-    errors?: Record<string, string>
+  // `description` is deprecated on Eventbrite event update and often 400s —
+  // only patch name / schedule / listing / summary. Full body goes via
+  // structured content below.
+  const ebStatus = ebPublishStatus(ev)
+  const attempts: Record<string, unknown>[] = [
+    {
+      name: { html: toEbHtml(ebTitle) },
+      ...(ebSummary ? { summary: ebSummary } : {}),
+      start: { utc: ebStart, timezone: ebTz },
+      end: { utc: ebEnd, timezone: ebTz },
+      listed: ev.visibility === 'Public',
+      status: ebStatus,
+    },
+    {
+      name: { html: toEbHtml(ebTitle) },
+      start: { utc: ebStart, timezone: ebTz },
+      end: { utc: ebEnd, timezone: ebTz },
+      status: ebStatus,
+    },
+    {
+      name: { html: toEbHtml(ebTitle) },
+      status: ebStatus,
+    },
+  ]
+
+  let lastErr = 'HTTP 400'
+  let updated = false
+  for (const event of attempts) {
+    const res = await channelFetch(`/api/eventbrite/events/${eventId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ event }),
+    })
+    const data = await res.json() as {
+      error_description?: string
+      error?: string
+      error_detail?: Record<string, unknown>
+    }
+    if (res.ok) {
+      updated = true
+      break
+    }
+    lastErr = formatEbError(data, res.status)
   }
-  if (!res.ok) {
-    const detail = data.error_description
-      || data.error
-      || (data.errors ? Object.values(data.errors).join(', ') : undefined)
-    throw new Error(detail || `HTTP ${res.status}`)
+  if (!updated) throw new Error(lastErr)
+
+  if (ebDesc) await writeEventbriteStructuredDescription(eventId, ebDesc)
+
+  // Venue attach is a separate request — bundling venue_id with start/end often 400s.
+  if (inPerson && shouldCreateEventbriteVenue(ev, inPerson)) {
+    try {
+      const orgRes = await channelFetch('/api/eventbrite/users/me/organizations')
+      const orgData = await orgRes.json() as { organizations?: Array<{ id: string }> }
+      const orgId = orgData.organizations?.[0]?.id
+      const country = normalizeEbCountry(String(ev.country || ''))
+      if (orgId && country) {
+        const vRes = await channelFetch(`/api/eventbrite/organizations/${orgId}/venues`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            venue: {
+              name: String(ev.venue || ev.city),
+              address: {
+                address_1: String(ev.address || ev.venue || ev.city),
+                city: ev.city || undefined,
+                region: ev.region || undefined,
+                postal_code: ev.postal || undefined,
+                country,
+              },
+            },
+          }),
+        })
+        if (vRes.ok) {
+          const vData = await vRes.json() as { id?: string }
+          if (vData.id) {
+            await channelFetch(`/api/eventbrite/events/${eventId}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ event: { venue_id: vData.id } }),
+            })
+          }
+        }
+      }
+    } catch {
+      // venue attach is best-effort on update
+    }
   }
+
   await updateEventbriteTickets(eventId, ev)
 }
 
@@ -589,6 +1005,14 @@ export async function updateChannelEventsAll(
  * the Events page immediately (without waiting for a manual/live re-sync).
  * Best-effort: failures here never fail the publish.
  */
+export async function upsertLocalEventSnapshot(
+  ch: ChannelKey,
+  ev: EventFormData,
+  ref: { eventId: string; url?: string },
+): Promise<void> {
+  return persistPublishedEvent(ch, ev, ref)
+}
+
 async function persistPublishedEvent(
   ch: ChannelKey,
   ev: EventFormData,
@@ -603,6 +1027,13 @@ async function persistPublishedEvent(
   let raw: Record<string, unknown>
   const htStatus = htPublishStatus(ev)
   const hostName = String(ev.hostName || '').trim()
+  const fmt = String(ev.format || 'In person')
+  const online = fmt === 'Online' || fmt === 'Hybrid'
+  const inPerson = fmt === 'In person' || fmt === 'Hybrid'
+  const lat = ev.lat ? parseFloat(String(ev.lat)) : undefined
+  const lng = ev.lng ? parseFloat(String(ev.lng)) : undefined
+  const hasPlace = !!(ev.venue || ev.address || ev.city)
+
   if (ch === 'luma') {
     const url = ref.url ? (/^https?:\/\//i.test(ref.url) ? ref.url : `https://${ref.url}`) : ''
     raw = {
@@ -616,18 +1047,58 @@ async function persistPublishedEvent(
       status: htStatus === 'published' ? 'published' : 'draft',
       visibility: String(ev.visibility || 'Public').toLowerCase() === 'public' ? 'public' : 'private',
       host: hostName || undefined,
+      meeting_url: online ? (ev.onlineUrl || undefined) : undefined,
+      ...(inPerson && hasPlace ? {
+        geo_address_json: {
+          type: 'manual',
+          description: String(ev.venue || '') || undefined,
+          address: [ev.venue, ev.address, ev.city, ev.region, ev.postal, ev.country].filter(Boolean).join(', '),
+          city: ev.city || undefined,
+          region: ev.region || undefined,
+          postal: ev.postal || undefined,
+          country: ev.country || undefined,
+          latitude: Number.isFinite(lat) ? lat : undefined,
+          longitude: Number.isFinite(lng) ? lng : undefined,
+        },
+        geo_latitude: Number.isFinite(lat) ? lat : undefined,
+        geo_longitude: Number.isFinite(lng) ? lng : undefined,
+      } : {}),
     }
   } else if (ch === 'eventbrite') {
+    const ebSummary = eventbriteSummaryText(ev)
+    const ebDesc = String(ev.description || '').trim()
     raw = {
       id: ref.eventId,
       name: { text: ev.title },
+      // Keep teaser + full body so edit form hydrates without another EB round-trip.
+      summary: ebSummary || undefined,
+      description: ebSummary
+        ? { text: ebSummary, html: toEbHtml(ebSummary) }
+        : undefined,
+      ...(ebDesc ? { _full_description: ebDesc } : {}),
       start: { utc: startUtc },
       end: { utc: endUtc },
       url: ref.url || '',
       is_free: ev.ticketType === 'Free',
-      // Eventbrite stays draft until published on their side
-      status: 'draft',
+      status: ebPublishStatus(ev),
       listed: String(ev.visibility || '') === 'Public',
+      online_event: online && !inPerson,
+      ...(inPerson && hasPlace ? {
+        venue: {
+          name: String(ev.venue || ev.city || ''),
+          latitude: Number.isFinite(lat) ? String(lat) : undefined,
+          longitude: Number.isFinite(lng) ? String(lng) : undefined,
+          address: {
+            address_1: String(ev.address || ev.venue || ''),
+            city: ev.city || undefined,
+            region: ev.region || undefined,
+            postal_code: ev.postal || undefined,
+            country: normalizeEbCountry(String(ev.country || '')) || ev.country || undefined,
+            latitude: Number.isFinite(lat) ? String(lat) : undefined,
+            longitude: Number.isFinite(lng) ? String(lng) : undefined,
+          },
+        },
+      } : {}),
     }
   } else {
     raw = {
@@ -636,12 +1107,29 @@ async function persistPublishedEvent(
       dates: { starts_at: startUtc, ends_at: endUtc, timezone: tz },
       timezone: tz,
       cover_url: cover,
-      location: String(ev.venue || ev.address || ev.city || ''),
       status: htStatus,
       publish_status: htStatus,
       is_public: htIsPublic(ev),
       host_name: hostName || undefined,
       organizer_name: hostName || undefined,
+      location: online && !inPerson
+        ? { type: 'online', location: 'Online', address: 'Online', city: 'Online', online_url: ev.onlineUrl || undefined }
+        : inPerson && hasPlace
+          ? {
+              type: 'physical',
+              location: String(ev.venue || ev.address || 'TBD'),
+              venue_name: String(ev.venue || '') || undefined,
+              address: String(ev.address || ev.venue || 'TBD'),
+              city: String(ev.city || '') || undefined,
+              region: String(ev.region || '') || undefined,
+              state: String(ev.region || '') || undefined,
+              postal: String(ev.postal || '') || undefined,
+              postal_code: String(ev.postal || '') || undefined,
+              country: String(ev.country || '') || undefined,
+              lat: Number.isFinite(lat) ? lat : undefined,
+              lng: Number.isFinite(lng) ? lng : undefined,
+            }
+          : String(ev.venue || ev.address || ev.city || ''),
     }
   }
 
@@ -652,7 +1140,12 @@ async function persistPublishedEvent(
   }
 }
 
-export type PublishResults = Partial<Record<ChannelKey, { status: 'synced' | 'error'; url?: string; message?: string }>>
+export type PublishResults = Partial<Record<ChannelKey, {
+  status: 'synced' | 'error'
+  url?: string
+  message?: string
+  eventId?: string
+}>>
 
 export async function publishToAllChannels(
   ev: EventFormData,
@@ -686,6 +1179,9 @@ export async function publishToAllChannels(
   for (const ch of targets) {
     try {
       const ref = await publishToChannel(ch, ev, files)
+      if (!ref.eventId) {
+        throw new Error(`${ch} did not return an event id`)
+      }
       await fetch('/api/registry', {
         method: 'POST',
         headers: {
@@ -700,7 +1196,7 @@ export async function publishToAllChannels(
         }),
       })
       await persistPublishedEvent(ch, ev, { eventId: ref.eventId, url: ref.url })
-      results[ch] = { status: 'synced', url: ref.url }
+      results[ch] = { status: 'synced', url: ref.url, eventId: ref.eventId }
     } catch (e) {
       results[ch] = { status: 'error', message: e instanceof Error ? e.message : String(e) }
     }
