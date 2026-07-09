@@ -511,11 +511,25 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
               <Field label="Name *"><input required type="text" style={INPUT} value={t.name} onChange={e => updateTicket(i, 'name', e.target.value)} placeholder="General Admission" /></Field>
               <Field label="Quantity *"><input required type="number" min="1" style={INPUT} value={t.quantity} onChange={e => updateTicket(i, 'quantity', e.target.value)} placeholder="50" /></Field>
             </div>
-            <div style={GRID3}>
-              <Field label="Currency">
-                <input style={{ ...INPUT, background: '#F1EADC', color: '#8C7F6D' }} value="USD" readOnly />
+            <div style={GRID2}>
+              <Field label="Price">
+                <div style={{ display: 'flex', alignItems: 'stretch' }}>
+                  <span style={{
+                    display: 'grid', placeItems: 'center', padding: '0 10px',
+                    background: '#F1EADC', border: '1px solid #E8DFD0', borderRight: 'none',
+                    borderRadius: '6px 0 0 6px', fontSize: '13px', fontWeight: 700, color: '#8C7F6D',
+                  }}>$</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    style={{ ...INPUT, borderRadius: '0 6px 6px 0' }}
+                    value={t.price}
+                    onChange={e => updateTicket(i, 'price', e.target.value)}
+                    placeholder="0.00"
+                  />
+                </div>
               </Field>
-              <Field label="Price (USD)"><input type="number" min="0" step="0.01" style={INPUT} value={t.price} onChange={e => updateTicket(i, 'price', e.target.value)} placeholder="0" /></Field>
               <Field label="Booking Type">
                 <select style={INPUT} value={t.bookingType} onChange={e => updateTicket(i, 'bookingType', e.target.value)}>
                   <option value="instant">Instant</option>
@@ -683,17 +697,12 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
             </div>
           </>
         )}
-        <div style={GRID2}>
-          <Field label="Currency">
-            <input style={{ ...INPUT, background: '#F1EADC', color: '#8C7F6D' }} value="USD" readOnly />
-          </Field>
-          <Field label="Visibility">
-            <select style={INPUT} value={eb.listed ? 'public' : 'draft'} onChange={e => s('listed')(e.target.value === 'public')}>
-              <option value="draft">Draft (private)</option>
-              <option value="public">Listed (public)</option>
-            </select>
-          </Field>
-        </div>
+        <Field label="Visibility">
+          <select style={INPUT} value={eb.listed ? 'public' : 'draft'} onChange={e => s('listed')(e.target.value === 'public')}>
+            <option value="draft">Draft (private)</option>
+            <option value="public">Listed (public)</option>
+          </select>
+        </Field>
 
         <div style={SEC}>Tickets</div>
         <div style={{ display:'flex', gap:'8px', marginBottom:'10px' }}>
@@ -708,7 +717,25 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
           <Field label="Quantity"><input type="number" min="1" style={INPUT} value={eb.ticketQuantity} onChange={e => s('ticketQuantity')(e.target.value)} placeholder="Unlimited" /></Field>
         </div>
         {eb.ticketType === 'paid' && (
-          <Field label="Price (USD) *"><input required type="number" min="0.01" step="0.01" style={INPUT} value={eb.ticketPrice} onChange={e => s('ticketPrice')(e.target.value)} placeholder="10.00" /></Field>
+          <Field label="Price *">
+            <div style={{ display: 'flex', alignItems: 'stretch' }}>
+              <span style={{
+                display: 'grid', placeItems: 'center', padding: '0 10px',
+                background: '#F1EADC', border: '1px solid #E8DFD0', borderRight: 'none',
+                borderRadius: '6px 0 0 6px', fontSize: '13px', fontWeight: 700, color: '#8C7F6D',
+              }}>$</span>
+              <input
+                required
+                type="number"
+                min="0.01"
+                step="0.01"
+                style={{ ...INPUT, borderRadius: '0 6px 6px 0' }}
+                value={eb.ticketPrice}
+                onChange={e => s('ticketPrice')(e.target.value)}
+                placeholder="10.00"
+              />
+            </div>
+          </Field>
         )}
         <div style={{ background:'rgba(56,139,253,0.07)', border:'1px solid rgba(56,139,253,0.2)', borderRadius:'6px', padding:'8px 12px', fontSize:'12px', color:'#8C7F6D' }}>
           Event created as <b style={{ color:'#211B16' }}>draft</b> — publish from Eventbrite dashboard after review.

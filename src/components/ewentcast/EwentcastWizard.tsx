@@ -475,6 +475,20 @@ export function EwentcastWizard({
           />
         </div>
       )
+    } else if (f.k === 'price') {
+      ctrl = (
+        <div className="ew-price-input">
+          <span className="ew-price-prefix" aria-hidden="true">$</span>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={String(v ?? '')}
+            placeholder="0.00"
+            onChange={e => setField(f.k, e.target.value)}
+          />
+        </div>
+      )
     } else {
       ctrl = (
         <input
@@ -739,7 +753,7 @@ export function EwentcastWizard({
               <span>📅 {String(ev.date)} · {String(ev.time)}</span>
               <span>📍 {String(ev.venue)}</span>
               <span>👥 {String(ev.capacity)} cap</span>
-              <span>🎟 {ev.ticketType === 'Free' ? 'Free' : `${ev.currency} ${ev.price}`}</span>
+              <span>🎟 {ev.ticketType === 'Free' ? 'Free' : `$${ev.price}`}</span>
             </div>
           </div>
           <div className="ew-lanes">
@@ -818,7 +832,7 @@ export function EwentcastWizard({
 
         <div className="ew-stats">
           <div className="ew-stat"><div className="k">Attendees</div><div className="v">{sold}</div><div className="s">unified via webhooks</div></div>
-          <div className="ew-stat"><div className="k">Revenue</div><div className="v">{ev.ticketType === 'Free' ? 'Free' : `${ev.currency} ${revenue.toLocaleString()}`}</div><div className="s">{sold} registrations</div></div>
+          <div className="ew-stat"><div className="k">Revenue</div><div className="v">{ev.ticketType === 'Free' ? 'Free' : `$${revenue.toLocaleString()}`}</div><div className="s">{sold} registrations</div></div>
           <div className="ew-stat"><div className="k">Capacity</div><div className="v">{filled}%</div><div className="s">{sold} of {cap}</div></div>
           <div className="ew-stat"><div className="k">Channels</div><div className="v">{liveTargets.length}</div><div className="s">synced</div></div>
         </div>

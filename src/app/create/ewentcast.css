@@ -788,6 +788,33 @@
   box-shadow: 0 0 0 3px var(--accent-ring);
 }
 .ew-field input::placeholder, .ew-field textarea::placeholder { color: var(--muted); }
+
+.ew-price-input {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+}
+.ew-price-prefix {
+  display: grid;
+  place-items: center;
+  padding: 0 12px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-right: none;
+  border-radius: 10px 0 0 10px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--muted);
+  line-height: 1;
+}
+.ew-price-input input {
+  border-radius: 0 10px 10px 0;
+}
+.ew-price-input input:focus {
+  position: relative;
+  z-index: 1;
+}
+
 .ew-field--invalid input, .ew-field--invalid select {
   border-color: var(--error);
   background: color-mix(in srgb, var(--error) 5%, var(--canvas));

@@ -81,7 +81,7 @@ export const SECTIONS: { key: string; label: string; fields: FieldDef[] }[] = [
   ]},
   { key: 'tickets', label: 'Tickets', fields: [
     { k: 'ticketType', label: 'Ticket type', type: 'select', opts: ['Paid', 'Free', 'Donation'], on: ALL_CHANNELS },
-    { k: 'price', label: 'Price (USD)', on: ALL_CHANNELS },
+    { k: 'price', label: 'Price', on: ALL_CHANNELS },
     { k: 'capacity', label: 'Capacity', on: ALL_CHANNELS },
     { k: 'minPerOrder', label: 'Min per order', on: ['eventbrite', 'hightribe'] },
     { k: 'maxPerOrder', label: 'Max per order', on: ['eventbrite', 'hightribe'] },
