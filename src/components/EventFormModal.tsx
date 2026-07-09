@@ -33,7 +33,7 @@ interface HtForm {
   salesEndTime: string; salesEndUnit: string
   allowRefunds: boolean
 }
-const EMPTY_TICKET: HtTicket = { name: '', currency: 'PKR', price: '0', quantity: '', bookingType: 'instant', showTicket: true, startDate: '', endDate: '' }
+const EMPTY_TICKET: HtTicket = { name: '', currency: 'USD', price: '0', quantity: '', bookingType: 'instant', showTicket: true, startDate: '', endDate: '' }
 const HT_EMPTY: HtForm = {
   title: '', description: '', coverUrl: '', startDate: '', startTime: '10:00', endDate: '', endTime: '12:00',
   timezone: 'Asia/Karachi', locationType: 'venue', locationLabel: '', address: '', city: '',
@@ -57,8 +57,8 @@ const HT_SAMPLE: HtForm = {
   ],
   policies: ['No refunds within 48 hours of the event', 'Attendees must carry a valid ID'],
   tickets: [
-    { name: 'General Admission', currency: 'PKR', price: '500', quantity: '80', bookingType: 'instant', showTicket: true, startDate: '', endDate: '' },
-    { name: 'VIP Pass', currency: 'PKR', price: '1500', quantity: '20', bookingType: 'instant', showTicket: true, startDate: '', endDate: '' },
+    { name: 'General Admission', currency: 'USD', price: '500', quantity: '80', bookingType: 'instant', showTicket: true, startDate: '', endDate: '' },
+    { name: 'VIP Pass', currency: 'USD', price: '1500', quantity: '20', bookingType: 'instant', showTicket: true, startDate: '', endDate: '' },
   ],
   ticketMinQty: '1', ticketMaxQty: '5', salesEndTime: '2', salesEndUnit: 'hours', allowRefunds: false,
 }
@@ -111,29 +111,6 @@ const CH_META: Record<Channel, { label: string; icon: string; color: string }> =
   eventbrite: { label: CHANNEL_META.eventbrite.name, icon: '🎫', color: CHANNEL_META.eventbrite.color },
 }
 const TIMEZONES = ['Asia/Karachi','Asia/Kolkata','UTC','America/New_York','America/Los_Angeles','Europe/London','Europe/Paris','Asia/Dubai','Asia/Tokyo','Australia/Sydney']
-// All currencies (for Hightribe/Luma which accept any)
-const ALL_CURRENCIES = [
-  { code:'PKR', label:'PKR – Pakistani Rupee' },{ code:'USD', label:'USD – US Dollar' },
-  { code:'GBP', label:'GBP – British Pound' },{ code:'EUR', label:'EUR – Euro' },
-  { code:'AED', label:'AED – UAE Dirham' },{ code:'SAR', label:'SAR – Saudi Riyal' },
-  { code:'AUD', label:'AUD – Australian Dollar' },{ code:'CAD', label:'CAD – Canadian Dollar' },
-  { code:'INR', label:'INR – Indian Rupee' },{ code:'SGD', label:'SGD – Singapore Dollar' },
-  { code:'MYR', label:'MYR – Malaysian Ringgit' },{ code:'CHF', label:'CHF – Swiss Franc' },
-  { code:'JPY', label:'JPY – Japanese Yen' },{ code:'KRW', label:'KRW – South Korean Won' },
-]
-// Eventbrite only accepts this subset
-const EB_CURRENCIES = [
-  { code:'USD', label:'USD – US Dollar' },{ code:'CAD', label:'CAD – Canadian Dollar' },
-  { code:'GBP', label:'GBP – British Pound' },{ code:'EUR', label:'EUR – Euro' },
-  { code:'AUD', label:'AUD – Australian Dollar' },{ code:'NZD', label:'NZD – New Zealand Dollar' },
-  { code:'SGD', label:'SGD – Singapore Dollar' },{ code:'HKD', label:'HKD – Hong Kong Dollar' },
-  { code:'MYR', label:'MYR – Malaysian Ringgit' },{ code:'CHF', label:'CHF – Swiss Franc' },
-  { code:'INR', label:'INR – Indian Rupee' },{ code:'BRL', label:'BRL – Brazilian Real' },
-  { code:'MXN', label:'MXN – Mexican Peso' },{ code:'SEK', label:'SEK – Swedish Krona' },
-  { code:'NOK', label:'NOK – Norwegian Krone' },{ code:'DKK', label:'DKK – Danish Krone' },
-  { code:'JPY', label:'JPY – Japanese Yen' },{ code:'ZAR', label:'ZAR – South African Rand' },
-]
-
 // ─── Style constants ──────────────────────────────────────────────────────────
 const INPUT: React.CSSProperties = { width:'100%', background:'#FBF7F0', border:'1px solid #E8DFD0', borderRadius:'6px', padding:'8px 10px', fontSize:'13px', color:'#211B16', outline:'none', boxSizing:'border-box' }
 const LABEL: React.CSSProperties = { display:'block', fontSize:'12px', color:'#8C7F6D', marginBottom:'5px', fontWeight:500 }
@@ -211,7 +188,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
             ? (e.policies as Array<string | Record<string, string>>).map(p => typeof p === 'string' ? p : (p.text || ''))
             : [],
           tickets: ticketsRaw.map(t => ({
-            name: String(t.name || ''), currency: String(t.currency || 'PKR'),
+            name: String(t.name || ''), currency: 'USD',
             price: String(t.price || '0'), quantity: String(t.quantity || ''),
             bookingType: (String(t.booking_type || 'instant')) as HtTicket['bookingType'],
             showTicket: t.show_ticket !== false, startDate: String(t.start_date || ''), endDate: String(t.end_date || ''),
@@ -244,7 +221,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
         const desc  = ((e.description || {}) as Record<string, string>).html || ''
         const sd = start.local || start.utc || ''
         const ed = end.local   || end.utc   || ''
-        setEb({ title: name, description: desc, startDate: sd.slice(0,10), startTime: sd.slice(11,16) || '10:00', endDate: ed.slice(0,10), endTime: ed.slice(11,16) || '12:00', timezone: start.timezone || 'Asia/Karachi', currency: String(e.currency || 'USD'), isOnline: !!(e.online_event), venueName: '', address: '', city: '', country: '', listed: !!(e.listed), ticketName: 'General Admission', ticketType: 'free', ticketPrice: '', ticketQuantity: '' })
+        setEb({ title: name, description: desc, startDate: sd.slice(0,10), startTime: sd.slice(11,16) || '10:00', endDate: ed.slice(0,10), endTime: ed.slice(11,16) || '12:00', timezone: start.timezone || 'Asia/Karachi', currency: 'USD', isOnline: !!(e.online_event), venueName: '', address: '', city: '', country: '', listed: !!(e.listed), ticketName: 'General Admission', ticketType: 'free', ticketPrice: '', ticketQuantity: '' })
       }
     } catch { setError('Failed to load event data') }
     finally { setLoadingEvent(false) }
@@ -305,7 +282,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
 
     if (hasTickets) {
       body.tickets = ht.tickets.map(t => ({
-        name: t.name, currency: t.currency,
+        name: t.name, currency: 'USD',
         price: parseFloat(t.price) || 0, quantity: parseInt(t.quantity) || 0,
         booking_type: t.bookingType || undefined, show_ticket: t.showTicket,
         start_date: t.startDate || undefined, end_date: t.endDate || undefined,
@@ -361,7 +338,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
     const startUtc = toISO(eb.startDate, eb.startTime)
     const endUtc   = toISO(eb.endDate,   eb.endTime)
     if (m === 'edit') {
-      const body = { event: { name:{ html: eb.title }, description:{ html: eb.description || '' }, start:{ utc: startUtc, timezone: eb.timezone }, end:{ utc: endUtc, timezone: eb.timezone }, currency: eb.currency, online_event: eb.isOnline, listed: eb.listed } }
+      const body = { event: { name:{ html: eb.title }, description:{ html: eb.description || '' }, start:{ utc: startUtc, timezone: eb.timezone }, end:{ utc: endUtc, timezone: eb.timezone }, currency: 'USD', online_event: eb.isOnline, listed: eb.listed } }
       const res = await channelFetch(`/api/eventbrite/events/${eventId}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
       const data = await res.json() as { error_description?: string }
       if (!res.ok) throw new Error(data.error_description || `HTTP ${res.status}`)
@@ -380,7 +357,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
     const orgId = orgData.organizations?.[0]?.id
     if (!orgId) throw new Error('No Eventbrite organization found. Create one on eventbrite.com first.')
     setStatusMsg('Creating event…')
-    const evtRes = await channelFetch(`/api/eventbrite/organizations/${orgId}/events`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ event: { name:{ html: eb.title }, description:{ html: eb.description || '' }, start:{ utc: startUtc, timezone: eb.timezone }, end:{ utc: endUtc, timezone: eb.timezone }, currency: eb.currency, online_event: eb.isOnline, listed: eb.listed, shareable: true } }) })
+    const evtRes = await channelFetch(`/api/eventbrite/organizations/${orgId}/events`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ event: { name:{ html: eb.title }, description:{ html: eb.description || '' }, start:{ utc: startUtc, timezone: eb.timezone }, end:{ utc: endUtc, timezone: eb.timezone }, currency: 'USD', online_event: eb.isOnline, listed: eb.listed, shareable: true } }) })
     const evtData = await evtRes.json() as { id?: string; error_description?: string; error?: string }
     if (!evtRes.ok) throw new Error(evtData.error_description || evtData.error || `HTTP ${evtRes.status}`)
     const eventId2 = evtData.id!
@@ -394,7 +371,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
       name: eb.ticketName || 'General Admission',
       free: eb.ticketType === 'free',
       capacity: eb.ticketQuantity,
-      currency: eb.currency,
+      currency: 'USD',
       price: eb.ticketType === 'free' ? 0 : eb.ticketPrice,
     })
     const tcRes = await channelFetch(`/api/eventbrite/events/${eventId2}/ticket_classes`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ticket_class: tc }) })
@@ -536,11 +513,9 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
             </div>
             <div style={GRID3}>
               <Field label="Currency">
-                <select style={INPUT} value={t.currency} onChange={e => updateTicket(i, 'currency', e.target.value)}>
-                  {ALL_CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code}</option>)}
-                </select>
+                <input style={{ ...INPUT, background: '#F1EADC', color: '#8C7F6D' }} value="USD" readOnly />
               </Field>
-              <Field label="Price"><input type="number" min="0" step="0.01" style={INPUT} value={t.price} onChange={e => updateTicket(i, 'price', e.target.value)} placeholder="0" /></Field>
+              <Field label="Price (USD)"><input type="number" min="0" step="0.01" style={INPUT} value={t.price} onChange={e => updateTicket(i, 'price', e.target.value)} placeholder="0" /></Field>
               <Field label="Booking Type">
                 <select style={INPUT} value={t.bookingType} onChange={e => updateTicket(i, 'bookingType', e.target.value)}>
                   <option value="instant">Instant</option>
@@ -709,7 +684,9 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
           </>
         )}
         <div style={GRID2}>
-          <Field label="Currency *"><select style={INPUT} value={eb.currency} onChange={e => s('currency')(e.target.value)}>{EB_CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.label}</option>)}</select></Field>
+          <Field label="Currency">
+            <input style={{ ...INPUT, background: '#F1EADC', color: '#8C7F6D' }} value="USD" readOnly />
+          </Field>
           <Field label="Visibility">
             <select style={INPUT} value={eb.listed ? 'public' : 'draft'} onChange={e => s('listed')(e.target.value === 'public')}>
               <option value="draft">Draft (private)</option>
@@ -731,7 +708,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
           <Field label="Quantity"><input type="number" min="1" style={INPUT} value={eb.ticketQuantity} onChange={e => s('ticketQuantity')(e.target.value)} placeholder="Unlimited" /></Field>
         </div>
         {eb.ticketType === 'paid' && (
-          <Field label={`Price (${eb.currency}) *`}><input required type="number" min="0.01" step="0.01" style={INPUT} value={eb.ticketPrice} onChange={e => s('ticketPrice')(e.target.value)} placeholder="10.00" /></Field>
+          <Field label="Price (USD) *"><input required type="number" min="0.01" step="0.01" style={INPUT} value={eb.ticketPrice} onChange={e => s('ticketPrice')(e.target.value)} placeholder="10.00" /></Field>
         )}
         <div style={{ background:'rgba(56,139,253,0.07)', border:'1px solid rgba(56,139,253,0.2)', borderRadius:'6px', padding:'8px 12px', fontSize:'12px', color:'#8C7F6D' }}>
           Event created as <b style={{ color:'#211B16' }}>draft</b> — publish from Eventbrite dashboard after review.

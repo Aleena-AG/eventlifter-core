@@ -107,7 +107,7 @@ function normToForm(n: NormEvent): EventFormData {
     onlineUrl: n.onlineUrl || '',
     ticketType: n.ticketType || (n.ticketPrice === 0 ? 'Free' : n.ticketPrice != null ? 'Paid' : 'Free'),
     price: n.ticketPrice != null ? String(n.ticketPrice) : '0',
-    currency: n.currency || 'USD',
+    currency: 'USD',
     capacity: n.capacity != null ? String(n.capacity) : '150',
     minPerOrder: n.minPerOrder != null ? String(n.minPerOrder) : '1',
     maxPerOrder: n.maxPerOrder != null ? String(n.maxPerOrder) : '8',
@@ -155,7 +155,7 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
       city: optStr(loc?.city),
       lat: parseCoord(loc?.lat),
       lng: parseCoord(loc?.lng),
-      currency: optStr(ticket?.currency) || optStr(e.currency),
+      currency: 'USD',
       capacity: Number.isFinite(ticketQty) && ticketQty! > 0 ? ticketQty : undefined,
       ticketType: effectivePrice != null && effectivePrice <= 0 ? 'Free' : effectivePrice != null ? 'Paid' : undefined,
       ticketPrice: effectivePrice != null && Number.isFinite(effectivePrice) ? effectivePrice : undefined,
@@ -210,7 +210,7 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
     country: optStr(addr?.country),
     lat: parseCoord(venue?.latitude) ?? parseCoord(addr?.latitude),
     lng: parseCoord(venue?.longitude) ?? parseCoord(addr?.longitude),
-    currency: optStr(e.currency),
+    currency: 'USD',
     visibility: e.listed ? 'Public' : 'Unlisted',
   }
 }

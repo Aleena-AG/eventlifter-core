@@ -30,7 +30,7 @@ export function isFieldRequired(f: FieldDef, targets: ChannelKey[], ev: EventFor
   if (f.k === 'onlineUrl') {
     return format === 'Online' || format === 'Hybrid'
   }
-  if (f.k === 'price' || f.k === 'currency') {
+  if (f.k === 'price') {
     const ticketType = String(ev.ticketType ?? '')
     if (!ticketType || ticketType === 'Free') return false
   }

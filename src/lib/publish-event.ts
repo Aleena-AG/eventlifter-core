@@ -42,7 +42,7 @@ function buildHightribeTicketsFromForm(ev: EventFormData): {
   const ticketType = String(ev.ticketType || '').trim()
   const isFree = ticketType === 'Free' || ticketType === 'Donation'
   const price = isFree ? 0 : parseFloat(String(ev.price || '0'))
-  const currency = String(ev.currency || 'USD')
+  const currency = 'USD'
   const minQty = parseInt(String(ev.minPerOrder || '1'), 10) || 1
   const maxQty = parseInt(String(ev.maxPerOrder || '8'), 10) || 8
   const ticketName = String(ev.htTicketName || 'General Admission').trim() || 'General Admission'
@@ -131,7 +131,7 @@ async function updateEventbriteTickets(eventId: string | number, ev: EventFormDa
     name: String(ev.htTicketName || 'General Admission'),
     free: ev.ticketType === 'Free' || ev.ticketType === 'Donation',
     capacity: cap,
-    currency: String(ev.currency || 'USD'),
+    currency: 'USD',
     price: ev.ticketType === 'Free' || ev.ticketType === 'Donation'
       ? 0
       : parseFloat(String(ev.price || '0')),
@@ -273,7 +273,7 @@ export async function publishToChannel(
         description: { html: String(ev.description || ev.title) },
         start: { utc: startUtc, timezone: ebTz },
         end: { utc: endUtc, timezone: ebTz },
-        currency: String(ev.currency || 'USD'),
+        currency: 'USD',
         online_event: online && !inPerson,
         listed: ev.visibility === 'Public',
         shareable: true,
@@ -311,7 +311,7 @@ export async function publishToChannel(
     name: 'General Admission',
     free: ev.ticketType === 'Free',
     capacity: cap,
-    currency: String(ev.currency || 'USD'),
+    currency: 'USD',
     price: ev.ticketType === 'Free' ? 0 : parseFloat(String(ev.price || '0')),
   })
 
@@ -428,7 +428,7 @@ export async function updateChannelEvent(
         description: { html: String(ev.description || '') },
         start: { utc: startUtc, timezone: tz },
         end: { utc: endUtc, timezone: tz },
-        currency: String(ev.currency || 'USD'),
+        currency: 'USD',
         online_event: online && !inPerson,
         listed: ev.visibility === 'Public',
       },

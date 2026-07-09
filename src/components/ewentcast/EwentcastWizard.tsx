@@ -198,7 +198,7 @@ export function EwentcastWizard({
   const initials = user?.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'UH'
 
   const setField = (k: string, v: string | boolean) => setEv(prev => {
-    const next = { ...prev, [k]: v }
+    const next = { ...prev, [k]: v, currency: 'USD' }
     if (k === 'ticketType' && (v === 'Free' || v === 'Donation')) {
       next.price = '0'
     }

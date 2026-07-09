@@ -7,56 +7,133 @@ import {
   COUNTRIES, citiesForCountry, countryCenter, type CityInfo,
 } from './location-data'
 
-const LEAFLET_JS = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
-const LEAFLET_CSS = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
+const GOOGLE_MAPS_KEY =
+  process.env.NEXT_PUBLIC_GOOGLE_LOCATION_API_KEY ||
+  process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ||
+  ''
 
-// Minimal Leaflet surface we use (types package isn't installed).
-type LeafletMap = {
-  setView: (c: [number, number], z: number) => LeafletMap
-  on: (ev: string, cb: (e: { latlng: { lat: number; lng: number } }) => void) => void
-  remove: () => void
-  invalidateSize: () => void
-}
-type LeafletMarker = {
-  setLatLng: (c: [number, number]) => LeafletMarker
-  on: (ev: string, cb: () => void) => void
-  getLatLng: () => { lat: number; lng: number }
-  addTo: (m: LeafletMap) => LeafletMarker
-}
-type Leaflet = {
-  map: (el: HTMLElement, opts?: Record<string, unknown>) => LeafletMap
-  tileLayer: (url: string, opts?: Record<string, unknown>) => { addTo: (m: LeafletMap) => void }
-  marker: (c: [number, number], opts?: Record<string, unknown>) => LeafletMarker
-}
-declare global {
-  interface Window { L?: Leaflet }
-}
+type LatLngLiteral = { lat: number; lng: number }
 
-let leafletPromise: Promise<Leaflet> | null = null
-function loadLeaflet(): Promise<Leaflet> {
-  if (typeof window === 'undefined') return Promise.reject(new Error('no window'))
-  if (window.L) return Promise.resolve(window.L)
-  if (leafletPromise) return leafletPromise
-  leafletPromise = new Promise<Leaflet>((resolve, reject) => {
-    if (!document.querySelector(`link[href="${LEAFLET_CSS}"]`)) {
-      const link = document.createElement('link')
-      link.rel = 'stylesheet'
-      link.href = LEAFLET_CSS
-      document.head.appendChild(link)
+type GoogleMapsApi = {
+  maps: {
+    Map: new (el: HTMLElement, opts?: Record<string, unknown>) => GoogleMap
+    Marker: new (opts?: Record<string, unknown>) => GoogleMarker
+    Geocoder: new () => GoogleGeocoder
+    event: {
+      addListener: (instance: unknown, name: string, handler: (...args: never[]) => void) => { remove: () => void }
+      clearInstanceListeners: (instance: unknown) => void
     }
-    const existing = document.querySelector(`script[src="${LEAFLET_JS}"]`) as HTMLScriptElement | null
+    places: {
+      AutocompleteService: new () => GoogleAutocompleteService
+      PlacesServiceStatus: { OK: string; ZERO_RESULTS: string }
+    }
+    GeocoderStatus: { OK: string }
+  }
+}
+
+type GoogleMap = {
+  setCenter: (c: LatLngLiteral) => void
+  setZoom: (z: number) => void
+  panTo: (c: LatLngLiteral) => void
+  addListener: (name: string, handler: (e: { latLng?: { lat: () => number; lng: () => number } | null }) => void) => { remove: () => void }
+}
+
+type GoogleMarker = {
+  setPosition: (c: LatLngLiteral) => void
+  getPosition: () => { lat: () => number; lng: () => number } | null
+  setMap: (map: GoogleMap | null) => void
+  addListener: (name: string, handler: () => void) => { remove: () => void }
+}
+
+type GoogleGeocoder = {
+  geocode: (
+    req: {
+      location?: LatLngLiteral
+      address?: string
+      placeId?: string
+      componentRestrictions?: { country?: string }
+    },
+    cb: (results: GoogleGeocodeResult[] | null, status: string) => void,
+  ) => void
+}
+
+type GoogleGeocodeResult = {
+  formatted_address?: string
+  address_components?: Array<{
+    long_name: string
+    short_name: string
+    types: string[]
+  }>
+  geometry?: { location?: { lat: () => number; lng: () => number } }
+}
+
+type GoogleAutocompleteService = {
+  getPlacePredictions: (
+    req: {
+      input: string
+      types?: string[]
+      componentRestrictions?: { country?: string | string[] }
+    },
+    cb: (predictions: GooglePrediction[] | null, status: string) => void,
+  ) => void
+}
+
+type GooglePrediction = {
+  description: string
+  place_id: string
+}
+
+type SearchHit = { description: string; placeId: string }
+
+declare global {
+  interface Window {
+    google?: GoogleMapsApi
+    __ewGoogleMapsCb?: () => void
+  }
+}
+
+let googleMapsPromise: Promise<GoogleMapsApi> | null = null
+
+function loadGoogleMaps(): Promise<GoogleMapsApi> {
+  if (typeof window === 'undefined') return Promise.reject(new Error('no window'))
+  if (window.google?.maps?.places) return Promise.resolve(window.google)
+  if (!GOOGLE_MAPS_KEY) {
+    return Promise.reject(new Error('Missing NEXT_PUBLIC_GOOGLE_LOCATION_API_KEY'))
+  }
+  if (googleMapsPromise) return googleMapsPromise
+
+  googleMapsPromise = new Promise<GoogleMapsApi>((resolve, reject) => {
+    const existing = document.querySelector('script[data-ew-google-maps="1"]') as HTMLScriptElement | null
     if (existing) {
-      existing.addEventListener('load', () => window.L ? resolve(window.L) : reject(new Error('Leaflet failed')))
+      if (window.google?.maps?.places) {
+        resolve(window.google)
+        return
+      }
+      existing.addEventListener('load', () => {
+        if (window.google?.maps?.places) resolve(window.google)
+        else reject(new Error('Google Maps failed to load'))
+      })
+      existing.addEventListener('error', () => reject(new Error('Google Maps failed to load')))
       return
     }
+
+    window.__ewGoogleMapsCb = () => {
+      if (window.google?.maps?.places) resolve(window.google)
+      else reject(new Error('Google Maps failed to load'))
+    }
+
     const script = document.createElement('script')
-    script.src = LEAFLET_JS
+    script.dataset.ewGoogleMaps = '1'
     script.async = true
-    script.onload = () => window.L ? resolve(window.L) : reject(new Error('Leaflet failed'))
-    script.onerror = () => reject(new Error('Leaflet failed to load'))
-    document.body.appendChild(script)
+    script.defer = true
+    script.src =
+      `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(GOOGLE_MAPS_KEY)}` +
+      '&libraries=places&callback=__ewGoogleMapsCb'
+    script.onerror = () => reject(new Error('Google Maps failed to load'))
+    document.head.appendChild(script)
   })
-  return leafletPromise
+
+  return googleMapsPromise
 }
 
 const COUNTRY_ALIASES: Record<string, string> = {
@@ -66,12 +143,27 @@ const COUNTRY_ALIASES: Record<string, string> = {
   'great britain': 'United Kingdom',
   uae: 'United Arab Emirates',
 }
+
 function matchCountry(name?: string): string | null {
   if (!name) return null
   const key = name.trim().toLowerCase()
   const target = (COUNTRY_ALIASES[key] || name).toLowerCase()
   const found = COUNTRIES.find(c => c.name.toLowerCase() === target)
   return found ? found.name : null
+}
+
+function countryCodeForName(name: string): string | undefined {
+  return COUNTRIES.find(c => c.name === name)?.code.toLowerCase()
+}
+
+function componentOf(
+  result: GoogleGeocodeResult,
+  type: string,
+  useShort = false,
+): string {
+  const c = result.address_components?.find(a => a.types.includes(type))
+  if (!c) return ''
+  return useShort ? c.short_name : c.long_name
 }
 
 function AllDots() {
@@ -96,9 +188,6 @@ function Field({
   )
 }
 
-type SearchHit = { display_name: string; lat: string; lon: string }
-type NominatimAddress = Record<string, string | undefined>
-
 interface Props {
   ev: EventFormData
   setField: (k: string, v: string | boolean) => void
@@ -116,11 +205,14 @@ export function LocationSection({ ev, setField }: Props) {
   const [customCity, setCustomCity] = useState(cities.length === 0 || cityIsCustom)
 
   const mapEl = useRef<HTMLDivElement | null>(null)
-  const mapRef = useRef<LeafletMap | null>(null)
-  const markerRef = useRef<LeafletMarker | null>(null)
-  const [mapError, setMapError] = useState(false)
-  const [resolving, setResolving] = useState(false)
+  const mapRef = useRef<GoogleMap | null>(null)
+  const markerRef = useRef<GoogleMarker | null>(null)
+  const geocoderRef = useRef<GoogleGeocoder | null>(null)
+  const autocompleteRef = useRef<GoogleAutocompleteService | null>(null)
+  const googleRef = useRef<GoogleMapsApi | null>(null)
 
+  const [mapError, setMapError] = useState('')
+  const [resolving, setResolving] = useState(false)
   const [query, setQuery] = useState('')
   const [hits, setHits] = useState<SearchHit[]>([])
   const [searching, setSearching] = useState(false)
@@ -129,39 +221,50 @@ export function LocationSection({ ev, setField }: Props) {
   const lat = ev.lat ? parseFloat(String(ev.lat)) : null
   const lng = ev.lng ? parseFloat(String(ev.lng)) : null
 
-  // Reverse-geocode a pinned point and select the matching location fields.
-  const reverseGeocode = async (la: number, ln: number) => {
-    setResolving(true)
-    try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=json&addressdetails=1&zoom=16&lat=${la}&lon=${ln}`,
-        { headers: { 'Accept-Language': 'en' } },
-      )
-      const data = await res.json() as { display_name?: string; address?: NominatimAddress }
-      const a = data.address || {}
-      if (data.display_name) {
-        skipSearchRef.current = true
-        setQuery(data.display_name.split(',').slice(0, 3).join(', ').trim())
-      }
-      const canonCountry = a.country ? (matchCountry(a.country) || a.country) : country
-      if (a.country) setField('country', canonCountry)
-      const cityName = a.city || a.town || a.village || a.municipality || a.county || a.state_district || ''
-      if (cityName) {
-        setField('city', cityName)
-        setCustomCity(!citiesForCountry(canonCountry).some(c => c.name === cityName))
-      }
-      if (a.state) setField('region', a.state)
-      if (a.postcode) setField('postal', a.postcode)
-      const street = [a.house_number, a.road].filter(Boolean).join(' ')
-      if (street) setField('address', street)
-    } catch {
-      /* keep manual values on failure */
-    } finally {
-      setResolving(false)
+  const applyGeocodeResult = (result: GoogleGeocodeResult) => {
+    if (result.formatted_address) {
+      skipSearchRef.current = true
+      setQuery(result.formatted_address.split(',').slice(0, 3).join(', ').trim())
     }
+
+    const countryName = componentOf(result, 'country')
+    const canonCountry = countryName ? (matchCountry(countryName) || countryName) : country
+    if (countryName) setField('country', canonCountry)
+
+    const cityName =
+      componentOf(result, 'locality') ||
+      componentOf(result, 'postal_town') ||
+      componentOf(result, 'administrative_area_level_2') ||
+      componentOf(result, 'sublocality') ||
+      ''
+    if (cityName) {
+      setField('city', cityName)
+      setCustomCity(!citiesForCountry(canonCountry).some(c => c.name === cityName))
+    }
+
+    const region = componentOf(result, 'administrative_area_level_1')
+    if (region) setField('region', region)
+
+    const postal = componentOf(result, 'postal_code')
+    if (postal) setField('postal', postal)
+
+    const streetNumber = componentOf(result, 'street_number')
+    const route = componentOf(result, 'route')
+    const street = [streetNumber, route].filter(Boolean).join(' ')
+    if (street) setField('address', street)
   }
 
-  // Latest pin-moved handler, read from marker/map callbacks bound once at init.
+  const reverseGeocode = (la: number, ln: number) => {
+    const geocoder = geocoderRef.current
+    if (!geocoder || !googleRef.current) return
+    setResolving(true)
+    geocoder.geocode({ location: { lat: la, lng: ln } }, (results, status) => {
+      setResolving(false)
+      if (status !== googleRef.current!.maps.GeocoderStatus.OK || !results?.[0]) return
+      applyGeocodeResult(results[0])
+    })
+  }
+
   const onPinMovedRef = useRef<(la: number, ln: number) => void>(() => {})
   useEffect(() => {
     onPinMovedRef.current = (la, ln) => {
@@ -171,27 +274,34 @@ export function LocationSection({ ev, setField }: Props) {
     }
   })
 
-  const attachMarker = (L: Leaflet, map: LeafletMap, la: number, ln: number) => {
+  const attachMarker = (g: GoogleMapsApi, map: GoogleMap, la: number, ln: number) => {
+    const pos = { lat: la, lng: ln }
     if (markerRef.current) {
-      markerRef.current.setLatLng([la, ln])
-    } else {
-      const m = L.marker([la, ln], { draggable: true }).addTo(map)
-      m.on('dragend', () => {
-        const p = m.getLatLng()
-        onPinMovedRef.current(p.lat, p.lng)
-      })
-      markerRef.current = m
+      markerRef.current.setPosition(pos)
+      return
     }
+    const marker = new g.maps.Marker({
+      map,
+      position: pos,
+      draggable: true,
+    })
+    marker.addListener('dragend', () => {
+      const p = marker.getPosition()
+      if (!p) return
+      onPinMovedRef.current(p.lat(), p.lng())
+    })
+    markerRef.current = marker
   }
 
   const placeMarker = (la: number, ln: number, zoom = 13, reverse = false) => {
     setField('lat', la.toFixed(6))
     setField('lng', ln.toFixed(6))
     const map = mapRef.current
-    const L = typeof window !== 'undefined' ? window.L : undefined
-    if (map && L) {
-      map.setView([la, ln], zoom)
-      attachMarker(L, map, la, ln)
+    const g = googleRef.current
+    if (map && g) {
+      map.setCenter({ lat: la, lng: ln })
+      map.setZoom(zoom)
+      attachMarker(g, map, la, ln)
     }
     if (reverse) reverseGeocode(la, ln)
   }
@@ -199,73 +309,140 @@ export function LocationSection({ ev, setField }: Props) {
   useEffect(() => {
     if (!showPhysical) return
     let cancelled = false
-    loadLeaflet()
-      .then((L) => {
+
+    loadGoogleMaps()
+      .then((g) => {
         if (cancelled || !mapEl.current || mapRef.current) return
+        googleRef.current = g
+        geocoderRef.current = new g.maps.Geocoder()
+        autocompleteRef.current = new g.maps.places.AutocompleteService()
+
         const center = countryCenter(country)
-        const start: [number, number] = lat != null && lng != null
-          ? [lat, lng]
-          : (center ? [center.lat, center.lng] : [20, 0])
-        const zoom = lat != null && lng != null ? 13 : (country ? 5 : 2)
-        const map = L.map(mapEl.current, { scrollWheelZoom: false, zoomControl: true }).setView(start, zoom)
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-          attribution: '&copy; OpenStreetMap &copy; CARTO',
-          subdomains: 'abcd',
-          maxZoom: 20,
-        }).addTo(map)
-        map.on('click', (e) => {
-          const { lat: la, lng: ln } = e.latlng
-          attachMarker(L, map, la, ln)
+        const start: LatLngLiteral =
+          lat != null && lng != null
+            ? { lat, lng }
+            : center
+              ? { lat: center.lat, lng: center.lng }
+              : { lat: 20, lng: 0 }
+        const zoom = lat != null && lng != null ? 13 : country ? 5 : 2
+
+        const map = new g.maps.Map(mapEl.current, {
+          center: start,
+          zoom,
+          mapTypeControl: false,
+          streetViewControl: false,
+          fullscreenControl: false,
+          clickableIcons: false,
+          gestureHandling: 'greedy',
+        })
+
+        map.addListener('click', (e) => {
+          const ll = e.latLng
+          if (!ll) return
+          const la = ll.lat()
+          const ln = ll.lng()
+          attachMarker(g, map, la, ln)
           onPinMovedRef.current(la, ln)
         })
+
         mapRef.current = map
-        if (lat != null && lng != null) attachMarker(L, map, lat, lng)
-        setTimeout(() => map.invalidateSize(), 60)
+        if (lat != null && lng != null) attachMarker(g, map, lat, lng)
+        setMapError('')
       })
-      .catch(() => { if (!cancelled) setMapError(true) })
-    return () => { cancelled = true }
+      .catch((err: Error) => {
+        if (!cancelled) {
+          setMapError(
+            err.message.includes('Missing')
+              ? 'Add NEXT_PUBLIC_GOOGLE_LOCATION_API_KEY to your .env file to enable Google Maps.'
+              : 'Google Maps could not load. Check your API key and enabled APIs.',
+          )
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showPhysical])
 
   useEffect(() => () => {
-    if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; markerRef.current = null }
+    if (markerRef.current) {
+      markerRef.current.setMap(null)
+      markerRef.current = null
+    }
+    mapRef.current = null
+    geocoderRef.current = null
+    autocompleteRef.current = null
+    googleRef.current = null
   }, [])
 
-  // Live search as the user types (debounced, no button needed).
-  const doSearch = async (q: string) => {
-    if (q.trim().length < 3) { setHits([]); return }
-    setSearching(true)
-    try {
-      const scoped = [q, city, country].filter(Boolean).join(', ')
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(scoped)}`,
-        { headers: { 'Accept-Language': 'en' } },
-      )
-      setHits(await res.json() as SearchHit[])
-    } catch {
+  const doSearch = (q: string) => {
+    if (q.trim().length < 3) {
       setHits([])
-    } finally {
-      setSearching(false)
+      return
     }
+    const service = autocompleteRef.current
+    const g = googleRef.current
+    if (!service || !g) {
+      setHits([])
+      return
+    }
+
+    setSearching(true)
+    const countryCode = countryCodeForName(country)
+    service.getPlacePredictions(
+      {
+        input: q,
+        ...(countryCode ? { componentRestrictions: { country: countryCode } } : {}),
+      },
+      (predictions, status) => {
+        setSearching(false)
+        if (
+          status !== g.maps.places.PlacesServiceStatus.OK ||
+          !predictions?.length
+        ) {
+          setHits([])
+          return
+        }
+        setHits(
+          predictions.slice(0, 5).map(p => ({
+            description: p.description,
+            placeId: p.place_id,
+          })),
+        )
+      },
+    )
   }
 
   useEffect(() => {
-    if (skipSearchRef.current) { skipSearchRef.current = false; return }
-    const id = setTimeout(() => { doSearch(query) }, 400)
+    if (skipSearchRef.current) {
+      skipSearchRef.current = false
+      return
+    }
+    const id = setTimeout(() => {
+      doSearch(query)
+    }, 350)
     return () => clearTimeout(id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query])
+  }, [query, country])
 
   const onCountryChange = (value: string) => {
     setField('country', value)
     setField('city', '')
     setCustomCity(citiesForCountry(value).length === 0)
     const c = countryCenter(value)
-    if (c && mapRef.current) mapRef.current.setView([c.lat, c.lng], 5)
+    if (c && mapRef.current) {
+      mapRef.current.setCenter({ lat: c.lat, lng: c.lng })
+      mapRef.current.setZoom(5)
+    }
   }
 
   const onCityChange = (value: string) => {
-    if (value === '__custom__') { setCustomCity(true); setField('city', ''); return }
+    if (value === '__custom__') {
+      setCustomCity(true)
+      setField('city', '')
+      return
+    }
     setField('city', value)
     const info: CityInfo | undefined = cities.find(c => c.name === value)
     if (info) placeMarker(info.lat, info.lng, 12)
@@ -274,8 +451,22 @@ export function LocationSection({ ev, setField }: Props) {
   const pickHit = (h: SearchHit) => {
     setHits([])
     skipSearchRef.current = true
-    setQuery(h.display_name.split(',').slice(0, 2).join(', '))
-    placeMarker(parseFloat(h.lat), parseFloat(h.lon), 15, true)
+    setQuery(h.description.split(',').slice(0, 2).join(', '))
+
+    const geocoder = geocoderRef.current
+    const g = googleRef.current
+    if (!geocoder || !g) return
+
+    setResolving(true)
+    geocoder.geocode({ placeId: h.placeId }, (results, status) => {
+      setResolving(false)
+      if (status !== g.maps.GeocoderStatus.OK || !results?.[0]?.geometry?.location) return
+      const loc = results[0].geometry.location
+      const la = loc.lat()
+      const ln = loc.lng()
+      placeMarker(la, ln, 15, false)
+      applyGeocodeResult(results[0])
+    })
   }
 
   return (
@@ -357,36 +548,41 @@ export function LocationSection({ ev, setField }: Props) {
                 value={query}
                 placeholder="Type to search a place or address…"
                 onChange={e => setQuery(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); doSearch(query) } }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    doSearch(query)
+                  }
+                }}
               />
               {searching && <span className="ew-loc-searching">Searching…</span>}
             </div>
             {hits.length > 0 && (
               <ul className="ew-loc-hits">
-                {hits.map((h, i) => (
-                  <li key={i}>
-                    <button type="button" onClick={() => pickHit(h)}>{h.display_name}</button>
+                {hits.map((h) => (
+                  <li key={h.placeId}>
+                    <button type="button" onClick={() => pickHit(h)}>{h.description}</button>
                   </li>
                 ))}
               </ul>
             )}
             {mapError ? (
               <div className="ew-loc-map-fallback">
-                Map could not load. Search above or paste coordinates as
-                {' '}<code>lat, lng</code> below.
+                {mapError}
                 <input
                   className="ew-loc-coord-input"
                   placeholder="e.g. 24.8607, 67.0011"
                   onChange={e => {
                     const [la, ln] = e.target.value.split(',').map(s => parseFloat(s.trim()))
                     if (!Number.isNaN(la) && !Number.isNaN(ln)) {
-                      setField('lat', la.toFixed(6)); setField('lng', ln.toFixed(6))
+                      setField('lat', la.toFixed(6))
+                      setField('lng', ln.toFixed(6))
                     }
                   }}
                 />
               </div>
             ) : (
-              <div ref={mapEl} className="ew-loc-map" />
+              <div ref={mapEl} className="ew-loc-map ew-loc-map--google" />
             )}
             <div className="ew-loc-coords">
               {lat != null && lng != null ? (
