@@ -2,6 +2,7 @@ import { lumaEventToNorm, unwrapLumaEvent, isLumaDescriptionSentinel } from '@/l
 import { channelFetch } from '@/lib/channel-fetch'
 import { getStoredEvent, type ChannelName } from '@/lib/channel-events-store'
 import { canonicalizeCountry, COUNTRIES } from '@/components/ewentcast/location-data'
+import { extractHightribeTags, extractLumaTags, formatTagsInput } from '@/lib/event-tags'
 import type { ChannelKey } from '@/lib/types'
 import type { EventFormData } from '@/lib/publish-event'
 
@@ -219,6 +220,26 @@ function mapPublishStatus(raw?: string | null, isPublic?: boolean | null): strin
   return 'Draft'
 }
 
+function mapLumaPublishStatus(e: Record<string, unknown>, raw: Record<string, unknown>): string {
+  const fromStatus = mapPublishStatus(String(e.status || raw.status || ''))
+  if (fromStatus === 'Published') return 'Published'
+
+  const vis = String(e.visibility || raw.visibility || '').toLowerCase()
+  if (vis === 'public') return 'Published'
+
+  const entry = (e.entry || raw.entry) as Record<string, unknown> | undefined
+  const calendarStatus = String(
+    e.calendar_status || raw.calendar_status
+    || e.approval_status || raw.approval_status
+    || entry?.status
+    || '',
+  ).toLowerCase()
+  if (/approved|published|live/.test(calendarStatus)) return 'Published'
+  if (/pending|rejected|draft/.test(calendarStatus)) return 'Draft'
+
+  return 'Draft'
+}
+
 function mapVisibility(raw?: string | null, listed?: boolean | null, isPublic?: boolean | null): string {
   const s = String(raw || '').trim().toLowerCase()
   if (s === 'private' || s === 'member-only' || s === 'member_only' || s === 'members') return 'Private'
@@ -275,6 +296,7 @@ interface NormEvent {
   title: string
   summary?: string
   description: string
+  tags?: string[]
   startUtc: string
   endUtc: string
   timezone: string
@@ -338,7 +360,7 @@ function normToForm(n: NormEvent): EventFormData {
     description: scrubFormText(n.description),
     coverUrl: n.coverImage || '',
     category: 'Music',
-    tags: '',
+    tags: formatTagsInput(n.tags),
     date: start.date,
     time: start.time,
     endDate: end.date,
@@ -481,6 +503,7 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
       maxPerOrder: parseInt(String(ticketSetting.max_qty ?? ticketSetting.maxQty ?? ''), 10) || undefined,
       htTicketId: ticket?.id != null ? String(ticket.id) : undefined,
       htTicketName: ticket?.name != null ? String(ticket.name) : undefined,
+      tags: extractHightribeTags(e, raw),
     }
   }
 
@@ -537,9 +560,10 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
       lng: norm.lng,
       requireApproval: !!(e.require_rsvp_approval),
       capacity: typeof e.capacity === 'number' ? e.capacity : undefined,
-      status: mapPublishStatus(String(e.status || raw.status || '')),
+      status: mapLumaPublishStatus(e, { ...raw, ...e }),
       visibility: mapVisibility(String(e.visibility || raw.visibility || '')),
       hostName: pickHostName(e.host, e.host_name, e.organizer, hosts, e.hosts, raw.host, raw.hosts),
+      tags: extractLumaTags({ ...e, ...raw }),
       ticketType,
       ticketPrice,
       salesStartUtc: ticket
@@ -876,6 +900,25 @@ function mergeStoredMeta(norm: NormEvent, stored: Awaited<ReturnType<typeof getS
       ?? parseCoord(venueAddr?.longitude)
       ?? parseCoord(payload.geo_longitude)
   }
+
+  if ((!norm.status || norm.status === 'Draft') && stored.status) {
+    norm.status = mapPublishStatus(stored.status)
+  }
+  if (!norm.tags?.length && stored.payload && typeof stored.payload === 'object') {
+    const p = stored.payload as Record<string, unknown>
+    const lumaTags = extractLumaTags(p)
+    const htTags = extractHightribeTags(p, p)
+    const merged = lumaTags.length ? lumaTags : htTags
+    if (merged.length) norm.tags = merged
+  }
+  if (!norm.ticketType && stored.payload && typeof stored.payload === 'object') {
+    const p = stored.payload as Record<string, unknown>
+    if (p.is_free === true) {
+      norm.ticketType = 'Free'
+      norm.ticketPrice = 0
+    }
+  }
+
 }
 
 async function enrichTickets(norm: NormEvent, channel: ChannelKey, eventId: string | number) {
@@ -950,6 +993,66 @@ async function loadLumaEventFresh(eventId: string | number): Promise<Record<stri
     return data.data || data.event || null
   } catch {
     return null
+  }
+}
+
+
+async function fetchChannelPublishStatus(
+  ch: ChannelKey,
+  id: string | number,
+): Promise<string | undefined> {
+  try {
+    const stored = await getStoredEvent(ch as ChannelName, String(id))
+    if (stored?.status) {
+      const mapped = mapPublishStatus(stored.status)
+      if (mapped === 'Published') return 'Published'
+    }
+    if (ch === 'eventbrite') {
+      const fresh = await loadEventbriteEventFresh(id)
+      if (fresh && mapPublishStatus(String(fresh.status || '')) === 'Published') {
+        return 'Published'
+      }
+    } else if (ch === 'hightribe') {
+      const res = await channelFetch(`/api/hightribe/events/${id}`)
+      if (res.ok) {
+        const envelope = await res.json() as { data?: Record<string, unknown> }
+        const e = (envelope.data && typeof envelope.data === 'object' ? envelope.data : envelope) as Record<string, unknown>
+        const mapped = mapPublishStatus(
+          String(e.publish_status || e.status || ''),
+          typeof e.is_public === 'boolean' ? e.is_public : null,
+        )
+        if (mapped === 'Published') return 'Published'
+      }
+    } else if (ch === 'luma') {
+      const fresh = await loadLumaEventFresh(id)
+      if (fresh) {
+        const e = unwrapLumaEvent(fresh.event ? { event: fresh } : { event: fresh })
+        if (mapLumaPublishStatus(e, fresh) === 'Published') return 'Published'
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return undefined
+}
+
+async function enrichPublishStatusFromLinked(
+  form: EventFormData,
+  linkedChannels: Partial<Record<ChannelKey, string | number>> | undefined,
+  primaryChannel: ChannelKey,
+): Promise<void> {
+  if (String(form.status || '').toLowerCase() === 'published') return
+  if (!linkedChannels) return
+
+  for (const ch of ['eventbrite', 'hightribe', 'luma'] as ChannelKey[]) {
+    if (ch === primaryChannel) continue
+    const id = linkedChannels[ch]
+    if (id == null) continue
+    const status = await fetchChannelPublishStatus(ch, id)
+    if (status === 'Published') {
+      form.status = 'Published'
+      return
+    }
   }
 }
 
@@ -1046,7 +1149,9 @@ export async function loadEventFormData(
     if (extra) mergeNormTextFields(norm, extra)
   }
 
-  return normToForm(norm)
+  const form = normToForm(norm)
+  await enrichPublishStatusFromLinked(form, siblings, channel)
+  return form
 }
 
 export { normToForm }

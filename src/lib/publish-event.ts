@@ -7,6 +7,7 @@ import type { ChannelKey } from '@/lib/types'
 import { buildEbTicketClass, ebTicketQuantity } from '@/lib/eventbrite-ticket'
 import { resolveEbTimezone } from '@/lib/eventbrite-timezone'
 import { zonedDateTimeToUtcIso } from '@/lib/event-datetime'
+import { parseTagsInput, syncLumaEventTags } from '@/lib/event-tags'
 import { unwrapLumaEvent } from '@/lib/luma-event-utils'
 import {
   postHtEvent,
@@ -239,6 +240,12 @@ function htPublishStatus(ev: EventFormData): 'draft' | 'published' {
   return 'draft'
 }
 
+function ebPublishStatus(ev: EventFormData): 'live' | 'draft' {
+  const raw = String(ev.status || '').trim().toLowerCase()
+  if (raw === 'published' || raw === 'live' || raw === 'public') return 'live'
+  return 'draft'
+}
+
 function htIsPublic(ev: EventFormData): boolean {
   const vis = String(ev.visibility || '').trim().toLowerCase()
   if (vis === 'private' || vis === 'unlisted' || vis === 'member-only') return false
@@ -280,6 +287,10 @@ function buildHightribeEventBody(
   if (hostName) {
     body.host_name = hostName
     body.organizer_name = hostName
+  }
+  const tagList = parseTagsInput(ev.tags)
+  if (tagList.length) {
+    body.highlights = tagList
   }
   if (online) {
     body.location = {
@@ -667,6 +678,7 @@ export async function publishToChannel(
     const eventId = extractLumaEventId(raw)
     if (!eventId) throw new Error('Luma did not return an event id')
     const ticketId = await syncLumaTickets(eventId, ev)
+    await syncLumaEventTags(eventId, parseTagsInput(ev.tags))
     const unwrapped = unwrapLumaEvent(raw.data ?? raw)
     const lumaUrl = String(unwrapped.url || raw.data?.url || '')
     return { eventId, ticketId, url: lumaUrl || `lu.ma/${eventId}` }
@@ -710,6 +722,7 @@ export async function publishToChannel(
         currency: 'USD',
         online_event: online && !inPerson,
         listed: ev.visibility === 'Public',
+        status: ebPublishStatus(ev),
         shareable: true,
       },
     }),
@@ -852,6 +865,7 @@ export async function updateChannelEvent(
     })
     const raw = await res.json() as { status?: string; message?: string; error?: string }
     if (!res.ok || raw.status === 'error') throw new Error(raw.message || raw.error || `HTTP ${res.status}`)
+    await syncLumaEventTags(id, parseTagsInput(ev.tags))
     await syncLumaTickets(eventId, ev)
     return
   }
@@ -886,6 +900,7 @@ export async function updateChannelEvent(
   // `description` is deprecated on Eventbrite event update and often 400s —
   // only patch name / schedule / listing / summary. Full body goes via
   // structured content below.
+  const ebStatus = ebPublishStatus(ev)
   const attempts: Record<string, unknown>[] = [
     {
       name: { html: toEbHtml(ebTitle) },
@@ -893,14 +908,17 @@ export async function updateChannelEvent(
       start: { utc: ebStart, timezone: ebTz },
       end: { utc: ebEnd, timezone: ebTz },
       listed: ev.visibility === 'Public',
+      status: ebStatus,
     },
     {
       name: { html: toEbHtml(ebTitle) },
       start: { utc: ebStart, timezone: ebTz },
       end: { utc: ebEnd, timezone: ebTz },
+      status: ebStatus,
     },
     {
       name: { html: toEbHtml(ebTitle) },
+      status: ebStatus,
     },
   ]
 
@@ -1084,8 +1102,7 @@ async function persistPublishedEvent(
       end: { utc: endUtc },
       url: ref.url || '',
       is_free: ev.ticketType === 'Free',
-      // Eventbrite stays draft until published on their side
-      status: 'draft',
+      status: ebPublishStatus(ev),
       listed: String(ev.visibility || '') === 'Public',
       online_event: online && !inPerson,
       ...(inPerson && hasPlace ? {
