@@ -6,7 +6,7 @@ import { getUser } from '@/lib/auth'
 import { connectedChannelsFromMap, fetchChannelConnectionMap } from '@/lib/channel-connection'
 import type { AttendeeRecord } from '@/lib/event-registry'
 import { publishToAllChannels, updateChannelEventsAll, type EventFormData } from '@/lib/publish-event'
-import { syncChannelDataToDb } from '@/lib/channel-data-sync'
+import { syncChannelDataToDb, refreshStoredEventsForChannels, markEventsListStale } from '@/lib/channel-data-sync'
 import type { EventCoverFiles } from '@/lib/cover-image'
 import { loadEventFormData } from '@/lib/event-form-data'
 import type { ChannelKey } from '@/lib/types'
@@ -227,6 +227,8 @@ export function EwentcastWizard({
           .join(' · ')
         throw new Error(msg)
       }
+      await refreshStoredEventsForChannels(editTargets)
+      markEventsListStale()
       onDone?.(editTargetChannels)
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Save failed')
@@ -281,6 +283,7 @@ export function EwentcastWizard({
           syncChannelDataToDb(ch).catch(() => { /* best-effort refresh */ }),
         ),
       )
+      markEventsListStale()
     } catch (e) {
       // Master-event creation failed — nothing was published, so reset lanes.
       setPublishError(e instanceof Error ? e.message : 'Publish failed')

@@ -55,7 +55,12 @@ export function CreateEventWizardModal({
           editEventId={editEventId}
           editChannelIds={editChannelIds}
           onClose={onClose}
-          onDone={(updatedChannels) => { onPublished?.(updatedChannels); onClose() }}
+          onDone={(updatedChannels) => {
+            void (async () => {
+              await onPublished?.(updatedChannels)
+              onClose()
+            })()
+          }}
         />
       </div>
     </div>

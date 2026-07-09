@@ -2,7 +2,7 @@ import crypto from 'crypto'
 import type { ChannelKey, MasterEventRecord } from '../types'
 import { upsertWebhookBooking } from './bookings'
 import type { ChannelName } from './events'
-import { resolveUserIdFromChannelEvent } from './events'
+import { getChannelEvent, resolveUserIdFromChannelEvent } from './events'
 import {
   findMasterContextByChannelEvent,
   getMasterEvent,
@@ -28,23 +28,36 @@ export async function handleWebhookBooking(input: {
   externalId?: string
   status?: string
 }): Promise<{ master: MasterEventRecord | null; bookingSaved: boolean }> {
-  const ctx = await findMasterContextByChannelEvent(input.sourceChannel, input.channelEventId)
-  if (!ctx) return { master: null, bookingSaved: false }
-
   const registeredAt = input.registeredAt || new Date().toISOString()
-  await registerAttendee(ctx.masterId, {
-    email: input.email,
-    name: input.name,
-    source: input.sourceChannel,
-    registeredAt,
-  })
+  const ctx = await findMasterContextByChannelEvent(input.sourceChannel, input.channelEventId)
 
-  let userId = ctx.userId
+  let master: MasterEventRecord | null = null
+  if (ctx) {
+    await registerAttendee(ctx.masterId, {
+      email: input.email,
+      name: input.name,
+      source: input.sourceChannel,
+      registeredAt,
+    })
+    master = await getMasterEvent(ctx.masterId)
+  }
+
+  let userId = ctx?.userId ?? null
   if (!userId) {
     userId = await resolveUserIdFromChannelEvent(
       input.sourceChannel as ChannelName,
       input.channelEventId,
     )
+  }
+
+  let eventTitle = ctx?.title || 'Untitled event'
+  if (userId && (!ctx?.title || eventTitle === 'Untitled event')) {
+    const stored = await getChannelEvent(
+      input.sourceChannel as ChannelName,
+      userId,
+      input.channelEventId,
+    )
+    if (stored?.title) eventTitle = stored.title
   }
 
   let bookingSaved = false
@@ -56,7 +69,7 @@ export async function handleWebhookBooking(input: {
         input.externalId
         || webhookExternalId(input.sourceChannel, input.channelEventId, input.email),
       eventExternalId: input.channelEventId,
-      eventTitle: ctx.title,
+      eventTitle,
       guestName: input.name,
       guestEmail: input.email,
       registeredAt: new Date(registeredAt),
@@ -64,6 +77,5 @@ export async function handleWebhookBooking(input: {
     })
   }
 
-  const master = await getMasterEvent(ctx.masterId)
   return { master, bookingSaved }
 }

@@ -32,6 +32,131 @@ function isInPerson(fmt: string) {
   return fmt === 'In person' || fmt === 'Hybrid'
 }
 
+const EB_COUNTRY_ALIASES: Record<string, string> = {
+  PAKISTAN: 'PK',
+  'UNITED STATES': 'US',
+  USA: 'US',
+  'UNITED KINGDOM': 'GB',
+  UK: 'GB',
+  CANADA: 'CA',
+  AUSTRALIA: 'AU',
+  GERMANY: 'DE',
+  FRANCE: 'FR',
+}
+
+function normalizeEbCountry(raw?: string): string | undefined {
+  const value = String(raw || '').trim().toUpperCase()
+  if (!value) return undefined
+  if (/^[A-Z]{2}$/.test(value)) return value
+  return EB_COUNTRY_ALIASES[value]
+}
+
+function shouldCreateEventbriteVenue(ev: EventFormData, inPerson: boolean): boolean {
+  if (!inPerson) return false
+  if (!normalizeEbCountry(String(ev.country || ''))) return false
+  return !!(ev.venue || ev.address || ev.city)
+}
+
+function parseHtResponse(raw: Record<string, unknown>, status: number): never {
+  const message = typeof raw.message === 'string' ? raw.message : undefined
+  const errors = raw.errors as Record<string, string[]> | undefined
+  const detail = errors ? Object.values(errors).flat().join(', ') : undefined
+  throw new Error(message || detail || `HTTP ${status}`)
+}
+
+function buildHightribeEventBody(
+  ev: EventFormData,
+  online: boolean,
+  inPerson: boolean,
+  tz: string,
+  startUtc: string,
+  endUtc: string,
+): Record<string, unknown> {
+  const startD = new Date(startUtc)
+  const endD = new Date(endUtc)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const body: Record<string, unknown> = {
+    title: ev.title,
+    description: String(ev.description || ev.title),
+    status: 'published',
+    is_business_profile: 0,
+    dates: {
+      start_date: `${startD.getFullYear()}-${pad(startD.getMonth() + 1)}-${pad(startD.getDate())}`,
+      start_time: `${pad(startD.getHours())}:${pad(startD.getMinutes())}`,
+      end_date: `${endD.getFullYear()}-${pad(endD.getMonth() + 1)}-${pad(endD.getDate())}`,
+      end_time: `${pad(endD.getHours())}:${pad(endD.getMinutes())}`,
+      timezone: tz,
+    },
+  }
+  if (online) {
+    body.location = {
+      type: 'online',
+      location: 'Online',
+      address: 'Online',
+      city: 'Online',
+      online_url: ev.onlineUrl || undefined,
+    }
+  } else if (inPerson) {
+    body.location = {
+      type: 'physical',
+      location: String(ev.venue || ev.address || 'TBD'),
+      address: String(ev.address || ev.venue || 'TBD'),
+      city: String(ev.city || ev.venue || 'TBD'),
+      lat: ev.lat ? parseFloat(String(ev.lat)) : undefined,
+      lng: ev.lng ? parseFloat(String(ev.lng)) : undefined,
+    }
+  }
+  return body
+}
+
+async function publishHightribeChannel(
+  ev: EventFormData,
+  online: boolean,
+  inPerson: boolean,
+  tz: string,
+  startUtc: string,
+  endUtc: string,
+  cap: number,
+  htCoverFile?: File,
+): Promise<{ eventId: string; ticketId?: string }> {
+  const body = buildHightribeEventBody(ev, online, inPerson, tz, startUtc, endUtc)
+  const ticketBundle = buildHightribeTicketsFromForm(ev)
+
+  if (cap && ticketBundle.tickets) {
+    const bundled = { ...body, ...ticketBundle }
+    const res = await postHtEvent('/api/hightribe/events/with-tickets', bundled, 'POST', htCoverFile)
+    const data = await res.json() as {
+      data?: { id?: unknown; tickets?: Array<{ id?: unknown }> }
+      message?: string
+      errors?: Record<string, string[]>
+    }
+    if (res.ok) {
+      const id = String((data.data as Record<string, unknown>)?.id || '')
+      const ticketId = String((data.data as { tickets?: Array<{ id?: unknown }> })?.tickets?.[0]?.id || '')
+      return { eventId: id, ticketId: ticketId || undefined }
+    }
+
+    // Some HT API hosts don't support with-tickets yet — create event then sync tickets.
+    const eventRes = await postHtEvent('/api/hightribe/events', body, 'POST', htCoverFile)
+    const eventData = await eventRes.json() as {
+      data?: { id?: unknown }
+      message?: string
+      errors?: Record<string, string[]>
+    }
+    if (!eventRes.ok) parseHtResponse(eventData, eventRes.status)
+    const eventId = String((eventData.data as Record<string, unknown>)?.id || '')
+    if (!eventId) throw new Error('Hightribe did not return an event id')
+    await syncHightribeTickets(eventId, ev)
+    const ids = await fetchHightribeTicketIds(eventId)
+    return { eventId, ticketId: ids[0] || undefined }
+  }
+
+  const res = await postHtEvent('/api/hightribe/events', body, 'POST', htCoverFile)
+  const data = await res.json() as { data?: { id?: unknown }; message?: string; errors?: Record<string, string[]> }
+  if (!res.ok) parseHtResponse(data, res.status)
+  return { eventId: String((data.data as Record<string, unknown>)?.id || '') }
+}
+
 function buildHightribeTicketsFromForm(ev: EventFormData): {
   tickets?: Array<Record<string, unknown>>
   ticketSetting?: Record<string, unknown>
@@ -170,47 +295,8 @@ export async function publishToChannel(
     : undefined
 
   if (ch === 'hightribe') {
-    const startD = new Date(startUtc)
-    const endD = new Date(endUtc)
-    const pad = (n: number) => String(n).padStart(2, '0')
-    const body: Record<string, unknown> = {
-      title: ev.title,
-      description: String(ev.description || ev.title),
-      status: 'published',
-      is_business_profile: 0,
-      dates: {
-        start_date: `${startD.getFullYear()}-${pad(startD.getMonth() + 1)}-${pad(startD.getDate())}`,
-        start_time: `${pad(startD.getHours())}:${pad(startD.getMinutes())}`,
-        end_date: `${endD.getFullYear()}-${pad(endD.getMonth() + 1)}-${pad(endD.getDate())}`,
-        end_time: `${pad(endD.getHours())}:${pad(endD.getMinutes())}`,
-        timezone: tz,
-      },
-    }
-    if (online) {
-      body.location = { type: 'online', location: 'Online', address: 'Online', city: 'Online' }
-    } else if (inPerson) {
-      body.location = {
-        type: 'physical',
-        location: String(ev.venue || ev.address || 'TBD'),
-        address: String(ev.address || ev.venue || 'TBD'),
-        city: String(ev.city || ev.venue || 'TBD'),
-        lat: ev.lat ? parseFloat(String(ev.lat)) : undefined,
-        lng: ev.lng ? parseFloat(String(ev.lng)) : undefined,
-      }
-    }
-    if (cap) {
-      Object.assign(body, buildHightribeTicketsFromForm(ev))
-      const res = await postHtEvent('/api/hightribe/events/with-tickets', body, 'POST', htCoverFile)
-      const data = await res.json() as { data?: { id?: unknown; tickets?: Array<{ id?: unknown }> }; message?: string; errors?: Record<string, string[]> }
-      if (!res.ok) throw new Error(data.message || (data.errors ? Object.values(data.errors).flat().join(', ') : `HTTP ${res.status}`))
-      const id = String((data.data as Record<string, unknown>)?.id || '')
-      const ticketId = String((data.data as { tickets?: Array<{ id?: unknown }> })?.tickets?.[0]?.id || '')
-      return { eventId: id, ticketId }
-    }
-    const res = await postHtEvent('/api/hightribe/events', body, 'POST', htCoverFile)
-    const data = await res.json() as { data?: { id?: unknown }; message?: string; errors?: Record<string, string[]> }
-    if (!res.ok) throw new Error(data.message || (data.errors ? Object.values(data.errors).flat().join(', ') : `HTTP ${res.status}`))
-    return { eventId: String((data.data as Record<string, unknown>)?.id || '') }
+    const published = await publishHightribeChannel(ev, online, inPerson, tz, startUtc, endUtc, cap, htCoverFile)
+    return published
   }
 
   if (ch === 'luma') {
@@ -284,14 +370,19 @@ export async function publishToChannel(
   if (!evtRes.ok) throw new Error(evtData.error_description || `HTTP ${evtRes.status}`)
   const eventId = evtData.id!
 
-  if (inPerson && (ev.venue || ev.address || ev.city)) {
+  if (inPerson && shouldCreateEventbriteVenue(ev, inPerson)) {
+    const country = normalizeEbCountry(String(ev.country || ''))!
     const vRes = await channelFetch(`/api/eventbrite/organizations/${orgId}/venues`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         venue: {
           name: String(ev.venue || ev.city),
-          address: { address_1: ev.address || undefined, city: ev.city || undefined, country: ev.country || undefined },
+          address: {
+            address_1: String(ev.address || ev.venue || ev.city),
+            city: ev.city || undefined,
+            country,
+          },
         },
       }),
     })
@@ -345,32 +436,7 @@ export async function updateChannelEvent(
     : undefined
 
   if (ch === 'hightribe') {
-    const startD = new Date(startUtc)
-    const endD = new Date(endUtc)
-    const pad = (n: number) => String(n).padStart(2, '0')
-    const body: Record<string, unknown> = {
-      title: ev.title,
-      description: String(ev.description || ev.title),
-      dates: {
-        start_date: `${startD.getFullYear()}-${pad(startD.getMonth() + 1)}-${pad(startD.getDate())}`,
-        start_time: `${pad(startD.getHours())}:${pad(startD.getMinutes())}`,
-        end_date: `${endD.getFullYear()}-${pad(endD.getMonth() + 1)}-${pad(endD.getDate())}`,
-        end_time: `${pad(endD.getHours())}:${pad(endD.getMinutes())}`,
-        timezone: tz,
-      },
-    }
-    if (online) {
-      body.location = { type: 'online', location: 'Online', address: 'Online', city: 'Online', online_url: ev.onlineUrl || undefined }
-    } else if (inPerson) {
-      body.location = {
-        type: 'physical',
-        location: String(ev.venue || ev.address || 'TBD'),
-        address: String(ev.address || ev.venue || 'TBD'),
-        city: String(ev.city || ev.venue || 'TBD'),
-        lat: ev.lat ? parseFloat(String(ev.lat)) : undefined,
-        lng: ev.lng ? parseFloat(String(ev.lng)) : undefined,
-      }
-    }
+    const body = buildHightribeEventBody(ev, online, inPerson, tz, startUtc, endUtc)
     const ticketBundle = buildHightribeTicketsFromForm(ev)
     if (ticketBundle.tickets) {
       Object.assign(body, ticketBundle)

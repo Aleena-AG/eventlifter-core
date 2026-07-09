@@ -45,12 +45,21 @@ export async function POST(req: NextRequest) {
         : undefined,
     })
 
+    if (!master && !bookingSaved) {
+      return NextResponse.json({
+        ok: true,
+        skipped: 'event not in your synced events yet',
+        eventId,
+        hint: 'Sync events for this channel once so we can match the booking to your account.',
+      })
+    }
+
     if (!master) {
       return NextResponse.json({
         ok: true,
-        skipped: 'no linked master event for this Hightribe event_id',
+        bookingSaved,
         eventId,
-        hint: 'Publish/sync the event in EventLifter first so channels are linked in the registry.',
+        attendee: { name, email, eventId },
       })
     }
 

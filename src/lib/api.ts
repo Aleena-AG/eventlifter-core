@@ -137,7 +137,7 @@ export async function connectChannel(channel: ChannelKey, body?: Record<string, 
     return { oauthRequired: true }
   }
   if (channel === 'hightribe') {
-    return put('/api/settings', { hightribe: { serviceUrl: (body?.serviceUrl as string) || 'http://localhost:4000' } })
+    return put('/api/settings', { hightribe: { serviceUrl: (body?.serviceUrl as string) || 'https://api.hightribe.com' } })
   }
   return {}
 }

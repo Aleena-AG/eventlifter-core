@@ -1,39 +1,39 @@
 import type { ChannelKey } from '@/lib/types'
-import { backendJson } from '@/lib/backend-client'
+import { getAppUrl } from '@/lib/app-url'
+import type { AttendeeRecord, ChannelRef, MasterEventRecord } from '@/lib/event-registry-types'
 
-export interface ChannelRef {
-  eventId: string
-  ticketId?: string
-  url?: string
+export type { AttendeeRecord, ChannelRef, MasterEventRecord } from '@/lib/event-registry-types'
+
+function registryUrl(path: string): string {
+  if (typeof window !== 'undefined') return path
+  return `${getAppUrl()}${path}`
 }
 
-export interface AttendeeRecord {
-  email: string
-  name: string
-  source: ChannelKey
-  registeredAt: string
-  merged?: boolean
-}
-
-export interface MasterEventRecord {
-  id: string
-  title: string
-  capacity: number
-  sold: number
-  channels: Partial<Record<ChannelKey, ChannelRef>>
-  attendees: AttendeeRecord[]
-  createdAt: string
-  updatedAt: string
+async function registryJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(registryUrl(path), {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      ...(init?.headers as Record<string, string> | undefined),
+    },
+    cache: 'no-store',
+  })
+  const data = await res.json() as T & { error?: string }
+  if (!res.ok) {
+    throw new Error(typeof data.error === 'string' ? data.error : `Registry error ${res.status}`)
+  }
+  return data
 }
 
 export async function listMasterEvents(): Promise<MasterEventRecord[]> {
-  const data = await backendJson<{ events: MasterEventRecord[] }>('/api/registry')
+  const data = await registryJson<{ events: MasterEventRecord[] }>('/api/registry')
   return data.events
 }
 
 export async function getMasterEvent(id: string): Promise<MasterEventRecord | null> {
   try {
-    return await backendJson<MasterEventRecord>('/api/registry', {
+    return await registryJson<MasterEventRecord>('/api/registry', {
       method: 'POST',
       body: JSON.stringify({ masterId: id }),
     })
@@ -46,7 +46,7 @@ export async function findMasterByChannelEvent(
   channel: ChannelKey,
   eventId: string,
 ): Promise<MasterEventRecord | null> {
-  const data = await backendJson<{
+  const data = await registryJson<{
     master: { id: string; title: string } | null
     links: Partial<Record<ChannelKey, { eventId: string; url?: string }>>
   }>(`/api/registry?channel=${encodeURIComponent(channel)}&eventId=${encodeURIComponent(eventId)}`)
@@ -60,7 +60,7 @@ export async function createMasterEvent(input: {
   capacity: number
   channels?: Partial<Record<ChannelKey, ChannelRef>>
 }): Promise<MasterEventRecord> {
-  return backendJson<MasterEventRecord>('/api/registry', {
+  return registryJson<MasterEventRecord>('/api/registry', {
     method: 'POST',
     body: JSON.stringify({
       action: 'create',
@@ -74,7 +74,7 @@ export async function registerAttendee(
   masterId: string,
   attendee: Omit<AttendeeRecord, 'registeredAt'> & { registeredAt?: string },
 ): Promise<MasterEventRecord | null> {
-  return backendJson<MasterEventRecord>('/api/registry', {
+  return registryJson<MasterEventRecord>('/api/registry', {
     method: 'POST',
     body: JSON.stringify({
       action: 'register_attendee',
@@ -94,7 +94,7 @@ export async function linkChannelEvent(
   ref: ChannelRef,
 ): Promise<MasterEventRecord | null> {
   try {
-    return await backendJson<MasterEventRecord>('/api/registry', {
+    return await registryJson<MasterEventRecord>('/api/registry', {
       method: 'POST',
       body: JSON.stringify({ action: 'link', masterId, channel, ref }),
     })
@@ -104,7 +104,7 @@ export async function linkChannelEvent(
 }
 
 export async function deleteMasterEvent(id: string): Promise<boolean> {
-  await backendJson('/api/registry', {
+  await registryJson('/api/registry', {
     method: 'POST',
     body: JSON.stringify({ action: 'delete', masterId: id }),
   })
@@ -115,7 +115,7 @@ export async function removeChannelFromMaster(
   masterId: string,
   channel: ChannelKey,
 ): Promise<MasterEventRecord | null> {
-  const data = await backendJson<{ ok: boolean; master: MasterEventRecord | null }>('/api/registry', {
+  const data = await registryJson<{ ok: boolean; master: MasterEventRecord | null }>('/api/registry', {
     method: 'POST',
     body: JSON.stringify({ action: 'unlink', masterId, channel }),
   })
