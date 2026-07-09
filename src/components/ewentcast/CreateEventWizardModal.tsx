@@ -56,10 +56,9 @@ export function CreateEventWizardModal({
           editChannelIds={editChannelIds}
           onClose={onClose}
           onDone={(updatedChannels) => {
-            void (async () => {
-              await onPublished?.(updatedChannels)
-              onClose()
-            })()
+            // Close first so a slow/failing refresh never leaves the modal stuck open.
+            onClose()
+            void Promise.resolve(onPublished?.(updatedChannels)).catch(() => {})
           }}
         />
       </div>

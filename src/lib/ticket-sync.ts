@@ -45,9 +45,8 @@ export async function syncCapacityAcrossChannels(
         results.push({ channel: ch, ok: true })
       } else if (ch === 'luma' && ref.ticketId) {
         await proxyLumaPath(['ticket-types'], 'PUT', {}, {
-          event_api_id: ref.eventId,
-          ticket_type_api_id: ref.ticketId,
-          capacity: remaining + master.sold,
+          event_ticket_type_id: ref.ticketId,
+          max_capacity: remaining + master.sold,
         }, loadSettings())
         results.push({ channel: ch, ok: true })
       } else if (ch === 'hightribe') {

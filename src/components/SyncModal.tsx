@@ -8,6 +8,8 @@ import { resolveHtApiAuthHeader } from '@/lib/ewentcast-session'
 import { buildEbTicketClass, ebTicketQuantity } from '@/lib/eventbrite-ticket'
 import { resolveEbTimezone } from '@/lib/eventbrite-timezone'
 import { lumaEntryMatchesId, lumaEventToNorm, unwrapLumaEvent } from '@/lib/luma-event-utils'
+import { refreshStoredEventsForChannels, markEventsListStale } from '@/lib/channel-data-sync'
+import { writeEventbriteStructuredDescription } from '@/lib/publish-event'
 import { InlineLoader } from '@/components/Loader'
 import { HIGHTRIBE_COLOR, LUMA_COLOR, EVENTBRITE_COLOR } from '@/lib/brand'
 
@@ -41,6 +43,7 @@ interface ChannelResult {
 // Normalised event data extracted from any source
 interface NormEvent {
   title: string
+  summary?: string
   description: string
   startUtc: string
   endUtc: string
@@ -127,6 +130,7 @@ async function fetchHtEvent(id: string | number): Promise<NormEvent> {
   const venueLabel = optStr(loc?.location)
   return {
     title: String(e.title || ''),
+    summary: optStr(e.summary) || optStr(e.short_description) || optStr(e.overview) || undefined,
     description: String(e.description || e.overview || ''),
     startUtc, endUtc,
     timezone: String(d?.timezone || e.timezone || 'UTC'),
@@ -190,14 +194,39 @@ async function fetchEbEvent(id: string | number): Promise<NormEvent> {
   const end   = e.end   as Record<string, string> | undefined
   const name  = e.name  as { text?: string } | undefined
   const desc  = e.description as { text?: string } | undefined
+  const summary = typeof e.summary === 'string' ? e.summary : undefined
   const logo  = e.logo  as { original?: { url?: string }; url?: string } | undefined
   const venue = e.venue as Record<string, unknown> | undefined
   const addr  = venue?.address as Record<string, unknown> | undefined
   const startUtc = start?.utc ? stripMs(start.utc) : new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
   const endUtc   = end?.utc   ? stripMs(end.utc)   : new Date(Date.now() + 3600_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+  const shortTeaser = (summary || desc?.text || '').trim()
+  let fullDesc = shortTeaser
+  try {
+    const dRes = await channelFetch(`/api/eventbrite/events/${id}/description/`)
+    if (dRes.ok) {
+      const dData = await dRes.json() as { description?: string }
+      const html = String(dData.description || '').trim()
+      if (html) {
+        fullDesc = html
+          .replace(/<br\s*\/?>/gi, '\n')
+          .replace(/<\/p>/gi, '\n')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/&nbsp;/g, ' ')
+          .replace(/&amp;/g, '&')
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/\s+/g, ' ')
+          .trim()
+      }
+    }
+  } catch {
+    // keep short teaser
+  }
   return {
     title: name?.text || String(e.id || ''),
-    description: desc?.text || '',
+    summary: shortTeaser || undefined,
+    description: fullDesc || '',
     startUtc, endUtc,
     timezone: start?.timezone || 'UTC',
     coverImage: logo?.original?.url || logo?.url,
@@ -403,10 +432,12 @@ export function SyncModal({ open, event, onClose }: Props) {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(body),
             })
-            const raw = await res.json() as { status?: string; data?: { api_id?: string }; message?: string; error?: string }
+            const raw = await res.json() as { status?: string; data?: { api_id?: string; id?: string }; message?: string; error?: string }
             if (!res.ok || raw.status === 'error') throw new Error(raw.message || raw.error || `HTTP ${res.status}`)
-            const id = raw.data?.api_id || '—'
-            if (id !== '—') channelRefs[ch] = { eventId: String(id), url: `lu.ma/${id}` }
+            const unwrapped = unwrapLumaEvent(raw.data ?? raw)
+            const id = String(unwrapped.api_id || unwrapped.id || raw.data?.api_id || raw.data?.id || '').trim()
+            if (!id) throw new Error('Luma did not return an event id')
+            channelRefs[ch] = { eventId: id, url: `lu.ma/${id}` }
             newResults[ch] = { status: 'success', message: `Created on Luma (${id})` }
           }
 
@@ -417,7 +448,12 @@ export function SyncModal({ open, event, onClose }: Props) {
               city: norm.city,
             })
             const ebTitle = ebEventTitle(norm, event.title)
-            const ebDesc = (norm.description || ebTitle).trim() || ebTitle
+            const ebDesc = String(norm.description || '').trim()
+            const ebSummary = (
+              String(norm.summary || '').trim()
+              || ebDesc.split(/\n+/)[0]?.trim()
+              || ''
+            ).slice(0, 140)
 
             const orgRes = await channelFetch('/api/eventbrite/users/me/organizations')
             const orgData = await orgRes.json() as {
@@ -434,7 +470,10 @@ export function SyncModal({ open, event, onClose }: Props) {
             const evtBody = {
               event: {
                 name: { html: toEbHtml(ebTitle) },
-                description: { html: toEbHtml(ebDesc) },
+                ...(ebSummary ? {
+                  summary: ebSummary,
+                  description: { html: toEbHtml(ebSummary) },
+                } : {}),
                 start: { utc: startUtc, timezone: tz },
                 end: { utc: endUtc, timezone: tz },
                 currency: toEbCurrency(norm.currency),
@@ -451,6 +490,9 @@ export function SyncModal({ open, event, onClose }: Props) {
             const evtData = await evtRes.json() as { id?: string; error?: string; error_description?: string }
             if (!evtRes.ok) throw new Error(evtData.error_description || evtData.error || `HTTP ${evtRes.status}`)
             const eventId2 = evtData.id!
+            if (!eventId2) throw new Error('Eventbrite did not return an event id')
+
+            if (ebDesc) await writeEventbriteStructuredDescription(eventId2, ebDesc)
 
             // Attach venue for in-person events (same flow as EventFormModal / Laravel EB import)
             if (!norm.isOnline && (norm.venueName || norm.address || norm.city)) {
@@ -539,6 +581,15 @@ export function SyncModal({ open, event, onClose }: Props) {
           body: JSON.stringify({ action: 'link', masterId, channel: ch, ref }),
         })
       }
+
+      // Pull newly created channel copies into the local store so Events shows
+      // all badges immediately (avoid a full sync+prune that can drop drafts).
+      const refreshTargets: Partial<Record<ChannelKey, string>> = {}
+      for (const [ch, ref] of Object.entries(channelRefs) as [ChannelKey, { eventId: string }][]) {
+        if (ref?.eventId) refreshTargets[ch] = ref.eventId
+      }
+      await refreshStoredEventsForChannels(refreshTargets).catch(() => {})
+      markEventsListStale()
     } catch { /* registry link is best-effort */ }
 
     setResults(newResults)

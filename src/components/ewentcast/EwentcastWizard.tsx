@@ -5,8 +5,8 @@ import Link from 'next/link'
 import { getUser } from '@/lib/auth'
 import { connectedChannelsFromMap, fetchChannelConnectionMap } from '@/lib/channel-connection'
 import type { AttendeeRecord } from '@/lib/event-registry'
-import { publishToAllChannels, updateChannelEventsAll, type EventFormData } from '@/lib/publish-event'
-import { syncChannelDataToDb, refreshStoredEventsForChannels, markEventsListStale } from '@/lib/channel-data-sync'
+import { publishToAllChannels, updateChannelEventsAll, upsertLocalEventSnapshot, type EventFormData } from '@/lib/publish-event'
+import { refreshStoredEventsForChannels, markEventsListStale } from '@/lib/channel-data-sync'
 import type { EventCoverFiles } from '@/lib/cover-image'
 import { loadEventFormData } from '@/lib/event-form-data'
 import type { ChannelKey } from '@/lib/types'
@@ -228,18 +228,38 @@ export function EwentcastWizard({
     setSaveError(null)
     try {
       const results = await updateChannelEventsAll(ev, editTargets, coverFiles)
+      const succeeded = editTargetChannels.filter((ch) => results[ch]?.ok)
       const failed = editTargetChannels
         .map((ch) => ({ ch, ...results[ch] }))
         .filter((r) => !r.ok)
-      if (failed.length > 0) {
+
+      // If nothing saved, keep the modal open with the error.
+      if (succeeded.length === 0) {
         const msg = failed
           .map((r) => `${CH_META[r.ch].name}: ${r.message || 'Update failed'}`)
           .join(' · ')
-        throw new Error(msg)
+        throw new Error(msg || 'Save failed')
       }
-      await refreshStoredEventsForChannels(editTargets)
-      markEventsListStale()
-      onDone?.(editTargetChannels)
+
+      // Close immediately — refresh the local store in the background so a slow
+      // channel fetch never leaves the edit modal stuck open.
+      onDone?.(succeeded)
+      const okTargets: Partial<Record<ChannelKey, string | number>> = {}
+      for (const ch of succeeded) {
+        const id = editTargets[ch]
+        if (id != null && id !== '') okTargets[ch] = id
+      }
+      void (async () => {
+        await refreshStoredEventsForChannels(okTargets).catch(() => {})
+        await Promise.all(
+          succeeded.map((ch) => {
+            const id = editTargets[ch]
+            if (id == null || id === '') return Promise.resolve()
+            return upsertLocalEventSnapshot(ch, ev, { eventId: String(id) }).catch(() => {})
+          }),
+        )
+        markEventsListStale()
+      })()
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Save failed')
     } finally {
@@ -283,16 +303,17 @@ export function EwentcastWizard({
         return next
       })
 
-      // A publish only creates the event on the remote channel + registry; it
-      // doesn't write to our local event store, so the new event wouldn't show
-      // on the Events page until a manual sync. Pull each successfully published
-      // channel into the store now so it appears immediately.
-      const publishedChannels = targets.filter(ch => results[ch]?.status === 'synced')
-      await Promise.all(
-        publishedChannels.map(ch =>
-          syncChannelDataToDb(ch).catch(() => { /* best-effort refresh */ }),
-        ),
-      )
+      // Persist each successful publish into the local store without a full
+      // channel sync+prune (that can wipe brand-new HT/EB drafts that aren't
+      // returned by the remote list API yet).
+      const publishedTargets: Partial<Record<ChannelKey, string>> = {}
+      for (const ch of targets) {
+        const r = results[ch]
+        if (r?.status === 'synced' && r.eventId) publishedTargets[ch] = r.eventId
+      }
+      if (Object.keys(publishedTargets).length > 0) {
+        await refreshStoredEventsForChannels(publishedTargets).catch(() => { /* best-effort */ })
+      }
       markEventsListStale()
     } catch (e) {
       // Master-event creation failed — nothing was published, so reset lanes.
@@ -780,7 +801,13 @@ export function EwentcastWizard({
                   />
                   <span className="nm"><Swatch color={CH_META[ch].color} />{CH_META[ch].name}</span>
                   {st === 'synced' && url ? (
-                    <a href={`https://${url}`} target="_blank" rel="noreferrer">{url} ↗</a>
+                    <a
+                      href={/^https?:\/\//i.test(url) ? url : `https://${url}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {url.replace(/^https?:\/\//i, '')} ↗
+                    </a>
                   ) : st === 'error' ? (
                     <span className="mid" style={{ color: 'var(--error)' }}>{pub[ch]?.message}</span>
                   ) : (
@@ -872,7 +899,7 @@ export function EwentcastWizard({
         <div className="ew-foot">
           <div className="ew-foot-actions">
             {modal ? (
-              <button type="button" className="ew-btn ghost" onClick={onDone}>← Back to events</button>
+              <button type="button" className="ew-btn ghost" onClick={() => onDone?.()}>← Back to events</button>
             ) : (
               <Link href="/events" className="ew-btn ghost">← View all events</Link>
             )}
