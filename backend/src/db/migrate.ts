@@ -149,6 +149,7 @@ export async function runMigrations(opts?: { seed?: boolean }): Promise<{ applie
 }
 
 const APP_TABLES = [
+  'webhook_logs',
   'channel_bookings',
   'luma_events',
   'eventbrite_events',
