@@ -25,6 +25,8 @@ export interface EventDashboardData {
   capacity: number
   attendees: AttendeeRecord[]
   channels: ChannelKey[]
+  /** Per-channel event ids for every published platform. */
+  channelIds: Partial<Record<ChannelKey, string>>
   channelCounts: Partial<Record<ChannelKey, number>>
   registrations: number
   uniqueAttendees: number
@@ -51,10 +53,6 @@ export interface EventDashboardData {
 }
 
 const DEFAULT_CAPACITY = 150
-
-function isChannelKey(v: string): v is ChannelKey {
-  return CHANNEL_KEYS.includes(v as ChannelKey)
-}
 
 async function fetchMasterEvent(channel: ChannelKey, eventId: string): Promise<MasterEventRecord | null> {
   const lookupRes = await fetch(
@@ -103,6 +101,51 @@ function countByChannel(attendees: AttendeeRecord[]): Partial<Record<ChannelKey,
   for (const a of attendees) {
     counts[a.source] = (counts[a.source] || 0) + 1
   }
+  return counts
+}
+
+/** Prefer registry-linked channels, then title matches across stores. */
+async function resolvePublishedChannels(
+  channel: ChannelKey,
+  eventId: string,
+  title: string,
+  master: MasterEventRecord | null,
+): Promise<{
+  channels: ChannelKey[]
+  channelIds: Partial<Record<ChannelKey, string>>
+}> {
+  const channelIds: Partial<Record<ChannelKey, string>> = { [channel]: String(eventId) }
+
+  if (master?.channels) {
+    for (const ch of CHANNEL_KEYS) {
+      const ref = master.channels[ch]
+      if (ref?.eventId) channelIds[ch] = String(ref.eventId)
+    }
+  }
+
+  // Best-effort: same title on other channel stores = also published there
+  const normTitle = title.trim().toLowerCase()
+  if (normTitle) {
+    const others = CHANNEL_KEYS.filter((ch) => !channelIds[ch])
+    if (others.length) {
+      const lists = await Promise.all(others.map((ch) => listStoredEvents(ch)))
+      others.forEach((ch, i) => {
+        const match = lists[i].find((row) => row.title.trim().toLowerCase() === normTitle)
+        if (match) channelIds[ch] = match.external_id
+      })
+    }
+  }
+
+  const channels = CHANNEL_KEYS.filter((ch) => channelIds[ch] != null)
+  return {
+    channels: channels.length ? channels : [channel],
+    channelIds,
+  }
+}
+
+function emptyChannelCounts(channels: ChannelKey[]): Partial<Record<ChannelKey, number>> {
+  const counts: Partial<Record<ChannelKey, number>> = {}
+  for (const ch of channels) counts[ch] = 0
   return counts
 }
 
@@ -439,21 +482,26 @@ export async function loadEventDashboardData(
 
   const title = master?.title || stored?.title || 'Untitled event'
   const meta = extractEventMeta(channel, stored)
+  const published = await resolvePublishedChannels(channel, eventId, title, master)
 
   const masterAttendees = master?.attendees || []
   if (master && masterAttendees.length > 0) {
-    const channels = Object.keys(master.channels).filter(isChannelKey) as ChannelKey[]
     const registrations = master.sold || masterAttendees.length
     const ticketTypes = extractTicketTypes(channel, stored, registrations)
     const pricing = extractPricing(channel, stored, ticketTypes)
     const capacity = master?.capacity || pricing.capacityHint || DEFAULT_CAPACITY
     const metrics = formatDashboardMetrics(capacity, registrations, pricing)
+    const channelCounts = {
+      ...emptyChannelCounts(published.channels),
+      ...countByChannel(masterAttendees),
+    }
     return {
       title,
       capacity,
       attendees: masterAttendees,
-      channels: channels.length ? channels : [channel],
-      channelCounts: countByChannel(masterAttendees),
+      channels: published.channels,
+      channelIds: published.channelIds,
+      channelCounts,
       registrations,
       uniqueAttendees: masterAttendees.length,
       masterId: master.id,
@@ -483,29 +531,46 @@ export async function loadEventDashboardData(
     }
   }
 
-  // No formal cross-channel link (registry master) — best-effort merge by
-  // matching title so bookings for the "same" event on other channels still
-  // show up together instead of a single-channel-only view.
+  // Pull bookings for every published channel id (registry + title match),
+  // not only the channel we opened from.
   const normTitle = title.trim().toLowerCase()
-  const crossChannelBookings: EventBookingRow[] = allBookings.filter(
-    (b) => b.channel !== channel && b.event_title.trim().toLowerCase() === normTitle,
+  const publishedIds = new Set(
+    Object.entries(published.channelIds).map(([ch, id]) => `${ch}:${id}`),
   )
-  eventBookings = [...eventBookings, ...crossChannelBookings]
+  const linkedBookings: EventBookingRow[] = allBookings.filter((b) => {
+    if (b.event_external_id && publishedIds.has(`${b.channel}:${b.event_external_id}`)) {
+      return true
+    }
+    if (b.channel === channel) return false
+    return !!normTitle && b.event_title.trim().toLowerCase() === normTitle
+  })
+  // Keep primary-channel bookings + linked ones (dedupe by email+channel+time later via attendees)
+  const seenBooking = new Set<string>()
+  eventBookings = [...eventBookings, ...linkedBookings].filter((b) => {
+    const key = `${b.channel}|${b.guest_email}|${b.registered_at}|${b.event_external_id || ''}`
+    if (seenBooking.has(key)) return false
+    seenBooking.add(key)
+    return true
+  })
 
   const attendees = bookingsToAttendees(eventBookings)
   const registrations = eventBookings.reduce((sum, b) => sum + (b.ticket_count || 1), 0)
   const ticketTypes = extractTicketTypes(channel, stored, registrations)
   const pricing = extractPricing(channel, stored, ticketTypes)
   const capacity = master?.capacity || pricing.capacityHint || DEFAULT_CAPACITY
-  const channels = Array.from(new Set([channel, ...eventBookings.map((b) => b.channel)])) as ChannelKey[]
   const metrics = formatDashboardMetrics(capacity, registrations, pricing)
+  const channelCounts = {
+    ...emptyChannelCounts(published.channels),
+    ...countByChannel(attendees),
+  }
 
   return {
     title,
     capacity,
     attendees,
-    channels,
-    channelCounts: countByChannel(attendees),
+    channels: published.channels,
+    channelIds: published.channelIds,
+    channelCounts,
     registrations,
     uniqueAttendees: attendees.length,
     masterId: master?.id || null,

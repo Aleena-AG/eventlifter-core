@@ -9,6 +9,43 @@
   padding: 0;
 }
 
+.ew-channel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 2px;
+}
+
+.ew-channel-head .ew-eyebrow {
+  margin: 0;
+}
+
+.ew-channel-head__count {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.ew-channel-primary {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+
+.ew-detail-channels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
 .ew-channel-row {
   display: flex;
   align-items: center;

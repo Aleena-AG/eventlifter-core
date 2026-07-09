@@ -9,13 +9,14 @@ import {
   type DashboardRecentEvent,
   type DashboardStats,
 } from '@/lib/dashboard-stats'
+import { listMasterEvents, type MasterEventRecord } from '@/lib/event-registry'
 import { syncAllConnectedChannels } from '@/lib/sync-all-connected'
 import { ChannelLogo } from '@/components/ChannelLogo'
 import { PageLoader, Spinner } from '@/components/Loader'
 import { encodeEventRef } from '@/lib/event-ref'
 import type { ChannelKey } from '@/lib/types'
 import './dashboard.css'
-import { CHANNEL_META } from '@/lib/channels'
+import { CHANNEL_KEYS, CHANNEL_META } from '@/lib/channels'
 
 const CH_META: Record<ChannelKey, { label: string; color: string }> = {
   hightribe: { label: CHANNEL_META.hightribe.name, color: CHANNEL_META.hightribe.color },
@@ -143,15 +144,127 @@ function avatarColors(name: string) {
   }
 }
 
-function DashboardEventCard({ evt, phase }: { evt: DashboardRecentEvent; phase: EventPhase }) {
-  const meta = CH_META[evt.channel]
+type DashboardEventCardItem = DashboardRecentEvent & {
+  channels: ChannelKey[]
+}
+
+const CHANNEL_ORDER: ChannelKey[] = ['eventbrite', 'luma', 'hightribe']
+
+function normalizeEventTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[—–−]/g, '-')
+    .replace(/\b20\d{2}\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ')
+}
+
+/** True when titles are the same event (handles slight channel naming differences). */
+function titlesMatch(a: string, b: string): boolean {
+  if (!a || !b) return false
+  if (a === b) return true
+  if (a.includes(b) || b.includes(a)) return true
+  const aw = a.split(' ')
+  const bw = b.split(' ')
+  const [shorter, longer] = aw.length <= bw.length ? [aw, bw] : [bw, aw]
+  if (shorter.length < 3) return false
+  const longSet = new Set(longer)
+  const overlap = shorter.filter((w) => longSet.has(w)).length
+  return overlap / shorter.length >= 0.8
+}
+
+function publishedChannelsFromMaster(master: MasterEventRecord): ChannelKey[] {
+  return CHANNEL_KEYS.filter((ch) => {
+    const ref = master.channels[ch]
+    if (!ref) return false
+    const eventId = String(ref.eventId || '').trim()
+    const url = String(ref.url || '').trim()
+    // Count real publishes only (skip empty stubs like eventId "" + "lu.ma/")
+    if (eventId) return true
+    return url.length > 8 && !url.endsWith('/')
+  })
+}
+
+function sortChannels(channels: ChannelKey[]): ChannelKey[] {
+  return [...new Set(channels)].sort(
+    (a, b) => CHANNEL_ORDER.indexOf(a) - CHANNEL_ORDER.indexOf(b),
+  )
+}
+
+function resolvePublishedChannels(
+  evt: DashboardRecentEvent,
+  byRef: Map<string, ChannelKey[]>,
+  masterTitleChannels: Array<{ title: string; channels: ChannelKey[] }>,
+): ChannelKey[] {
+  const fromRef = byRef.get(`${evt.channel}:${evt.id}`) || []
+  const titleKey = normalizeEventTitle(evt.title)
+  const fromTitle = masterTitleChannels
+    .filter((m) => titlesMatch(titleKey, m.title))
+    .flatMap((m) => m.channels)
+  return sortChannels([evt.channel, ...fromRef, ...fromTitle])
+}
+
+/** Merge same event across channels into one card, then attach every published channel from the registry. */
+function mergeEventsWithChannels(
+  events: DashboardRecentEvent[],
+  masters: MasterEventRecord[],
+): DashboardEventCardItem[] {
+  const byRef = new Map<string, ChannelKey[]>()
+  const masterTitleChannels: Array<{ title: string; channels: ChannelKey[] }> = []
+
+  for (const master of masters) {
+    const published = publishedChannelsFromMaster(master)
+    if (!published.length) continue
+    const titleKey = normalizeEventTitle(master.title)
+    if (titleKey) masterTitleChannels.push({ title: titleKey, channels: published })
+    for (const ch of CHANNEL_KEYS) {
+      const ref = master.channels[ch]
+      const eventId = String(ref?.eventId || '').trim()
+      if (!eventId) continue
+      byRef.set(`${ch}:${eventId}`, published)
+    }
+  }
+
+  const groups: DashboardEventCardItem[] = []
+
+  for (const evt of events) {
+    const titleKey = normalizeEventTitle(evt.title)
+    const channels = resolvePublishedChannels(evt, byRef, masterTitleChannels)
+    const existing = groups.find((g) => titlesMatch(normalizeEventTitle(g.title), titleKey))
+
+    if (!existing) {
+      groups.push({ ...evt, channels })
+      continue
+    }
+
+    existing.channels = sortChannels([...existing.channels, ...channels])
+    if (!existing.coverUrl && evt.coverUrl) existing.coverUrl = evt.coverUrl
+    if (!existing.endUtc && evt.endUtc) existing.endUtc = evt.endUtc
+    if (evt.channel === 'hightribe' && existing.channel !== 'hightribe') {
+      existing.id = evt.id
+      existing.channel = evt.channel
+    } else if (
+      CHANNEL_ORDER.indexOf(evt.channel) < CHANNEL_ORDER.indexOf(existing.channel) &&
+      existing.channel !== 'hightribe'
+    ) {
+      existing.id = evt.id
+      existing.channel = evt.channel
+    }
+  }
+
+  return groups
+}
+
+function DashboardEventCard({ evt, phase }: { evt: DashboardEventCardItem; phase: EventPhase }) {
+  const primaryMeta = CH_META[evt.channel]
   const href = `/events/e/${encodeEventRef(evt.channel, evt.id)}`
 
   return (
     <Link
       href={href}
       className={`dash-event-card dash-event-card--${phase}`}
-      style={{ ['--ch-color' as string]: meta.color }}
+      style={{ ['--ch-color' as string]: primaryMeta.color }}
     >
       <div className="dash-event-card__media">
         {evt.coverUrl ? (
@@ -170,10 +283,19 @@ function DashboardEventCard({ evt, phase }: { evt: DashboardRecentEvent; phase: 
         <h3 className="dash-event-card__title">{evt.title}</h3>
         <p className="dash-event-card__date">{formatDate(evt.startUtc)}</p>
         <div className="dash-event-card__foot">
-          <span className="dash-ch-pill">
-            <ChannelLogo channel={evt.channel} size={14} />
-            {meta.label}
-          </span>
+          <div className="dash-ch-tags" aria-label="Published channels">
+            {evt.channels.map((ch) => (
+              <span
+                key={ch}
+                className="dash-ch-pill dash-ch-pill--sm"
+                style={{ ['--ch-color' as string]: CH_META[ch].color }}
+                title={CH_META[ch].label}
+              >
+                <ChannelLogo channel={ch} size={11} />
+                {CH_META[ch].label}
+              </span>
+            ))}
+          </div>
           <span className="dash-event-card__cta">Open →</span>
         </div>
       </div>
@@ -190,6 +312,7 @@ type SafeSettings = {
 export default function DashboardPage() {
   const [settings, setSettings] = useState<SafeSettings>({})
   const [stats, setStats] = useState<DashboardStats | null>(null)
+  const [masters, setMasters] = useState<MasterEventRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
 
@@ -204,10 +327,15 @@ export default function DashboardPage() {
     }
 
     try {
-      const dash = await loadDashboardStats(settingsSnapshot)
+      const [dash, masterList] = await Promise.all([
+        loadDashboardStats(settingsSnapshot),
+        listMasterEvents().catch(() => [] as MasterEventRecord[]),
+      ])
       setStats(dash)
+      setMasters(masterList)
     } catch {
       setStats(null)
+      setMasters([])
     } finally {
       setLoading(false)
     }
@@ -225,10 +353,15 @@ export default function DashboardPage() {
 
     try {
       await syncAllConnectedChannels(settingsSnapshot)
-      const dash = await loadDashboardStats(settingsSnapshot)
+      const [dash, masterList] = await Promise.all([
+        loadDashboardStats(settingsSnapshot),
+        listMasterEvents().catch(() => [] as MasterEventRecord[]),
+      ])
       setStats(dash)
+      setMasters(masterList)
     } catch {
       setStats(null)
+      setMasters([])
     } finally {
       setSyncing(false)
     }
@@ -246,9 +379,9 @@ export default function DashboardPage() {
   const { ongoing, upcoming, nextUp, weekEvents } = useMemo(() => {
     const now = Date.now()
     const weekEnd = now + 7 * 24 * 60 * 60 * 1000
-    const all = stats?.recent ?? []
-    const ongoingList: DashboardRecentEvent[] = []
-    const upcomingList: DashboardRecentEvent[] = []
+    const all = mergeEventsWithChannels(stats?.recent ?? [], masters)
+    const ongoingList: DashboardEventCardItem[] = []
+    const upcomingList: DashboardEventCardItem[] = []
     let weekCount = 0
 
     for (const evt of all) {
@@ -270,7 +403,7 @@ export default function DashboardPage() {
       nextUp: ongoingList[0] || upcomingList[0] || null,
       weekEvents: weekCount + ongoingList.length,
     }
-  }, [stats?.recent])
+  }, [stats?.recent, masters])
 
   const connectedChannels = [
     { key: 'eventbrite' as const, on: ebConfigured },
@@ -284,7 +417,7 @@ export default function DashboardPage() {
     bookings: stats?.totalBookings ?? 0,
     attendees: stats?.unifiedAttendees ?? 0,
   }
-  const recentOrders = (stats?.recentBookings ?? []).slice(0, 5)
+  const recentOrders = (stats?.recentBookings ?? []).slice(0, 3)
   const bookingTrend = stats?.bookingTrend ?? []
   const trendMax = Math.max(1, ...bookingTrend.map((p) => p.count))
   const trendTotal = bookingTrend.reduce((s, p) => s + p.count, 0)
@@ -370,53 +503,49 @@ export default function DashboardPage() {
             </div>
 
             {ongoing.length === 0 && upcoming.length === 0 ? (
-              <div className="dash-empty">
+              <div className="dash-empty dash-empty--compact">
                 No upcoming or ongoing events. <Link href="/create">Create one →</Link>
               </div>
             ) : (
               <div className="dash-event-sections">
-                <div className="dash-event-section">
-                  <div className="dash-event-section__head">
-                    <h3>
-                      <span className="dash-live-dot" aria-hidden="true" />
-                      Ongoing
-                    </h3>
-                    <span className="dash-event-section__count">{ongoing.length}</span>
-                  </div>
-                  {ongoing.length === 0 ? (
-                    <p className="dash-event-section__empty">No events happening right now.</p>
-                  ) : (
+                {ongoing.length > 0 && (
+                  <div className="dash-event-section">
+                    <div className="dash-event-section__head">
+                      <h3>
+                        <span className="dash-live-dot" aria-hidden="true" />
+                        Ongoing
+                      </h3>
+                      <span className="dash-event-section__count">{ongoing.length}</span>
+                    </div>
                     <div className="dash-event-grid">
                       {ongoing.map((evt) => (
                         <DashboardEventCard
-                          key={`ongoing-${evt.channel}-${evt.id}`}
+                          key={`ongoing-${evt.title}-${evt.startUtc.slice(0, 10)}`}
                           evt={evt}
                           phase="ongoing"
                         />
                       ))}
                     </div>
-                  )}
-                </div>
-
-                <div className="dash-event-section">
-                  <div className="dash-event-section__head">
-                    <h3>Upcoming</h3>
-                    <span className="dash-event-section__count">{upcoming.length}</span>
                   </div>
-                  {upcoming.length === 0 ? (
-                    <p className="dash-event-section__empty">No upcoming events scheduled.</p>
-                  ) : (
+                )}
+
+                {upcoming.length > 0 && (
+                  <div className="dash-event-section">
+                    <div className="dash-event-section__head">
+                      <h3>Upcoming</h3>
+                      <span className="dash-event-section__count">{upcoming.length}</span>
+                    </div>
                     <div className="dash-event-grid">
                       {upcoming.map((evt) => (
                         <DashboardEventCard
-                          key={`upcoming-${evt.channel}-${evt.id}`}
+                          key={`upcoming-${evt.title}-${evt.startUtc.slice(0, 10)}`}
                           evt={evt}
                           phase="upcoming"
                         />
                       ))}
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             )}
           </section>
@@ -527,13 +656,16 @@ export default function DashboardPage() {
               ) : (
                 <div className="dash-trend" role="img" aria-label="Bookings over the last 7 days">
                   {bookingTrend.map((point) => {
-                    const height = Math.max(4, Math.round((point.count / trendMax) * 100))
+                    const hasCount = point.count > 0
+                    const height = hasCount
+                      ? Math.max(12, Math.round((point.count / trendMax) * 100))
+                      : 3
                     return (
                       <div key={point.date} className="dash-trend-col">
-                        <div className="dash-trend-value">{point.count || ''}</div>
+                        <div className="dash-trend-value">{hasCount ? point.count : ''}</div>
                         <div className="dash-trend-bar-wrap">
                           <div
-                            className="dash-trend-bar"
+                            className={`dash-trend-bar${hasCount ? '' : ' dash-trend-bar--empty'}`}
                             style={{ height: `${height}%` }}
                             title={`${point.count} on ${point.date}`}
                           />
@@ -549,7 +681,7 @@ export default function DashboardPage() {
             <section className="dash-panel dash-panel--orders">
               <div className="dash-orders-head">
                 <div>
-                  <h2>Recent Orders</h2>
+                  <h2>Recent Bookings</h2>
                   <p className="dash-orders-sub">Latest registrations across channels</p>
                 </div>
                 <span className="dash-orders-total">{stats?.totalBookings ?? 0} total</span>
@@ -599,7 +731,7 @@ export default function DashboardPage() {
                     })}
                   </div>
                   <Link href="/bookings" className="dash-view-all">
-                    View all orders →
+                    View all bookings →
                   </Link>
                 </>
               )}

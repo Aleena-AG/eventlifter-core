@@ -97,7 +97,7 @@ export function EventLiveDashboard({
       : capacity > 0
         ? Math.min(100, Math.round((registrations / capacity) * 100))
         : 0
-  const totalChannelAttendees = Object.values(channelCounts).reduce((sum, n) => sum + (n || 0), 0)
+  const totalChannelAttendees = channels.reduce((sum, ch) => sum + (channelCounts[ch] || 0), 0)
   const barTotal = Math.max(totalChannelAttendees, 1)
 
   const revenueLabel = !hasPricing
@@ -157,7 +157,12 @@ export function EventLiveDashboard({
                 </div>
 
                 <div className="ew-card">
-                  <span className="ew-eyebrow">By channel</span>
+                  <div className="ew-channel-head">
+                    <span className="ew-eyebrow">Published on</span>
+                    <span className="ew-channel-head__count">
+                      {channels.length} {channels.length === 1 ? 'channel' : 'channels'}
+                    </span>
+                  </div>
                   <div className="ew-bar-chart" aria-hidden="true">
                     {channels.map(ch => {
                       const count = channelCounts[ch] || 0
@@ -174,15 +179,23 @@ export function EventLiveDashboard({
                       )
                     })}
                   </div>
-                  {channels.map(ch => (
-                    <div key={ch} className="ew-channel-row">
-                      <span className="ew-channel-name">
-                        <ChannelLogo channel={ch} size={20} />
-                        {CH_META[ch].name}
-                      </span>
-                      <span className="ew-channel-count">{channelCounts[ch] || 0} attendees</span>
-                    </div>
-                  ))}
+                  {channels.map(ch => {
+                    const count = channelCounts[ch] || 0
+                    return (
+                      <div key={ch} className="ew-channel-row">
+                        <span className="ew-channel-name">
+                          <ChannelLogo channel={ch} size={20} />
+                          {CH_META[ch].name}
+                          {ch === channelKey && (
+                            <span className="ew-channel-primary">Primary</span>
+                          )}
+                        </span>
+                        <span className="ew-channel-count">
+                          {count} {count === 1 ? 'attendee' : 'attendees'}
+                        </span>
+                      </div>
+                    )
+                  })}
                 </div>
 
                 <div className="ew-card">
@@ -231,15 +244,18 @@ export function EventLiveDashboard({
 
               <div className="ew-detail-card__body">
                 <div className="ew-detail-card__top">
-                  {channelKey && (
-                    <span
-                      className="ew-detail-ch"
-                      style={{ ['--ch-color' as string]: CH_META[channelKey].color }}
-                    >
-                      <ChannelLogo channel={channelKey} size={14} />
-                      {CH_META[channelKey].name}
-                    </span>
-                  )}
+                  <div className="ew-detail-channels">
+                    {channels.map((ch) => (
+                      <span
+                        key={ch}
+                        className="ew-detail-ch"
+                        style={{ ['--ch-color' as string]: CH_META[ch].color }}
+                      >
+                        <ChannelLogo channel={ch} size={14} />
+                        {CH_META[ch].name}
+                      </span>
+                    ))}
+                  </div>
                   {status && <span className="ew-detail-status">{status}</span>}
                 </div>
 
