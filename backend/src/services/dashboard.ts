@@ -27,6 +27,7 @@ export interface DashboardEventItem {
 export interface DashboardBookingTrendPoint {
   date: string
   count: number
+  byChannel: Record<ChannelName, number>
 }
 
 export interface DashboardStatsPayload {
@@ -231,28 +232,37 @@ function mapEventRow(row: {
   }
 }
 
+function emptyChannelDayCounts(): Record<ChannelName, number> {
+  return { hightribe: 0, luma: 0, eventbrite: 0 }
+}
+
 function buildBookingTrend(
-  bookings: Array<{ registered_at: string }>,
+  bookings: Array<{ registered_at: string; channel?: ChannelName }>,
   days = 7,
 ): DashboardBookingTrendPoint[] {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const points: DashboardBookingTrendPoint[] = []
-  const counts = new Map<string, number>()
+  const byDay = new Map<string, Record<ChannelName, number>>()
 
   for (const b of bookings) {
     const d = new Date(b.registered_at)
     if (Number.isNaN(d.getTime())) continue
     d.setHours(0, 0, 0, 0)
     const key = d.toISOString().slice(0, 10)
-    counts.set(key, (counts.get(key) || 0) + 1)
+    const row = byDay.get(key) || emptyChannelDayCounts()
+    const ch = b.channel && CHANNELS.includes(b.channel) ? b.channel : null
+    if (ch) row[ch] += 1
+    byDay.set(key, row)
   }
 
   for (let i = days - 1; i >= 0; i--) {
     const d = new Date(today)
     d.setDate(today.getDate() - i)
     const key = d.toISOString().slice(0, 10)
-    points.push({ date: key, count: counts.get(key) || 0 })
+    const byChannel = byDay.get(key) || emptyChannelDayCounts()
+    const count = CHANNELS.reduce((sum, ch) => sum + byChannel[ch], 0)
+    points.push({ date: key, count, byChannel })
   }
   return points
 }
@@ -295,11 +305,8 @@ function summarizeTotals(channels: Record<ChannelName, DashboardChannelStats>) {
   const totalTickets = CHANNELS.reduce((sum, ch) => sum + channels[ch].tickets, 0)
   const totalRevenue =
     Math.round(CHANNELS.reduce((sum, ch) => sum + channels[ch].revenue, 0) * 100) / 100
-  const revenueCurrency =
-    CHANNELS.map((ch) => channels[ch]).find((c) => c.revenue > 0)?.currency ||
-    CHANNELS.map((ch) => channels[ch]).find((c) => !!c.currency)?.currency ||
-    'USD'
-  return { totalEvents, totalBookings, totalTickets, totalRevenue, revenueCurrency }
+  // Dashboard revenue is always shown in USD (no multi-currency mixing).
+  return { totalEvents, totalBookings, totalTickets, totalRevenue, revenueCurrency: 'USD' }
 }
 
 export async function getDashboardStatsForUser(userId: number): Promise<DashboardStatsPayload> {
@@ -480,21 +487,26 @@ export async function getDashboardStatsForUser(userId: number): Promise<Dashboar
     }))
 
     const trendRows = await query<RowDataPacket[]>(
-      `SELECT DATE(registered_at) AS day, COUNT(*) AS cnt
+      `SELECT DATE(registered_at) AS day, channel, COUNT(*) AS cnt
        FROM channel_bookings
        WHERE user_id = ?
          AND registered_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
-       GROUP BY DATE(registered_at)
+       GROUP BY DATE(registered_at), channel
        ORDER BY day ASC`,
       [userId],
     )
 
-    const countByDay = new Map<string, number>()
+    const byDay = new Map<string, Record<ChannelName, number>>()
     for (const row of trendRows) {
       const day = row.day
         ? new Date(row.day as Date).toISOString().slice(0, 10)
         : ''
-      if (day) countByDay.set(day, Number(row.cnt || 0))
+      if (!day) continue
+      const ch = row.channel as ChannelName
+      if (!CHANNELS.includes(ch)) continue
+      const bucket = byDay.get(day) || emptyChannelDayCounts()
+      bucket[ch] = Number(row.cnt || 0)
+      byDay.set(day, bucket)
     }
 
     const today = new Date()
@@ -504,7 +516,9 @@ export async function getDashboardStatsForUser(userId: number): Promise<Dashboar
       const d = new Date(today)
       d.setDate(today.getDate() - i)
       const key = d.toISOString().slice(0, 10)
-      bookingTrend.push({ date: key, count: countByDay.get(key) || 0 })
+      const byChannel = byDay.get(key) || emptyChannelDayCounts()
+      const count = CHANNELS.reduce((sum, ch) => sum + byChannel[ch], 0)
+      bookingTrend.push({ date: key, count, byChannel })
     }
   } catch (err) {
     console.warn(

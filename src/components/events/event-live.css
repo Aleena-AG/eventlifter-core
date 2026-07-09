@@ -68,10 +68,26 @@
   color: var(--ink);
 }
 
+.ew-channel-stats {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ew-channel-revenue {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
 .ew-channel-count {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--muted);
   font-weight: 500;
+  white-space: nowrap;
 }
 
 .ew-root.ew-embedded .ew-foot-actions {

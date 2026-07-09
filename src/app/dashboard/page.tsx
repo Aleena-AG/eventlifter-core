@@ -31,15 +31,15 @@ const KPI_CARDS = [
   { key: 'attendees', label: 'Unique Attendees', icon: '👥', accent: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.12)' },
 ] as const
 
-function formatMoney(amount: number, currency: string): string {
+function formatMoney(amount: number): string {
   try {
     return new Intl.NumberFormat(undefined, {
       style: 'currency',
-      currency: currency || 'USD',
+      currency: 'USD',
       maximumFractionDigits: amount % 1 === 0 ? 0 : 2,
     }).format(amount)
   } catch {
-    return `${currency} ${amount.toLocaleString()}`
+    return `USD ${amount.toLocaleString()}`
   }
 }
 
@@ -427,12 +427,10 @@ export default function DashboardPage() {
   const totalTickets = stats?.totalTickets ?? 0
   const uniqueAttendees = stats?.unifiedAttendees ?? 0
   const totalRevenue = stats?.totalRevenue ?? 0
-  const revenueCurrency = stats?.revenueCurrency || 'USD'
-
   const kpiValues: Record<(typeof KPI_CARDS)[number]['key'], string | number> = {
     events: stats?.totalEvents ?? 0,
     tickets: totalTickets,
-    revenue: formatMoney(totalRevenue, revenueCurrency),
+    revenue: formatMoney(totalRevenue),
     attendees: uniqueAttendees,
   }
   const kpiHints: Record<(typeof KPI_CARDS)[number]['key'], string> = {
@@ -446,6 +444,11 @@ export default function DashboardPage() {
   const bookingTrend = stats?.bookingTrend ?? []
   const trendMax = Math.max(1, ...bookingTrend.map((p) => p.count))
   const trendTotal = bookingTrend.reduce((s, p) => s + p.count, 0)
+  const trendByChannel = (['eventbrite', 'luma', 'hightribe'] as ChannelKey[]).map((ch) => ({
+    key: ch,
+    count: bookingTrend.reduce((s, p) => s + (p.byChannel?.[ch] || 0), 0),
+  }))
+  const TREND_STACK: ChannelKey[] = ['hightribe', 'luma', 'eventbrite']
 
   const repeatRate =
     totalBookings > 0 && uniqueAttendees > 0
@@ -670,7 +673,7 @@ export default function DashboardPage() {
               <div className="dash-perf-head">
                 <div>
                   <h2>Bookings (7 days)</h2>
-                  <p className="dash-perf-sub">Daily registrations across all channels</p>
+                  <p className="dash-perf-sub">Daily registrations by channel</p>
                 </div>
                 <span className="dash-perf-total">{trendTotal} this week</span>
               </div>
@@ -680,27 +683,74 @@ export default function DashboardPage() {
                   No bookings in the last 7 days yet.
                 </div>
               ) : (
-                <div className="dash-trend" role="img" aria-label="Bookings over the last 7 days">
-                  {bookingTrend.map((point) => {
-                    const hasCount = point.count > 0
-                    const height = hasCount
-                      ? Math.max(12, Math.round((point.count / trendMax) * 100))
-                      : 3
-                    return (
-                      <div key={point.date} className="dash-trend-col">
-                        <div className="dash-trend-value">{hasCount ? point.count : ''}</div>
-                        <div className="dash-trend-bar-wrap">
-                          <div
-                            className={`dash-trend-bar${hasCount ? '' : ' dash-trend-bar--empty'}`}
-                            style={{ height: `${height}%` }}
-                            title={`${point.count} on ${point.date}`}
-                          />
+                <>
+                  <div className="dash-trend-legend" aria-label="Channel legend">
+                    {trendByChannel.map((row) => (
+                      <span
+                        key={row.key}
+                        className="dash-trend-legend__item"
+                        style={{ ['--ch-color' as string]: CH_META[row.key].color }}
+                      >
+                        <ChannelLogo channel={row.key} size={12} />
+                        {CH_META[row.key].label}
+                        <strong>{row.count}</strong>
+                      </span>
+                    ))}
+                  </div>
+                  <div className="dash-trend" role="img" aria-label="Bookings over the last 7 days by channel">
+                    {bookingTrend.map((point) => {
+                      const hasCount = point.count > 0
+                      const height = hasCount
+                        ? Math.max(14, Math.round((point.count / trendMax) * 100))
+                        : 3
+                      const parts = TREND_STACK
+                        .map((ch) => ({
+                          ch,
+                          n: point.byChannel?.[ch] || 0,
+                        }))
+                        .filter((p) => p.n > 0)
+                      const tip = [
+                        `${point.count} total`,
+                        ...TREND_STACK.map((ch) => {
+                          const n = point.byChannel?.[ch] || 0
+                          return n > 0 ? `${CH_META[ch].label}: ${n}` : null
+                        }).filter(Boolean),
+                      ].join(' · ')
+                      return (
+                        <div key={point.date} className="dash-trend-col">
+                          <div className="dash-trend-value">{hasCount ? point.count : ''}</div>
+                          <div className="dash-trend-bar-wrap">
+                            {hasCount ? (
+                              <div
+                                className="dash-trend-stack"
+                                style={{ height: `${height}%` }}
+                                title={`${tip} · ${point.date}`}
+                              >
+                                {parts.map((p) => (
+                                  <span
+                                    key={p.ch}
+                                    className="dash-trend-seg"
+                                    style={{
+                                      flexGrow: p.n,
+                                      background: CH_META[p.ch].color,
+                                    }}
+                                  />
+                                ))}
+                              </div>
+                            ) : (
+                              <div
+                                className="dash-trend-bar dash-trend-bar--empty"
+                                style={{ height: `${height}%` }}
+                                title={`0 on ${point.date}`}
+                              />
+                            )}
+                          </div>
+                          <div className="dash-trend-label">{formatShortDay(point.date)}</div>
                         </div>
-                        <div className="dash-trend-label">{formatShortDay(point.date)}</div>
-                      </div>
-                    )
-                  })}
-                </div>
+                      )
+                    })}
+                  </div>
+                </>
               )}
             </section>
 

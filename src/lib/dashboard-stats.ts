@@ -36,6 +36,7 @@ export interface DashboardRecentEvent {
 export interface DashboardBookingTrendPoint {
   date: string
   count: number
+  byChannel: Record<ChannelKey, number>
 }
 
 export interface DashboardStats {
@@ -51,6 +52,10 @@ export interface DashboardStats {
   bookingTrend: DashboardBookingTrendPoint[]
 }
 
+function emptyChannelDayCounts(): Record<ChannelKey, number> {
+  return { hightribe: 0, luma: 0, eventbrite: 0 }
+}
+
 function emptyTrend(days = 7): DashboardBookingTrendPoint[] {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -58,9 +63,34 @@ function emptyTrend(days = 7): DashboardBookingTrendPoint[] {
   for (let i = days - 1; i >= 0; i--) {
     const d = new Date(today)
     d.setDate(today.getDate() - i)
-    points.push({ date: d.toISOString().slice(0, 10), count: 0 })
+    points.push({
+      date: d.toISOString().slice(0, 10),
+      count: 0,
+      byChannel: emptyChannelDayCounts(),
+    })
   }
   return points
+}
+
+function normalizeTrend(
+  points?: Array<{
+    date: string
+    count: number
+    byChannel?: Partial<Record<ChannelKey, number>>
+  }>,
+): DashboardBookingTrendPoint[] {
+  if (!points?.length) return emptyTrend()
+  return points.map((p) => {
+    const byChannel = {
+      ...emptyChannelDayCounts(),
+      ...(p.byChannel || {}),
+    }
+    const count =
+      typeof p.count === 'number'
+        ? p.count
+        : byChannel.hightribe + byChannel.luma + byChannel.eventbrite
+    return { date: p.date, count, byChannel }
+  })
 }
 
 export async function loadDashboardStats(settings: {
@@ -102,7 +132,7 @@ export async function loadDashboardStats(settings: {
       bookings: data.channels[ch]?.bookings ?? 0,
       tickets: data.channels[ch]?.tickets ?? 0,
       revenue: data.channels[ch]?.revenue ?? 0,
-      currency: data.channels[ch]?.currency || data.revenueCurrency || 'USD',
+      currency: 'USD',
       configured,
     })
 
@@ -116,11 +146,11 @@ export async function loadDashboardStats(settings: {
       totalTickets: data.totalTickets,
       totalBookings: data.totalBookings,
       totalRevenue: data.totalRevenue ?? 0,
-      revenueCurrency: data.revenueCurrency || 'USD',
+      revenueCurrency: 'USD',
       unifiedAttendees: data.unifiedAttendees,
       recent: data.recent,
       recentBookings: data.recentBookings,
-      bookingTrend: data.bookingTrend?.length ? data.bookingTrend : emptyTrend(),
+      bookingTrend: normalizeTrend(data.bookingTrend),
     }
   }
 

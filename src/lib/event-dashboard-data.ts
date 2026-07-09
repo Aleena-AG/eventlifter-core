@@ -28,6 +28,8 @@ export interface EventDashboardData {
   /** Per-channel event ids for every published platform. */
   channelIds: Partial<Record<ChannelKey, string>>
   channelCounts: Partial<Record<ChannelKey, number>>
+  /** Estimated revenue per published channel. */
+  channelRevenue: Partial<Record<ChannelKey, number>>
   registrations: number
   uniqueAttendees: number
   masterId: string | null
@@ -102,6 +104,31 @@ function countByChannel(attendees: AttendeeRecord[]): Partial<Record<ChannelKey,
     counts[a.source] = (counts[a.source] || 0) + 1
   }
   return counts
+}
+
+function ticketCountsByChannel(
+  bookings: Array<{ channel: ChannelKey; ticket_count?: number | null }>,
+): Partial<Record<ChannelKey, number>> {
+  const counts: Partial<Record<ChannelKey, number>> = {}
+  for (const b of bookings) {
+    counts[b.channel] = (counts[b.channel] || 0) + (b.ticket_count || 1)
+  }
+  return counts
+}
+
+function revenueByChannel(
+  ticketCounts: Partial<Record<ChannelKey, number>>,
+  channels: ChannelKey[],
+  pricing: { ticketPrice: number; isFree: boolean },
+): Partial<Record<ChannelKey, number>> {
+  const out: Partial<Record<ChannelKey, number>> = {}
+  for (const ch of channels) {
+    const tickets = ticketCounts[ch] || 0
+    out[ch] = pricing.isFree
+      ? 0
+      : Math.round(tickets * pricing.ticketPrice * 100) / 100
+  }
+  return out
 }
 
 /** Prefer registry-linked channels, then title matches across stores. */
@@ -495,6 +522,7 @@ export async function loadEventDashboardData(
       ...emptyChannelCounts(published.channels),
       ...countByChannel(masterAttendees),
     }
+    const channelRevenue = revenueByChannel(channelCounts, published.channels, pricing)
     return {
       title,
       capacity,
@@ -502,6 +530,7 @@ export async function loadEventDashboardData(
       channels: published.channels,
       channelIds: published.channelIds,
       channelCounts,
+      channelRevenue,
       registrations,
       uniqueAttendees: masterAttendees.length,
       masterId: master.id,
@@ -563,6 +592,14 @@ export async function loadEventDashboardData(
     ...emptyChannelCounts(published.channels),
     ...countByChannel(attendees),
   }
+  const channelRevenue = revenueByChannel(
+    {
+      ...emptyChannelCounts(published.channels),
+      ...ticketCountsByChannel(eventBookings),
+    },
+    published.channels,
+    pricing,
+  )
 
   return {
     title,
@@ -571,6 +608,7 @@ export async function loadEventDashboardData(
     channels: published.channels,
     channelIds: published.channelIds,
     channelCounts,
+    channelRevenue,
     registrations,
     uniqueAttendees: attendees.length,
     masterId: master?.id || null,

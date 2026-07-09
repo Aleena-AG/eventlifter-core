@@ -48,6 +48,7 @@ interface EventLiveDashboardProps {
   attendees: AttendeeRecord[]
   channels: ChannelKey[]
   channelCounts: Partial<Record<ChannelKey, number>>
+  channelRevenue?: Partial<Record<ChannelKey, number>>
   registrations: number
   ticketPrice?: number
   currency?: string
@@ -73,6 +74,7 @@ export function EventLiveDashboard({
   attendees,
   channels,
   channelCounts,
+  channelRevenue = {},
   registrations,
   ticketPrice = 0,
   currency = 'USD',
@@ -158,20 +160,33 @@ export function EventLiveDashboard({
 
                 <div className="ew-card">
                   <div className="ew-channel-head">
-                    <span className="ew-eyebrow">Published on</span>
+                    <span className="ew-eyebrow">Revenue by channel</span>
                     <span className="ew-channel-head__count">
-                      {channels.length} {channels.length === 1 ? 'channel' : 'channels'}
+                      {hasPricing && !isFree
+                        ? formatMoney(revenue, currency)
+                        : hasPricing && isFree
+                          ? 'Free event'
+                          : `${channels.length} channels`}
                     </span>
                   </div>
                   <div className="ew-bar-chart" aria-hidden="true">
                     {channels.map(ch => {
-                      const count = channelCounts[ch] || 0
-                      if (!count) return null
+                      const amount = channelRevenue[ch] || 0
+                      const share = isFree
+                        ? (channelCounts[ch] || 0)
+                        : amount
+                      if (!share) return null
+                      const denom = isFree
+                        ? barTotal
+                        : Math.max(
+                            channels.reduce((s, c) => s + (channelRevenue[c] || 0), 0),
+                            1,
+                          )
                       return (
                         <span
                           key={ch}
                           style={{
-                            width: `${(count / barTotal) * 100}%`,
+                            width: `${(share / denom) * 100}%`,
                             background: CH_META[ch].color,
                             display: 'block',
                           }}
@@ -181,6 +196,12 @@ export function EventLiveDashboard({
                   </div>
                   {channels.map(ch => {
                     const count = channelCounts[ch] || 0
+                    const amount = channelRevenue[ch] || 0
+                    const amountLabel = !hasPricing
+                      ? '—'
+                      : isFree
+                        ? 'Free'
+                        : formatMoney(amount, currency)
                     return (
                       <div key={ch} className="ew-channel-row">
                         <span className="ew-channel-name">
@@ -190,8 +211,11 @@ export function EventLiveDashboard({
                             <span className="ew-channel-primary">Primary</span>
                           )}
                         </span>
-                        <span className="ew-channel-count">
-                          {count} {count === 1 ? 'attendee' : 'attendees'}
+                        <span className="ew-channel-stats">
+                          <span className="ew-channel-revenue">{amountLabel}</span>
+                          <span className="ew-channel-count">
+                            {count} {count === 1 ? 'attendee' : 'attendees'}
+                          </span>
                         </span>
                       </div>
                     )
