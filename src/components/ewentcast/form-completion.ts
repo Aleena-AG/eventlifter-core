@@ -12,6 +12,7 @@ function effectiveTargets(targets: ChannelKey[]): ChannelKey[] {
 const OPTIONAL_FIELDS = new Set([
   'summary', 'tags', 'coverUrl', 'lat', 'lng', 'password',
   'refundPolicy', 'faq', 'minPerOrder', 'maxPerOrder', 'salesStart', 'salesEnd',
+  'hostName',
 ])
 
 function appliesToTargets(f: FieldDef, targets: ChannelKey[]): boolean {

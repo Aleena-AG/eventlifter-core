@@ -1,4 +1,5 @@
 import { inferTimezoneFromEvent } from '@/lib/eventbrite-timezone'
+import { canonicalizeCountry } from '@/components/ewentcast/location-data'
 
 function stripMs(s: string): string {
   return s.replace(/\.\d{3}Z$/, 'Z')
@@ -63,6 +64,37 @@ export function unwrapLumaEvent(data: unknown): Record<string, unknown> {
   return payload
 }
 
+function inferPlaceFromAddress(address?: string): { city?: string; country?: string } {
+  if (!address) return {}
+  const parts = address.split(',').map(p => p.trim()).filter(Boolean)
+  if (!parts.length) return {}
+
+  let country: string | undefined
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const part = parts[i]
+    const canon = canonicalizeCountry(part)
+    if (/^[A-Za-z]{2}$/.test(part) || (canon && canon !== part)) {
+      country = canon
+      break
+    }
+  }
+
+  const knownCities = [
+    'Karachi', 'Lahore', 'Islamabad', 'Rawalpindi', 'Faisalabad', 'Multan', 'Peshawar', 'Quetta',
+    'Dubai', 'Abu Dhabi', 'London', 'New York', 'Los Angeles', 'Chicago', 'Toronto', 'Sydney',
+    'Melbourne', 'Singapore', 'Berlin', 'Paris',
+  ]
+  let city: string | undefined
+  for (const part of parts) {
+    const hit = knownCities.find(c =>
+      c.toLowerCase() === part.toLowerCase()
+      || part.toLowerCase().startsWith(c.toLowerCase() + ' '),
+    )
+    if (hit) { city = hit; break }
+  }
+  return { city, country }
+}
+
 /** Normalise Luma event fields for cross-channel publish / edit forms. */
 export function lumaEventToNorm(e: Record<string, unknown>) {
   const geo = (e.geo_address_json || {}) as Record<string, unknown>
@@ -71,6 +103,11 @@ export function lumaEventToNorm(e: Record<string, unknown>) {
     ? stripMs(String(e.end_at))
     : new Date(Date.now() + 3600_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
   const desc = e.description ?? e.description_md ?? e.description_html ?? ''
+  const address = geo.address != null ? String(geo.address).trim() || undefined
+    : geo.full_address != null ? String(geo.full_address).trim() || undefined : undefined
+  const inferred = inferPlaceFromAddress(address)
+  const city = geo.city != null ? String(geo.city).trim() || undefined : undefined
+  const countryRaw = geo.country != null ? String(geo.country).trim() || undefined : undefined
   return {
     title: lumaName(e),
     description: String(desc || ''),
@@ -80,10 +117,9 @@ export function lumaEventToNorm(e: Record<string, unknown>) {
     coverImage: e.cover_url != null ? String(e.cover_url).trim() || undefined : undefined,
     isOnline: !!(e.meeting_url),
     onlineUrl: e.meeting_url != null ? String(e.meeting_url).trim() || undefined : undefined,
-    address: geo.address != null ? String(geo.address).trim() || undefined
-      : geo.full_address != null ? String(geo.full_address).trim() || undefined : undefined,
-    city: geo.city != null ? String(geo.city).trim() || undefined : undefined,
-    country: geo.country != null ? String(geo.country).trim() || undefined : undefined,
+    address,
+    city: city || inferred.city,
+    country: canonicalizeCountry(countryRaw) || inferred.country,
     lat: typeof geo.latitude === 'number' ? geo.latitude
       : typeof geo.latitude === 'string' && geo.latitude.trim() ? parseFloat(geo.latitude) : undefined,
     lng: typeof geo.longitude === 'number' ? geo.longitude

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { EventFormData } from '@/lib/publish-event'
 import { ALL_CHANNELS, CH_META } from './config'
 import {
-  COUNTRIES, citiesForCountry, countryCenter, type CityInfo,
+  COUNTRIES, citiesForCountry, countryCenter, canonicalizeCountry, type CityInfo,
 } from './location-data'
 
 const GOOGLE_MAPS_KEY =
@@ -35,6 +35,7 @@ type GoogleMap = {
   setCenter: (c: LatLngLiteral) => void
   setZoom: (z: number) => void
   panTo: (c: LatLngLiteral) => void
+  getCenter: () => { lat: () => number; lng: () => number } | null | undefined
   addListener: (name: string, handler: (e: { latLng?: { lat: () => number; lng: () => number } | null }) => void) => { remove: () => void }
 }
 
@@ -73,6 +74,8 @@ type GoogleAutocompleteService = {
     req: {
       input: string
       types?: string[]
+      location?: LatLngLiteral
+      radius?: number
       componentRestrictions?: { country?: string | string[] }
     },
     cb: (predictions: GooglePrediction[] | null, status: string) => void,
@@ -84,7 +87,13 @@ type GooglePrediction = {
   place_id: string
 }
 
-type SearchHit = { description: string; placeId: string }
+type SearchHit = {
+  description: string
+  placeId: string
+  lat?: number
+  lng?: number
+  result?: GoogleGeocodeResult
+}
 
 declare global {
   interface Window {
@@ -137,24 +146,36 @@ function loadGoogleMaps(): Promise<GoogleMapsApi> {
   return googleMapsPromise
 }
 
-const COUNTRY_ALIASES: Record<string, string> = {
-  'united states of america': 'United States',
-  usa: 'United States',
-  uk: 'United Kingdom',
-  'great britain': 'United Kingdom',
-  uae: 'United Arab Emirates',
-}
-
 function matchCountry(name?: string): string | null {
   if (!name) return null
-  const key = name.trim().toLowerCase()
-  const target = (COUNTRY_ALIASES[key] || name).toLowerCase()
-  const found = COUNTRIES.find(c => c.name.toLowerCase() === target)
-  return found ? found.name : null
+  const canon = canonicalizeCountry(name)
+  return COUNTRIES.some(c => c.name === canon) ? canon : null
 }
 
 function countryCodeForName(name: string): string | undefined {
   return COUNTRIES.find(c => c.name === name)?.code.toLowerCase()
+}
+
+/** Bias autocomplete toward the selected city / pin / country so local venues show up. */
+function searchBias(
+  lat: number | null,
+  lng: number | null,
+  country: string,
+  city: string,
+  map: GoogleMap | null,
+): { location: LatLngLiteral; radius: number } | null {
+  if (lat != null && lng != null && !Number.isNaN(lat) && !Number.isNaN(lng)) {
+    return { location: { lat, lng }, radius: 50_000 }
+  }
+  const cityInfo = citiesForCountry(country).find(c => c.name === city)
+  if (cityInfo) return { location: { lat: cityInfo.lat, lng: cityInfo.lng }, radius: 80_000 }
+  const center = countryCenter(country)
+  if (center) return { location: { lat: center.lat, lng: center.lng }, radius: 500_000 }
+  const mapCenter = map?.getCenter?.()
+  if (mapCenter) {
+    return { location: { lat: mapCenter.lat(), lng: mapCenter.lng() }, radius: 200_000 }
+  }
+  return null
 }
 
 function componentOf(
@@ -258,7 +279,7 @@ interface Props {
 
 export function LocationSection({ ev, setField }: Props) {
   const format = String(ev.format ?? '')
-  const country = String(ev.country ?? '')
+  const country = canonicalizeCountry(String(ev.country ?? ''))
   const city = String(ev.city ?? '')
   const showPhysical = format !== 'Online'
   const showOnline = format === 'Online' || format === 'Hybrid'
@@ -275,11 +296,14 @@ export function LocationSection({ ev, setField }: Props) {
   const googleRef = useRef<GoogleMapsApi | null>(null)
 
   const [mapError, setMapError] = useState('')
+  const [mapsReady, setMapsReady] = useState(false)
   const [resolving, setResolving] = useState(false)
   const [query, setQuery] = useState('')
   const [hits, setHits] = useState<SearchHit[]>([])
   const [searching, setSearching] = useState(false)
+  const [searchedEmpty, setSearchedEmpty] = useState(false)
   const skipSearchRef = useRef(false)
+  const searchGenRef = useRef(0)
 
   const lat = ev.lat ? parseFloat(String(ev.lat)) : null
   const lng = ev.lng ? parseFloat(String(ev.lng)) : null
@@ -420,9 +444,11 @@ export function LocationSection({ ev, setField }: Props) {
         mapRef.current = map
         if (lat != null && lng != null) attachMarker(g, map, lat, lng)
         setMapError('')
+        setMapsReady(true)
       })
       .catch((err: Error) => {
         if (!cancelled) {
+          setMapsReady(false)
           setMapError(
             err.message.includes('Missing')
               ? 'Add NEXT_PUBLIC_GOOGLE_LOCATION_API_KEY to your .env file to enable Google Maps.'
@@ -449,39 +475,138 @@ export function LocationSection({ ev, setField }: Props) {
   }, [])
 
   const doSearch = (q: string) => {
-    if (q.trim().length < 3) {
+    const trimmed = q.trim()
+    if (trimmed.length < 2) {
       setHits([])
+      setSearchedEmpty(false)
       return
     }
     const service = autocompleteRef.current
+    const geocoder = geocoderRef.current
     const g = googleRef.current
-    if (!service || !g) {
+    if (!g || (!service && !geocoder)) {
       setHits([])
       return
     }
 
+    const gen = ++searchGenRef.current
     setSearching(true)
+    setSearchedEmpty(false)
     const countryCode = countryCodeForName(country)
+    const bias = searchBias(lat, lng, country, city, mapRef.current)
+
+    const applyHits = (next: SearchHit[]) => {
+      if (gen !== searchGenRef.current) return
+      setSearching(false)
+      setHits(next)
+      setSearchedEmpty(next.length === 0)
+    }
+
+    const finishWithGeocodeFallback = () => {
+      if (!geocoder) {
+        applyHits([])
+        return
+      }
+      const address = [trimmed, city, country].filter(Boolean).join(', ')
+      geocoder.geocode(
+        {
+          address,
+          ...(countryCode ? { componentRestrictions: { country: countryCode } } : {}),
+        },
+        (results, status) => {
+          if (gen !== searchGenRef.current) return
+          if (status !== g.maps.GeocoderStatus.OK || !results?.length) {
+            // Retry without country lock — some venues only resolve globally
+            if (countryCode) {
+              geocoder.geocode({ address: trimmed }, (retryResults, retryStatus) => {
+                if (gen !== searchGenRef.current) return
+                if (retryStatus !== g.maps.GeocoderStatus.OK || !retryResults?.length) {
+                  applyHits([])
+                  return
+                }
+                applyHits(
+                  retryResults.slice(0, 5).map((r, i) => ({
+                    description: readablePlaceLabel(r) || r.formatted_address || trimmed,
+                    placeId: `geocode:${i}:${r.geometry?.location?.lat()},${r.geometry?.location?.lng()}`,
+                    lat: r.geometry?.location?.lat(),
+                    lng: r.geometry?.location?.lng(),
+                    result: r,
+                  })),
+                )
+              })
+              return
+            }
+            applyHits([])
+            return
+          }
+          applyHits(
+            results.slice(0, 5).map((r, i) => ({
+              description: readablePlaceLabel(r) || r.formatted_address || trimmed,
+              placeId: `geocode:${i}:${r.geometry?.location?.lat()},${r.geometry?.location?.lng()}`,
+              lat: r.geometry?.location?.lat(),
+              lng: r.geometry?.location?.lng(),
+              result: r,
+            })),
+          )
+        },
+      )
+    }
+
+    if (!service) {
+      finishWithGeocodeFallback()
+      return
+    }
+
     service.getPlacePredictions(
       {
-        input: q,
+        input: trimmed,
         ...(countryCode ? { componentRestrictions: { country: countryCode } } : {}),
+        ...(bias ? { location: bias.location, radius: bias.radius } : {}),
       },
       (predictions, status) => {
-        setSearching(false)
+        if (gen !== searchGenRef.current) return
         if (
-          status !== g.maps.places.PlacesServiceStatus.OK ||
-          !predictions?.length
+          status === g.maps.places.PlacesServiceStatus.OK &&
+          predictions?.length
         ) {
-          setHits([])
+          applyHits(
+            predictions.slice(0, 8).map(p => ({
+              description: p.description,
+              placeId: p.place_id,
+            })),
+          )
           return
         }
-        setHits(
-          predictions.slice(0, 5).map(p => ({
-            description: p.description,
-            placeId: p.place_id,
-          })),
-        )
+
+        // Country lock can hide valid venues — retry biased, unrestricted
+        if (countryCode) {
+          service.getPlacePredictions(
+            {
+              input: trimmed,
+              ...(bias ? { location: bias.location, radius: bias.radius } : {}),
+            },
+            (retryPredictions, retryStatus) => {
+              if (gen !== searchGenRef.current) return
+              if (
+                retryStatus === g.maps.places.PlacesServiceStatus.OK &&
+                retryPredictions?.length
+              ) {
+                applyHits(
+                  retryPredictions.slice(0, 8).map(p => ({
+                    description: p.description,
+                    placeId: p.place_id,
+                  })),
+                )
+                return
+              }
+              finishWithGeocodeFallback()
+            },
+          )
+          return
+        }
+
+        // No autocomplete hits (or API restricted) — fall back to Geocoder
+        finishWithGeocodeFallback()
       },
     )
   }
@@ -496,7 +621,7 @@ export function LocationSection({ ev, setField }: Props) {
     }, 350)
     return () => clearTimeout(id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, country])
+  }, [query, country, city, mapsReady])
 
   const onCountryChange = (value: string) => {
     setField('country', value)
@@ -525,9 +650,21 @@ export function LocationSection({ ev, setField }: Props) {
     skipSearchRef.current = true
     setQuery(h.description.split(',').slice(0, 2).join(', '))
 
+    // Geocode-fallback hits already have coordinates / a full result
+    if (h.result?.geometry?.location) {
+      const loc = h.result.geometry.location
+      placeMarker(loc.lat(), loc.lng(), 15, false)
+      applyGeocodeResult(h.result)
+      return
+    }
+    if (h.lat != null && h.lng != null) {
+      placeMarker(h.lat, h.lng, 15, true)
+      return
+    }
+
     const geocoder = geocoderRef.current
     const g = googleRef.current
-    if (!geocoder || !g) return
+    if (!geocoder || !g || h.placeId.startsWith('geocode:')) return
 
     setResolving(true)
     geocoder.geocode({ placeId: h.placeId }, (results, status) => {
@@ -637,6 +774,11 @@ export function LocationSection({ ev, setField }: Props) {
                   </li>
                 ))}
               </ul>
+            )}
+            {searchedEmpty && !searching && query.trim().length >= 2 && (
+              <p className="ew-loc-search-empty">
+                No places found. Try a fuller address, pick a city first, or click the map to drop a pin.
+              </p>
             )}
             {mapError ? (
               <div className="ew-loc-map-fallback">

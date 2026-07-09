@@ -64,6 +64,20 @@ function parseHtResponse(raw: Record<string, unknown>, status: number): never {
   throw new Error(message || detail || `HTTP ${status}`)
 }
 
+function htPublishStatus(ev: EventFormData): 'draft' | 'published' {
+  const raw = String(ev.status || '').trim().toLowerCase()
+  if (raw === 'draft') return 'draft'
+  // Default to draft unless the user explicitly chose Published — never force-publish.
+  if (raw === 'published' || raw === 'live' || raw === 'public') return 'published'
+  return 'draft'
+}
+
+function htIsPublic(ev: EventFormData): boolean {
+  const vis = String(ev.visibility || '').trim().toLowerCase()
+  if (vis === 'private' || vis === 'unlisted' || vis === 'member-only') return false
+  return true
+}
+
 function buildHightribeEventBody(
   ev: EventFormData,
   online: boolean,
@@ -75,10 +89,14 @@ function buildHightribeEventBody(
   const startD = new Date(startUtc)
   const endD = new Date(endUtc)
   const pad = (n: number) => String(n).padStart(2, '0')
+  const status = htPublishStatus(ev)
+  const hostName = String(ev.hostName || '').trim()
   const body: Record<string, unknown> = {
     title: ev.title,
     description: String(ev.description || ev.title),
-    status: 'published',
+    status,
+    publish_status: status,
+    is_public: htIsPublic(ev) ? 1 : 0,
     is_business_profile: 0,
     dates: {
       start_date: `${startD.getFullYear()}-${pad(startD.getMonth() + 1)}-${pad(startD.getDate())}`,
@@ -87,6 +105,10 @@ function buildHightribeEventBody(
       end_time: `${pad(endD.getHours())}:${pad(endD.getMinutes())}`,
       timezone: tz,
     },
+  }
+  if (hostName) {
+    body.host_name = hostName
+    body.organizer_name = hostName
   }
   if (online) {
     body.location = {
@@ -102,6 +124,7 @@ function buildHightribeEventBody(
       location: String(ev.venue || ev.address || 'TBD'),
       address: String(ev.address || ev.venue || 'TBD'),
       city: String(ev.city || ev.venue || 'TBD'),
+      country: String(ev.country || '') || undefined,
       lat: ev.lat ? parseFloat(String(ev.lat)) : undefined,
       lng: ev.lng ? parseFloat(String(ev.lng)) : undefined,
     }
@@ -165,8 +188,13 @@ function buildHightribeTicketsFromForm(ev: EventFormData): {
   if (!Number.isFinite(cap) || cap <= 0) return {}
 
   const ticketType = String(ev.ticketType || '').trim()
+  // Don't invent a $0 ticket on edit when pricing wasn't loaded into the form.
+  if (!ticketType) return {}
+
   const isFree = ticketType === 'Free' || ticketType === 'Donation'
   const price = isFree ? 0 : parseFloat(String(ev.price || '0'))
+  if (!isFree && (!Number.isFinite(price) || price <= 0)) return {}
+
   const currency = 'USD'
   const minQty = parseInt(String(ev.minPerOrder || '1'), 10) || 1
   const maxQty = parseInt(String(ev.maxPerOrder || '8'), 10) || 8
@@ -240,6 +268,10 @@ async function syncHightribeTickets(eventId: string | number, ev: EventFormData)
 }
 
 async function updateEventbriteTickets(eventId: string | number, ev: EventFormData): Promise<void> {
+  const ticketType = String(ev.ticketType || '').trim()
+  // Skip ticket updates when the form never loaded pricing — avoid wiping a paid ticket to free.
+  if (!ticketType) return
+
   const cap = ebTicketQuantity(ev.capacity as string | number | undefined)
   const listRes = await channelFetch(`/api/eventbrite/events/${eventId}/ticket_classes`)
   const listData = await listRes.json() as {
@@ -254,10 +286,10 @@ async function updateEventbriteTickets(eventId: string | number, ev: EventFormDa
 
   const tc = buildEbTicketClass({
     name: String(ev.htTicketName || 'General Admission'),
-    free: ev.ticketType === 'Free' || ev.ticketType === 'Donation',
+    free: ticketType === 'Free' || ticketType === 'Donation',
     capacity: cap,
     currency: 'USD',
-    price: ev.ticketType === 'Free' || ev.ticketType === 'Donation'
+    price: ticketType === 'Free' || ticketType === 'Donation'
       ? 0
       : parseFloat(String(ev.price || '0')),
   })
@@ -309,7 +341,10 @@ export async function publishToChannel(
       cover_url: publicCoverUrl || undefined,
       require_rsvp_approval: !!ev.requireApproval,
       capacity: cap,
+      visibility: String(ev.visibility || 'Public').toLowerCase() === 'public' ? 'public' : 'private',
     }
+    const hostName = String(ev.hostName || '').trim()
+    if (hostName) body.host = hostName
     if (online) body.meeting_url = ev.onlineUrl || undefined
     else if (inPerson && (ev.city || ev.address || ev.venue)) {
       body.geo_address_json = {
@@ -463,7 +498,10 @@ export async function updateChannelEvent(
       cover_url: publicCoverUrl || undefined,
       require_rsvp_approval: !!ev.requireApproval,
       capacity: ev.capacity ? parseInt(String(ev.capacity)) : undefined,
+      visibility: String(ev.visibility || 'Public').toLowerCase() === 'public' ? 'public' : 'private',
     }
+    const hostName = String(ev.hostName || '').trim()
+    if (hostName) body.host = hostName
     if (online) body.meeting_url = ev.onlineUrl || undefined
     else if (inPerson && (ev.city || ev.address || ev.venue)) {
       body.geo_address_json = {
@@ -547,6 +585,8 @@ async function persistPublishedEvent(
   const cover = String(ev.coverUrl || '')
 
   let raw: Record<string, unknown>
+  const htStatus = htPublishStatus(ev)
+  const hostName = String(ev.hostName || '').trim()
   if (ch === 'luma') {
     const url = ref.url ? (/^https?:\/\//i.test(ref.url) ? ref.url : `https://${ref.url}`) : ''
     raw = {
@@ -557,7 +597,9 @@ async function persistPublishedEvent(
       timezone: tz,
       url,
       cover_url: cover,
-      status: 'published',
+      status: htStatus === 'published' ? 'published' : 'draft',
+      visibility: String(ev.visibility || 'Public').toLowerCase() === 'public' ? 'public' : 'private',
+      host: hostName || undefined,
     }
   } else if (ch === 'eventbrite') {
     raw = {
@@ -567,17 +609,23 @@ async function persistPublishedEvent(
       end: { utc: endUtc },
       url: ref.url || '',
       is_free: ev.ticketType === 'Free',
-      status: 'live',
+      // Eventbrite stays draft until published on their side
+      status: 'draft',
+      listed: String(ev.visibility || '') === 'Public',
     }
   } else {
     raw = {
       id: ref.eventId,
       title: ev.title,
-      dates: { starts_at: startUtc, ends_at: endUtc },
+      dates: { starts_at: startUtc, ends_at: endUtc, timezone: tz },
       timezone: tz,
       cover_url: cover,
       location: String(ev.venue || ev.address || ev.city || ''),
-      status: 'published',
+      status: htStatus,
+      publish_status: htStatus,
+      is_public: htIsPublic(ev),
+      host_name: hostName || undefined,
+      organizer_name: hostName || undefined,
     }
   }
 

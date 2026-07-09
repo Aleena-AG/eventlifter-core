@@ -168,9 +168,12 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
         // Load tickets if any
         const ticketsRaw = (e.tickets || []) as Array<Record<string, unknown>>
         const ticketSetting = (e.ticket_setting || e.ticketSetting || {}) as Record<string, unknown>
+        const coverFromRatio = Array.isArray(e.cover_image_aspect_ratio)
+          ? (e.cover_image_aspect_ratio as Array<{ image?: string }>).find(r => r?.image)?.image
+          : undefined
         setHt({
           title: String(e.title || ''), description: String(e.description || ''),
-          coverUrl: String(e.cover_image || ''),
+          coverUrl: String(e.cover_image || e.cover_url || coverFromRatio || ''),
           startDate: dates.start_date || '', startTime: (dates.start_time || '10:00').slice(0, 5),
           endDate: dates.end_date || '', endTime: (dates.end_time || '12:00').slice(0, 5),
           timezone: dates.timezone || String(e.timezone || 'Asia/Karachi'),

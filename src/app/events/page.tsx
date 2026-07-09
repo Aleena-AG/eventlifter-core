@@ -239,6 +239,16 @@ type RegistryMaster = {
 
 const CHANNEL_ORDER: ChannelKey[] = ['hightribe', 'luma', 'eventbrite']
 
+function formatChannelStatus(raw?: string): string {
+  const s = (raw || '').trim()
+  if (!s) return ''
+  const lower = s.toLowerCase()
+  if (lower === 'published' || lower === 'live') return 'Published'
+  if (lower === 'draft' || lower === 'unpublished') return 'Draft'
+  if (lower === 'canceled' || lower === 'cancelled') return 'Cancelled'
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}
+
 function dayKey(ms: number): string {
   if (!ms) return ''
   const d = new Date(ms)
@@ -394,6 +404,16 @@ function htToUnified(evt: HtEvent): UnifiedEvent {
   const sortMs = parseMs(startUtc)
   const endMs = parseMs(endUtc)
   const status = evt.publish_status || evt.status
+  // Prefer publish_status; if HT only returns a generic "active", treat as draft unless is_public.
+  const normalizedStatus = (() => {
+    const raw = String(status || '').toLowerCase()
+    if (raw === 'active' || raw === '') {
+      if (evt.is_public === false) return 'draft'
+      if (evt.is_public === true) return 'published'
+      return 'draft'
+    }
+    return status
+  })()
   return {
     key: `hightribe-${evt.id}`,
     channel: 'hightribe',
@@ -405,8 +425,8 @@ function htToUnified(evt: HtEvent): UnifiedEvent {
     image: evt.cover_image || evt.cover_image_aspect_ratio?.[0]?.image || undefined,
     location: loc,
     url: evt.share_url || (evt.slug ? `https://Hightribe.com/events/${evt.slug}` : undefined),
-    status,
-    lifecycleTags: getLifecycleTags(sortMs, endMs, status),
+    status: normalizedStatus,
+    lifecycleTags: getLifecycleTags(sortMs, endMs, normalizedStatus),
     syncSource: 'hightribe',
   }
 }
@@ -596,9 +616,11 @@ function EventCard({
         </div>
         <div className="event-card__badges">
           {channels.map((ch) => {
-            const st = (channelStatuses[ch] || '').toLowerCase()
+            const rawStatus = channelStatuses[ch]
+            const st = (rawStatus || '').toLowerCase()
             const isLive = st === 'published' || st === 'live'
-            const showStatus = st && st !== 'active'
+            const label = formatChannelStatus(rawStatus)
+            const showStatus = !!label && st !== 'active'
             return (
               <span
                 key={ch}
@@ -611,7 +633,7 @@ function EventCard({
                 {CHANNEL_META[ch].name}
                 {showStatus && (
                   <span className={`event-card__status-badge ${isLive ? 'event-card__status-badge--live' : 'event-card__status-badge--muted'}`}>
-                    {channelStatuses[ch]}
+                    {label}
                   </span>
                 )}
               </span>

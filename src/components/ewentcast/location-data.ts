@@ -207,5 +207,26 @@ export function countryCenter(country: string): { lat: number; lng: number } | n
 }
 
 export function citiesForCountry(country: string): CityInfo[] {
-  return CITIES[country] || []
+  return CITIES[canonicalizeCountry(country)] || CITIES[country] || []
+}
+
+const COUNTRY_ALIASES: Record<string, string> = {
+  'united states of america': 'United States',
+  usa: 'United States',
+  uk: 'United Kingdom',
+  'great britain': 'United Kingdom',
+  uae: 'United Arab Emirates',
+}
+
+/** Map ISO codes / aliases / names to the curated country list label. */
+export function canonicalizeCountry(raw?: string | null): string {
+  const s = String(raw || '').trim()
+  if (!s) return ''
+  const byCode = COUNTRIES.find(c => c.code.toLowerCase() === s.toLowerCase())
+  if (byCode) return byCode.name
+  const key = s.toLowerCase()
+  const aliased = COUNTRY_ALIASES[key]
+  if (aliased) return aliased
+  const byName = COUNTRIES.find(c => c.name.toLowerCase() === key)
+  return byName ? byName.name : s
 }

@@ -120,7 +120,17 @@ export function EwentcastWizard({
 
   useEffect(() => {
     if (isEdit) return
-    setEv(prev => (prev.timezone ? prev : { ...prev, timezone: detectTimeZone() }))
+    setEv(prev => {
+      const next = { ...prev }
+      if (!next.timezone) next.timezone = detectTimeZone()
+      if (!next.hostName) {
+        const user = getUser()
+        if (user?.name) next.hostName = user.name
+      }
+      if (!next.status) next.status = 'Draft'
+      if (!next.visibility) next.visibility = 'Public'
+      return next
+    })
   }, [isEdit])
 
   useEffect(() => {
@@ -558,8 +568,7 @@ export function EwentcastWizard({
 
         {!isEdit && (
           <div className="ew-publish-headline">
-            Publish your event to <b>Eventbrite</b>, <b>Luma</b>
-            <span className="ew-publish-headline-muted"> &amp; Hightribe</span>
+            Publish your event to <b>Eventbrite</b>, <b>Luma</b> &amp; <b>Hightribe</b>
           </div>
         )}
 

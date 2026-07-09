@@ -25,17 +25,22 @@ export interface DbEbEvent {
 }
 
 export function storedToHtEvent(row: StoredChannelEvent): HtEventListItem {
-  const p = row.payload as HtEventListItem
+  const p = row.payload as HtEventListItem & Record<string, unknown>
   const dates = p.dates || {}
   if (row.start_at && !dates.starts_at) {
     dates.starts_at = row.start_at
   }
+  const publishStatus = String(
+    p.publish_status || row.status || p.status || '',
+  ).trim() || undefined
   return {
     ...p,
     id: row.external_id,
     title: row.title || p.title,
     cover_image: row.cover_url || p.cover_image,
-    status: row.status || p.status,
+    status: publishStatus,
+    publish_status: publishStatus,
+    is_public: typeof p.is_public === 'boolean' ? p.is_public : undefined,
     dates,
     share_url: row.url || p.share_url,
   }
