@@ -7,6 +7,7 @@ import type { ChannelKey } from '@/lib/types'
 import { buildEbTicketClass, ebTicketQuantity } from '@/lib/eventbrite-ticket'
 import { resolveEbTimezone } from '@/lib/eventbrite-timezone'
 import { zonedDateTimeToUtcIso } from '@/lib/event-datetime'
+import { parseTagsInput, syncLumaEventTags } from '@/lib/event-tags'
 import {
   postHtEvent,
   resolveCoverFileForHt,
@@ -105,6 +106,10 @@ function buildHightribeEventBody(
   if (hostName) {
     body.host_name = hostName
     body.organizer_name = hostName
+  }
+  const tagList = parseTagsInput(ev.tags)
+  if (tagList.length) {
+    body.highlights = tagList
   }
   if (online) {
     body.location = {
@@ -360,6 +365,7 @@ export async function publishToChannel(
     const raw = await res.json() as { status?: string; data?: { api_id?: string }; message?: string; error?: string }
     if (!res.ok || raw.status === 'error') throw new Error(raw.message || raw.error || `HTTP ${res.status}`)
     const eventId = String(raw.data?.api_id || '')
+    await syncLumaEventTags(eventId, parseTagsInput(ev.tags))
     return { eventId, url: `lu.ma/${eventId}` }
   }
 
@@ -516,6 +522,7 @@ export async function updateChannelEvent(
     })
     const raw = await res.json() as { status?: string; message?: string; error?: string }
     if (!res.ok || raw.status === 'error') throw new Error(raw.message || raw.error || `HTTP ${res.status}`)
+    await syncLumaEventTags(id, parseTagsInput(ev.tags))
     return
   }
 
