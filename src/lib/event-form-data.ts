@@ -1,4 +1,5 @@
 import { lumaEventToNorm, unwrapLumaEvent } from '@/lib/luma-event-utils'
+import { channelFetch } from '@/lib/channel-fetch'
 import { getStoredEvent, type ChannelName } from '@/lib/channel-events-store'
 import type { ChannelKey } from '@/lib/types'
 import type { EventFormData } from '@/lib/publish-event'
@@ -66,6 +67,12 @@ interface NormEvent {
   requireApproval?: boolean
   capacity?: number
   visibility?: string
+  ticketType?: string
+  ticketPrice?: number
+  minPerOrder?: number
+  maxPerOrder?: number
+  htTicketId?: string
+  htTicketName?: string
 }
 
 function normToForm(n: NormEvent): EventFormData {
@@ -98,12 +105,12 @@ function normToForm(n: NormEvent): EventFormData {
     lat: n.lat != null ? String(n.lat) : '',
     lng: n.lng != null ? String(n.lng) : '',
     onlineUrl: n.onlineUrl || '',
-    ticketType: 'Free',
-    price: '0',
+    ticketType: n.ticketType || (n.ticketPrice === 0 ? 'Free' : n.ticketPrice != null ? 'Paid' : 'Free'),
+    price: n.ticketPrice != null ? String(n.ticketPrice) : '0',
     currency: n.currency || 'USD',
     capacity: n.capacity != null ? String(n.capacity) : '150',
-    minPerOrder: '1',
-    maxPerOrder: '8',
+    minPerOrder: n.minPerOrder != null ? String(n.minPerOrder) : '1',
+    maxPerOrder: n.maxPerOrder != null ? String(n.maxPerOrder) : '8',
     salesStart: '',
     salesEnd: '',
     waitlist: false,
@@ -115,6 +122,8 @@ function normToForm(n: NormEvent): EventFormData {
     hostName: '',
     refundPolicy: '',
     faq: '',
+    htTicketId: n.htTicketId || '',
+    htTicketName: n.htTicketName || 'General Admission',
   }
 }
 
@@ -126,6 +135,14 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
     const startUtc = d?.starts_at ? stripMs(d.starts_at) : buildDateStr(d?.start_date, d?.start_time)
     const endUtc = d?.ends_at ? stripMs(d.ends_at) : buildDateStr(d?.end_date, d?.end_time)
     const venueLabel = optStr(loc?.location)
+    const ticketsRaw = (Array.isArray(e.tickets) ? e.tickets : Array.isArray(raw.tickets) ? raw.tickets : []) as Array<Record<string, unknown>>
+    const ticket = ticketsRaw[0]
+    const ticketSetting = (e.ticket_setting || e.ticketSetting || {}) as Record<string, unknown>
+    const rawPrice = ticket ? parseFloat(String(ticket.price ?? 0)) : undefined
+    // Use stored ticket.price for the edit form — discount_price can still show a paid amount
+    // after the base price was set to 0 until discounts are cleared on save.
+    const effectivePrice = rawPrice != null && Number.isFinite(rawPrice) ? rawPrice : undefined
+    const ticketQty = ticket ? parseInt(String(ticket.quantity ?? ''), 10) : undefined
     return {
       title: String(e.title || raw.title || ''),
       description: String(e.description || e.overview || ''),
@@ -138,7 +155,14 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
       city: optStr(loc?.city),
       lat: parseCoord(loc?.lat),
       lng: parseCoord(loc?.lng),
-      currency: optStr(e.currency),
+      currency: optStr(ticket?.currency) || optStr(e.currency),
+      capacity: Number.isFinite(ticketQty) && ticketQty! > 0 ? ticketQty : undefined,
+      ticketType: effectivePrice != null && effectivePrice <= 0 ? 'Free' : effectivePrice != null ? 'Paid' : undefined,
+      ticketPrice: effectivePrice != null && Number.isFinite(effectivePrice) ? effectivePrice : undefined,
+      minPerOrder: parseInt(String(ticketSetting.min_qty ?? ticketSetting.minQty ?? ''), 10) || undefined,
+      maxPerOrder: parseInt(String(ticketSetting.max_qty ?? ticketSetting.maxQty ?? ''), 10) || undefined,
+      htTicketId: ticket?.id != null ? String(ticket.id) : undefined,
+      htTicketName: ticket?.name != null ? String(ticket.name) : undefined,
     }
   }
 
@@ -191,8 +215,52 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
   }
 }
 
-/** Load edit form data from MySQL cache (sync events first if missing). */
+/** Load edit form data from stored cache; Hightribe also refreshes from API for tickets. */
+async function loadHightribeTickets(eventId: string | number): Promise<Array<Record<string, unknown>>> {
+  try {
+    const res = await channelFetch(
+      `/api/hightribe/tickets?ticketable_type=event&ticketable_id=${encodeURIComponent(String(eventId))}`,
+    )
+    if (!res.ok) return []
+    const raw = await res.json() as { data?: { tickets?: Array<Record<string, unknown>> } }
+    const list = raw.data?.tickets
+    return Array.isArray(list) ? list : []
+  } catch {
+    return []
+  }
+}
+
 export async function loadEventFormData(channel: ChannelKey, eventId: string | number): Promise<EventFormData> {
+  if (channel === 'hightribe') {
+    try {
+      const res = await channelFetch(`/api/hightribe/events/${eventId}`)
+      if (res.ok) {
+        const fresh = await res.json() as Record<string, unknown>
+        const norm = normFromPayload(channel, fresh)
+        if (!norm.htTicketId) {
+          const tickets = await loadHightribeTickets(eventId)
+          const first = tickets[0]
+          if (first?.id != null) {
+            norm.htTicketId = String(first.id)
+            norm.htTicketName = first.name != null ? String(first.name) : norm.htTicketName
+            const p = parseFloat(String(first.price ?? ''))
+            if (Number.isFinite(p)) {
+              norm.ticketPrice = p
+              norm.ticketType = p <= 0 ? 'Free' : 'Paid'
+            }
+          }
+        }
+        if (!norm.title) {
+          const stored = await getStoredEvent(channel as ChannelName, String(eventId))
+          if (stored?.title) norm.title = stored.title
+        }
+        return normToForm(norm)
+      }
+    } catch {
+      // fall back to stored copy
+    }
+  }
+
   const stored = await getStoredEvent(channel as ChannelName, String(eventId))
   if (!stored) {
     throw new Error('Event not in database. Open Events and use Sync for this channel first.')

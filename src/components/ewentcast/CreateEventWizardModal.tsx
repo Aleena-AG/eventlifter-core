@@ -8,20 +8,21 @@ import '@/app/create/ewentcast.css'
 interface Props {
   open: boolean
   onClose: () => void
-  onPublished?: () => void
+  onPublished?: (updatedChannels?: ChannelKey[]) => void
   mode?: 'create' | 'edit'
   editChannel?: ChannelKey
   editEventId?: string | number
+  editChannelIds?: Partial<Record<ChannelKey, string | number>>
 }
 
 export function CreateEventWizardModal({
-  open, onClose, onPublished, mode = 'create', editChannel, editEventId,
+  open, onClose, onPublished, mode = 'create', editChannel, editEventId, editChannelIds,
 }: Props) {
   const [mountKey, setMountKey] = useState(0)
 
   useEffect(() => {
     if (open) setMountKey(k => k + 1)
-  }, [open, mode, editChannel, editEventId])
+  }, [open, mode, editChannel, editEventId, editChannelIds])
 
   useEffect(() => {
     if (!open) return
@@ -52,8 +53,9 @@ export function CreateEventWizardModal({
           mode={mode}
           editChannel={editChannel}
           editEventId={editEventId}
+          editChannelIds={editChannelIds}
           onClose={onClose}
-          onDone={() => { onPublished?.(); onClose() }}
+          onDone={(updatedChannels) => { onPublished?.(updatedChannels); onClose() }}
         />
       </div>
     </div>

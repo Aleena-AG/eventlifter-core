@@ -32,6 +32,125 @@ function isInPerson(fmt: string) {
   return fmt === 'In person' || fmt === 'Hybrid'
 }
 
+function buildHightribeTicketsFromForm(ev: EventFormData): {
+  tickets?: Array<Record<string, unknown>>
+  ticketSetting?: Record<string, unknown>
+} {
+  const cap = parseInt(String(ev.capacity || ''), 10)
+  if (!Number.isFinite(cap) || cap <= 0) return {}
+
+  const ticketType = String(ev.ticketType || '').trim()
+  const isFree = ticketType === 'Free' || ticketType === 'Donation'
+  const price = isFree ? 0 : parseFloat(String(ev.price || '0'))
+  const currency = String(ev.currency || 'USD')
+  const minQty = parseInt(String(ev.minPerOrder || '1'), 10) || 1
+  const maxQty = parseInt(String(ev.maxPerOrder || '8'), 10) || 8
+  const ticketName = String(ev.htTicketName || 'General Admission').trim() || 'General Admission'
+  const ticketId = String(ev.htTicketId || '').trim()
+
+  const ticket: Record<string, unknown> = {
+    name: ticketName,
+    currency,
+    price: Number.isFinite(price) ? price : 0,
+    quantity: cap,
+    show_ticket: true,
+    booking_type: 'instant',
+  }
+  if (ticketId) ticket.id = ticketId
+
+  return {
+    tickets: [ticket],
+    ticketSetting: {
+      minQty,
+      maxQty,
+    },
+  }
+}
+
+async function fetchHightribeTicketIds(eventId: string | number): Promise<string[]> {
+  try {
+    const res = await channelFetch(
+      `/api/hightribe/tickets?ticketable_type=event&ticketable_id=${encodeURIComponent(String(eventId))}`,
+    )
+    if (!res.ok) return []
+    const raw = await res.json() as { data?: { tickets?: Array<{ id?: unknown }> } }
+    const list = raw.data?.tickets
+    if (!Array.isArray(list)) return []
+    return list.map((t) => String(t.id ?? '')).filter(Boolean)
+  } catch {
+    return []
+  }
+}
+
+/** Push ticket pricing to Hightribe via the dedicated tickets endpoint (more reliable than event PUT alone). */
+async function syncHightribeTickets(eventId: string | number, ev: EventFormData): Promise<void> {
+  const bundle = buildHightribeTicketsFromForm(ev)
+  if (!bundle.tickets?.length) return
+
+  let tickets = bundle.tickets.map((t) => ({ ...t }))
+  const knownId = String(ev.htTicketId || '').trim()
+  if (knownId) {
+    tickets[0] = { ...tickets[0], id: knownId }
+  } else {
+    const ids = await fetchHightribeTicketIds(eventId)
+    if (ids.length) tickets[0] = { ...tickets[0], id: ids[0] }
+  }
+
+  const body: Record<string, unknown> = {
+    ticketable_type: 'event',
+    ticketable_id: eventId,
+    tickets,
+  }
+  if (bundle.ticketSetting) body.ticketSetting = bundle.ticketSetting
+
+  const res = await channelFetch('/api/hightribe/tickets', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const data = await res.json() as { message?: string; errors?: Record<string, string[]> }
+  if (!res.ok) {
+    throw new Error(data.message || (data.errors ? Object.values(data.errors).flat().join(', ') : `HTTP ${res.status}`))
+  }
+}
+
+async function updateEventbriteTickets(eventId: string | number, ev: EventFormData): Promise<void> {
+  const cap = ebTicketQuantity(ev.capacity as string | number | undefined)
+  const listRes = await channelFetch(`/api/eventbrite/events/${eventId}/ticket_classes`)
+  const listData = await listRes.json() as {
+    ticket_classes?: Array<{ id?: string }>
+    error_description?: string
+  }
+  if (!listRes.ok) {
+    throw new Error(listData.error_description || `HTTP ${listRes.status}`)
+  }
+  const ticketClassId = listData.ticket_classes?.[0]?.id
+  if (!ticketClassId) return
+
+  const tc = buildEbTicketClass({
+    name: String(ev.htTicketName || 'General Admission'),
+    free: ev.ticketType === 'Free' || ev.ticketType === 'Donation',
+    capacity: cap,
+    currency: String(ev.currency || 'USD'),
+    price: ev.ticketType === 'Free' || ev.ticketType === 'Donation'
+      ? 0
+      : parseFloat(String(ev.price || '0')),
+  })
+
+  const tcRes = await channelFetch(
+    `/api/eventbrite/events/${eventId}/ticket_classes/${ticketClassId}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticket_class: tc }),
+    },
+  )
+  const tcData = await tcRes.json() as { error_description?: string; error?: string }
+  if (!tcRes.ok) {
+    throw new Error(tcData.error_description || tcData.error || `HTTP ${tcRes.status}`)
+  }
+}
+
 export async function publishToChannel(
   ch: ChannelKey,
   ev: EventFormData,
@@ -80,12 +199,7 @@ export async function publishToChannel(
       }
     }
     if (cap) {
-      body.tickets = [{
-        name: 'General Admission',
-        price: ev.ticketType === 'Free' ? 0 : parseFloat(String(ev.price || '0')),
-        currency: String(ev.currency || 'USD'),
-        quantity: cap,
-      }]
+      Object.assign(body, buildHightribeTicketsFromForm(ev))
       const res = await postHtEvent('/api/hightribe/events/with-tickets', body, 'POST', htCoverFile)
       const data = await res.json() as { data?: { id?: unknown; tickets?: Array<{ id?: unknown }> }; message?: string; errors?: Record<string, string[]> }
       if (!res.ok) throw new Error(data.message || (data.errors ? Object.values(data.errors).flat().join(', ') : `HTTP ${res.status}`))
@@ -257,9 +371,16 @@ export async function updateChannelEvent(
         lng: ev.lng ? parseFloat(String(ev.lng)) : undefined,
       }
     }
+    const ticketBundle = buildHightribeTicketsFromForm(ev)
+    if (ticketBundle.tickets) {
+      Object.assign(body, ticketBundle)
+    }
     const res = await postHtEvent(`/api/hightribe/events/${eventId}`, body, 'PUT', htCoverFile)
     const data = await res.json() as { message?: string; errors?: Record<string, string[]> }
     if (!res.ok) throw new Error(data.message || (data.errors ? Object.values(data.errors).flat().join(', ') : `HTTP ${res.status}`))
+    if (ticketBundle.tickets) {
+      await syncHightribeTickets(eventId, ev)
+    }
     return
   }
 
@@ -315,6 +436,32 @@ export async function updateChannelEvent(
   })
   const data = await res.json() as { error_description?: string; error?: string }
   if (!res.ok) throw new Error(data.error_description || data.error || `HTTP ${res.status}`)
+  await updateEventbriteTickets(eventId, ev)
+}
+
+export async function updateChannelEventsAll(
+  ev: EventFormData,
+  targets: Partial<Record<ChannelKey, string | number>>,
+  files?: EventCoverFiles,
+): Promise<Partial<Record<ChannelKey, { ok: boolean; message?: string }>>> {
+  const results: Partial<Record<ChannelKey, { ok: boolean; message?: string }>> = {}
+  const channels = (['hightribe', 'luma', 'eventbrite'] as ChannelKey[]).filter(
+    (ch) => targets[ch] != null && targets[ch] !== '',
+  )
+
+  for (const ch of channels) {
+    try {
+      await updateChannelEvent(ch, targets[ch]!, ev, files)
+      results[ch] = { ok: true }
+    } catch (err) {
+      results[ch] = {
+        ok: false,
+        message: err instanceof Error ? err.message : String(err),
+      }
+    }
+  }
+
+  return results
 }
 
 /**

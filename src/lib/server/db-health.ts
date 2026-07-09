@@ -7,12 +7,18 @@ export async function runDbHealthCheck() {
     return {
       ok: true as const,
       mode: 'local' as const,
+      storage: 'local-file' as const,
+      database: null,
       store: 'data/local-app-store.json',
     }
   }
 
   if (!dbConfigured()) {
-    return { ok: false as const, error: 'Database env vars are not configured' }
+    return {
+      ok: false as const,
+      database: config.db.database || null,
+      error: 'Database env vars are not configured',
+    }
   }
 
   try {
@@ -41,6 +47,7 @@ export async function runDbHealthCheck() {
   } catch (err) {
     return {
       ok: false as const,
+      database: config.db.database || null,
       error: err instanceof Error ? err.message : 'Connection failed',
     }
   }
