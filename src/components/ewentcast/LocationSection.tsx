@@ -19,16 +19,55 @@ type GoogleMapsApi = {
     Map: new (el: HTMLElement, opts?: Record<string, unknown>) => GoogleMap
     Marker: new (opts?: Record<string, unknown>) => GoogleMarker
     Geocoder: new () => GoogleGeocoder
+    importLibrary?: (name: string) => Promise<Record<string, unknown>>
     event: {
       addListener: (instance: unknown, name: string, handler: (...args: never[]) => void) => { remove: () => void }
       clearInstanceListeners: (instance: unknown) => void
     }
     places: {
-      AutocompleteService: new () => GoogleAutocompleteService
-      PlacesServiceStatus: { OK: string; ZERO_RESULTS: string }
+      AutocompleteService?: new () => GoogleAutocompleteService
+      AutocompleteSuggestion?: {
+        fetchAutocompleteSuggestions: (
+          req: AutocompleteSuggestionRequest,
+        ) => Promise<{ suggestions: AutocompleteSuggestionItem[] }>
+      }
+      PlacesService?: new (attrContainer: HTMLElement | GoogleMap) => GooglePlacesService
+      PlacesServiceStatus?: { OK: string; ZERO_RESULTS: string }
+      Place?: new (opts: { id: string }) => GooglePlace
     }
     GeocoderStatus: { OK: string }
   }
+}
+
+type AutocompleteSuggestionRequest = {
+  input: string
+  includedRegionCodes?: string[]
+  locationBias?: LatLngLiteral | { center: LatLngLiteral; radius: number }
+}
+
+type AutocompleteSuggestionItem = {
+  placePrediction?: {
+    placeId?: string
+    text?: { text?: string; toString?: () => string }
+    mainText?: { text?: string; toString?: () => string }
+    toPlace?: () => GooglePlace
+  }
+}
+
+type GooglePlace = {
+  id?: string
+  displayName?: string
+  formattedAddress?: string
+  location?: { lat: () => number; lng: () => number } | LatLngLiteral
+  addressComponents?: Array<{
+    longText?: string
+    shortText?: string
+    long_name?: string
+    short_name?: string
+    types: string[]
+  }>
+  types?: string[]
+  fetchFields: (opts: { fields: string[] }) => Promise<void>
 }
 
 type GoogleMap = {
@@ -82,14 +121,36 @@ type GoogleAutocompleteService = {
   ) => void
 }
 
+type GooglePlacesService = {
+  getDetails: (
+    req: { placeId: string; fields?: string[] },
+    cb: (place: GooglePlaceDetails | null, status: string) => void,
+  ) => void
+}
+
 type GooglePrediction = {
   description: string
   place_id: string
+  structured_formatting?: {
+    main_text?: string
+    secondary_text?: string
+  }
+}
+
+type GooglePlaceDetails = {
+  name?: string
+  formatted_address?: string
+  place_id?: string
+  geometry?: { location?: { lat: () => number; lng: () => number } }
+  address_components?: GoogleGeocodeResult['address_components']
+  types?: string[]
 }
 
 type SearchHit = {
   description: string
   placeId: string
+  /** Establishment / venue name from autocomplete (e.g. "Venus Hill"). */
+  name?: string
   lat?: number
   lng?: number
   result?: GoogleGeocodeResult
@@ -136,9 +197,10 @@ function loadGoogleMaps(): Promise<GoogleMapsApi> {
     script.dataset.ewGoogleMaps = '1'
     script.async = true
     script.defer = true
+    // v=weekly + places library: supports AutocompleteSuggestion (new) and legacy fallback
     script.src =
       `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(GOOGLE_MAPS_KEY)}` +
-      '&libraries=places&callback=__ewGoogleMapsCb'
+      '&v=weekly&libraries=places&loading=async&callback=__ewGoogleMapsCb'
     script.onerror = () => reject(new Error('Google Maps failed to load'))
     document.head.appendChild(script)
   })
@@ -156,19 +218,59 @@ function countryCodeForName(name: string): string | undefined {
   return COUNTRIES.find(c => c.name === name)?.code.toLowerCase()
 }
 
-/** Bias autocomplete toward the selected city / pin / country so local venues show up. */
+function placesStatusOk(g: GoogleMapsApi, status: string): boolean {
+  return status === 'OK' || status === g.maps.places.PlacesServiceStatus?.OK
+}
+
+function placeLatLng(loc: GooglePlace['location']): LatLngLiteral | null {
+  if (!loc) return null
+  if (typeof (loc as { lat?: unknown }).lat === 'function') {
+    const ll = loc as { lat: () => number; lng: () => number }
+    return { lat: ll.lat(), lng: ll.lng() }
+  }
+  const lit = loc as LatLngLiteral
+  if (typeof lit.lat === 'number' && typeof lit.lng === 'number') return lit
+  return null
+}
+
+function placeToGeocodeResult(place: GooglePlace): GoogleGeocodeResult {
+  return {
+    formatted_address: place.formattedAddress,
+    types: place.types,
+    address_components: place.addressComponents?.map(c => ({
+      long_name: c.longText || c.long_name || '',
+      short_name: c.shortText || c.short_name || '',
+      types: c.types,
+    })),
+    geometry: (() => {
+      const ll = placeLatLng(place.location)
+      if (!ll) return undefined
+      return { location: { lat: () => ll.lat, lng: () => ll.lng } }
+    })(),
+  }
+}
+
+function predictionText(value?: { text?: string; toString?: () => string }): string {
+  if (!value) return ''
+  if (typeof value.text === 'string' && value.text) return value.text
+  if (typeof value.toString === 'function') {
+    const s = value.toString()
+    return s === '[object Object]' ? '' : s
+  }
+  return ''
+}
+
+/**
+ * Soft country-level bias only. Pin/city bias hides valid venues outside the
+ * current city (e.g. "Venus Hill" while pinned in Manchester → ZERO_RESULTS).
+ */
 function searchBias(
-  lat: number | null,
-  lng: number | null,
+  _lat: number | null,
+  _lng: number | null,
   country: string,
-  city: string,
+  _city: string,
   map: GoogleMap | null,
 ): { location: LatLngLiteral; radius: number } | null {
-  if (lat != null && lng != null && !Number.isNaN(lat) && !Number.isNaN(lng)) {
-    return { location: { lat, lng }, radius: 50_000 }
-  }
-  const cityInfo = citiesForCountry(country).find(c => c.name === city)
-  if (cityInfo) return { location: { lat: cityInfo.lat, lng: cityInfo.lng }, radius: 80_000 }
   const center = countryCenter(country)
   if (center) return { location: { lat: center.lat, lng: center.lng }, radius: 500_000 }
   const mapCenter = map?.getCenter?.()
@@ -176,6 +278,19 @@ function searchBias(
     return { location: { lat: mapCenter.lat(), lng: mapCenter.lng() }, radius: 200_000 }
   }
   return null
+}
+
+/** Drop geocode hits that don't actually match what the user typed. */
+function geocodeMatchesQuery(label: string, query: string): boolean {
+  const qTokens = query
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(t => t.length > 2)
+  if (!qTokens.length) return true
+  const d = label.toLowerCase()
+  const hits = qTokens.filter(t => d.includes(t) || d.includes(t.replace(/s$/, '')))
+  return hits.length >= Math.max(1, Math.ceil(qTokens.length / 2))
 }
 
 function componentOf(
@@ -293,6 +408,7 @@ export function LocationSection({ ev, setField }: Props) {
   const markerRef = useRef<GoogleMarker | null>(null)
   const geocoderRef = useRef<GoogleGeocoder | null>(null)
   const autocompleteRef = useRef<GoogleAutocompleteService | null>(null)
+  const placesRef = useRef<GooglePlacesService | null>(null)
   const googleRef = useRef<GoogleMapsApi | null>(null)
 
   const [mapError, setMapError] = useState('')
@@ -327,12 +443,20 @@ export function LocationSection({ ev, setField }: Props) {
     setQuery(next)
   }, [ev.address, ev.city, ev.region, ev.country, query, seedQuery])
 
-  const applyGeocodeResult = (result: GoogleGeocodeResult) => {
-    const label = readablePlaceLabel(result)
+  const applyGeocodeResult = (
+    result: GoogleGeocodeResult,
+    opts?: { venueName?: string; keepQuery?: string },
+  ) => {
+    const venueName = (opts?.venueName || '').trim()
+    const label = opts?.keepQuery?.trim() || (venueName
+      ? [venueName, readablePlaceLabel(result)].filter(Boolean).join(' — ')
+      : readablePlaceLabel(result))
     if (label) {
       skipSearchRef.current = true
       setQuery(label)
     }
+
+    if (venueName) setField('venue', venueName)
 
     const countryName = componentOf(result, 'country')
     const canonCountry = countryName ? (matchCountry(countryName) || countryName) : country
@@ -368,7 +492,7 @@ export function LocationSection({ ev, setField }: Props) {
     }
   }
 
-  const reverseGeocode = (la: number, ln: number) => {
+  const reverseGeocode = (la: number, ln: number, venueName?: string) => {
     const geocoder = geocoderRef.current
     if (!geocoder || !googleRef.current) return
     setResolving(true)
@@ -376,7 +500,13 @@ export function LocationSection({ ev, setField }: Props) {
       setResolving(false)
       if (status !== googleRef.current!.maps.GeocoderStatus.OK || !results?.length) return
       const best = pickBestGeocodeResult(results)
-      if (best) applyGeocodeResult(best)
+      if (!best) return
+      // Keep an already-chosen venue name (e.g. "Venus Hill") in the search box / field
+      const keepVenue = (venueName || String(ev.venue || '')).trim()
+      applyGeocodeResult(
+        best,
+        keepVenue ? { venueName: keepVenue } : undefined,
+      )
     })
   }
 
@@ -408,7 +538,7 @@ export function LocationSection({ ev, setField }: Props) {
     markerRef.current = marker
   }
 
-  const placeMarker = (la: number, ln: number, zoom = 13, reverse = false) => {
+  const placeMarker = (la: number, ln: number, zoom = 13, reverse = false, venueName?: string) => {
     setField('lat', la.toFixed(6))
     setField('lng', ln.toFixed(6))
     const map = mapRef.current
@@ -418,7 +548,7 @@ export function LocationSection({ ev, setField }: Props) {
       map.setZoom(zoom)
       attachMarker(g, map, la, ln)
     }
-    if (reverse) reverseGeocode(la, ln)
+    if (reverse) reverseGeocode(la, ln, venueName)
   }
 
   // Keep the pin centered when lat/lng arrive after the map is ready (edit load / geocode).
@@ -440,7 +570,9 @@ export function LocationSection({ ev, setField }: Props) {
         if (cancelled || !mapEl.current || mapRef.current) return
         googleRef.current = g
         geocoderRef.current = new g.maps.Geocoder()
-        autocompleteRef.current = new g.maps.places.AutocompleteService()
+        if (g.maps.places.AutocompleteService) {
+          autocompleteRef.current = new g.maps.places.AutocompleteService()
+        }
 
         const center = countryCenter(country)
         const start: LatLngLiteral =
@@ -471,6 +603,9 @@ export function LocationSection({ ev, setField }: Props) {
         })
 
         mapRef.current = map
+        if (g.maps.places.PlacesService) {
+          placesRef.current = new g.maps.places.PlacesService(map)
+        }
         if (lat != null && lng != null) attachMarker(g, map, lat, lng)
         setMapError('')
         setMapsReady(true)
@@ -500,6 +635,7 @@ export function LocationSection({ ev, setField }: Props) {
     mapRef.current = null
     geocoderRef.current = null
     autocompleteRef.current = null
+    placesRef.current = null
     googleRef.current = null
   }, [])
 
@@ -561,15 +697,12 @@ export function LocationSection({ ev, setField }: Props) {
     if (trimmed.length < 2) {
       setHits([])
       setSearchedEmpty(false)
+      setSearching(false)
       return
     }
     const service = autocompleteRef.current
     const geocoder = geocoderRef.current
     const g = googleRef.current
-    if (!g || (!service && !geocoder)) {
-      setHits([])
-      return
-    }
 
     const gen = ++searchGenRef.current
     setSearching(true)
@@ -585,112 +718,150 @@ export function LocationSection({ ev, setField }: Props) {
     }
 
     const finishWithGeocodeFallback = () => {
-      if (!geocoder) {
+      if (!geocoder || !g) {
         applyHits([])
         return
       }
-      const address = [trimmed, city, country].filter(Boolean).join(', ')
+      // Search the typed query alone — appending city turns "venus hills" into Manchester
       geocoder.geocode(
         {
-          address,
+          address: trimmed,
           ...(countryCode ? { componentRestrictions: { country: countryCode } } : {}),
         },
         (results, status) => {
           if (gen !== searchGenRef.current) return
-          if (status !== g.maps.GeocoderStatus.OK || !results?.length) {
-            // Retry without country lock — some venues only resolve globally
-            if (countryCode) {
-              geocoder.geocode({ address: trimmed }, (retryResults, retryStatus) => {
-                if (gen !== searchGenRef.current) return
-                if (retryStatus !== g.maps.GeocoderStatus.OK || !retryResults?.length) {
-                  applyHits([])
-                  return
-                }
-                applyHits(
-                  retryResults.slice(0, 5).map((r, i) => ({
-                    description: readablePlaceLabel(r) || r.formatted_address || trimmed,
-                    placeId: `geocode:${i}:${r.geometry?.location?.lat()},${r.geometry?.location?.lng()}`,
-                    lat: r.geometry?.location?.lat(),
-                    lng: r.geometry?.location?.lng(),
-                    result: r,
-                  })),
-                )
+          const mapResults = (list: GoogleGeocodeResult[]) =>
+            list
+              .slice(0, 5)
+              .map((r, i) => {
+                const description = readablePlaceLabel(r) || r.formatted_address || trimmed
+                if (!geocodeMatchesQuery(description, trimmed)) return null
+                return {
+                  description,
+                  placeId: `geocode:${i}:${r.geometry?.location?.lat()},${r.geometry?.location?.lng()}`,
+                  name: description.split(',')[0]?.trim(),
+                  lat: r.geometry?.location?.lat(),
+                  lng: r.geometry?.location?.lng(),
+                  result: r,
+                } satisfies SearchHit
               })
+              .filter((h): h is SearchHit => !!h)
+
+          if (status === g.maps.GeocoderStatus.OK && results?.length) {
+            const hits = mapResults(results)
+            if (hits.length) {
+              applyHits(hits)
               return
             }
-            applyHits([])
+          }
+          if (countryCode) {
+            geocoder.geocode({ address: trimmed }, (retryResults, retryStatus) => {
+              if (gen !== searchGenRef.current) return
+              if (retryStatus !== g.maps.GeocoderStatus.OK || !retryResults?.length) {
+                applyHits([])
+                return
+              }
+              applyHits(mapResults(retryResults))
+            })
             return
           }
-          applyHits(
-            results.slice(0, 5).map((r, i) => ({
-              description: readablePlaceLabel(r) || r.formatted_address || trimmed,
-              placeId: `geocode:${i}:${r.geometry?.location?.lat()},${r.geometry?.location?.lng()}`,
-              lat: r.geometry?.location?.lat(),
-              lng: r.geometry?.location?.lng(),
-              result: r,
-            })),
-          )
+          applyHits([])
         },
       )
     }
 
-    if (!service) {
-      finishWithGeocodeFallback()
-      return
-    }
+    const finishWithLegacyAutocomplete = () => {
+      if (!service || !g) {
+        finishWithGeocodeFallback()
+        return
+      }
 
-    service.getPlacePredictions(
-      {
-        input: trimmed,
-        ...(countryCode ? { componentRestrictions: { country: countryCode } } : {}),
-        ...(bias ? { location: bias.location, radius: bias.radius } : {}),
-      },
-      (predictions, status) => {
-        if (gen !== searchGenRef.current) return
-        if (
-          status === g.maps.places.PlacesServiceStatus.OK &&
-          predictions?.length
-        ) {
-          applyHits(
-            predictions.slice(0, 8).map(p => ({
-              description: p.description,
-              placeId: p.place_id,
-            })),
-          )
-          return
-        }
+      let settled = false
+      const settle = (next: SearchHit[] | null) => {
+        if (settled || gen !== searchGenRef.current) return
+        settled = true
+        if (next) applyHits(next)
+        else finishWithGeocodeFallback()
+      }
 
-        // Country lock can hide valid venues — retry biased, unrestricted
-        if (countryCode) {
+      const hangTimer = window.setTimeout(() => settle(null), 4500)
+
+      // Prefer country lock without pin/city location — tight bias hides out-of-city venues
+      service.getPlacePredictions(
+        {
+          input: trimmed,
+          ...(countryCode ? { componentRestrictions: { country: countryCode } } : {}),
+        },
+        (predictions, status) => {
+          if (gen !== searchGenRef.current) return
+          if (placesStatusOk(g, status) && predictions?.length) {
+            window.clearTimeout(hangTimer)
+            settle(
+              predictions.slice(0, 8).map(p => ({
+                description: p.description,
+                placeId: p.place_id,
+                name: p.structured_formatting?.main_text || p.description.split(',')[0]?.trim(),
+              })),
+            )
+            return
+          }
+
+          // Retry unrestricted (and optionally soft country bias)
           service.getPlacePredictions(
             {
               input: trimmed,
               ...(bias ? { location: bias.location, radius: bias.radius } : {}),
             },
             (retryPredictions, retryStatus) => {
+              window.clearTimeout(hangTimer)
               if (gen !== searchGenRef.current) return
-              if (
-                retryStatus === g.maps.places.PlacesServiceStatus.OK &&
-                retryPredictions?.length
-              ) {
-                applyHits(
+              if (placesStatusOk(g, retryStatus) && retryPredictions?.length) {
+                settle(
                   retryPredictions.slice(0, 8).map(p => ({
                     description: p.description,
                     placeId: p.place_id,
+                    name: p.structured_formatting?.main_text || p.description.split(',')[0]?.trim(),
                   })),
                 )
                 return
               }
-              finishWithGeocodeFallback()
+              settle(null)
             },
           )
-          return
-        }
+        },
+      )
+    }
 
-        // No autocomplete hits (or API restricted) — fall back to Geocoder
-        finishWithGeocodeFallback()
-      },
-    )
+    const runServerAutocomplete = async () => {
+      try {
+        const params = new URLSearchParams({ q: trimmed })
+        if (countryCode) params.set('country', countryCode)
+        const res = await fetch(`/api/places/autocomplete?${params}`)
+        if (gen !== searchGenRef.current) return
+        if (res.ok) {
+          const data = (await res.json()) as {
+            predictions?: Array<{ description: string; placeId: string; name?: string }>
+          }
+          const hits = (data.predictions || [])
+            .filter(p => p.placeId && p.description)
+            .map(p => ({
+              description: p.description,
+              placeId: p.placeId,
+              name: p.name || p.description.split(',')[0]?.trim(),
+            }))
+          if (hits.length) {
+            applyHits(hits.slice(0, 8))
+            return
+          }
+        }
+      } catch {
+        // fall through to client Places / geocode
+      }
+      if (gen !== searchGenRef.current) return
+      finishWithLegacyAutocomplete()
+    }
+
+    void runServerAutocomplete()
   }
 
   useEffect(() => {
@@ -702,8 +873,10 @@ export function LocationSection({ ev, setField }: Props) {
       doSearch(query)
     }, 350)
     return () => clearTimeout(id)
+    // Only re-search when the query (or maps readiness) changes.
+    // Country/city updates from a pick must not re-open the hits list.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, country, city, mapsReady])
+  }, [query, mapsReady])
 
   const onCountryChange = (value: string) => {
     setField('country', value)
@@ -713,6 +886,11 @@ export function LocationSection({ ev, setField }: Props) {
     if (c && mapRef.current) {
       mapRef.current.setCenter({ lat: c.lat, lng: c.lng })
       mapRef.current.setZoom(5)
+    }
+    // Re-bias search for the current query under the new country
+    if (query.trim().length >= 2) {
+      skipSearchRef.current = false
+      doSearch(query)
     }
   }
 
@@ -730,34 +908,122 @@ export function LocationSection({ ev, setField }: Props) {
   const pickHit = (h: SearchHit) => {
     setHits([])
     skipSearchRef.current = true
-    setQuery(h.description.split(',').slice(0, 2).join(', '))
+    const venueHint = (h.name || h.description.split(',')[0] || '').trim()
+    setQuery(h.description)
 
     // Geocode-fallback hits already have coordinates / a full result
     if (h.result?.geometry?.location) {
       const loc = h.result.geometry.location
       placeMarker(loc.lat(), loc.lng(), 15, false)
-      applyGeocodeResult(h.result)
+      applyGeocodeResult(h.result, {
+        venueName: venueHint,
+        keepQuery: h.description,
+      })
       return
     }
     if (h.lat != null && h.lng != null) {
-      placeMarker(h.lat, h.lng, 15, true)
+      if (venueHint) setField('venue', venueHint)
+      placeMarker(h.lat, h.lng, 15, true, venueHint)
       return
     }
 
+    const places = placesRef.current
     const geocoder = geocoderRef.current
     const g = googleRef.current
-    if (!geocoder || !g || h.placeId.startsWith('geocode:')) return
+    if (!g || h.placeId.startsWith('geocode:')) return
 
     setResolving(true)
-    geocoder.geocode({ placeId: h.placeId }, (results, status) => {
-      setResolving(false)
-      if (status !== g.maps.GeocoderStatus.OK || !results?.[0]?.geometry?.location) return
-      const loc = results[0].geometry.location
-      const la = loc.lat()
-      const ln = loc.lng()
-      placeMarker(la, ln, 15, false)
-      applyGeocodeResult(results[0])
-    })
+
+    const finishFromGeocode = () => {
+      if (!geocoder) {
+        setResolving(false)
+        if (venueHint) setField('venue', venueHint)
+        return
+      }
+      geocoder.geocode({ placeId: h.placeId }, (results, status) => {
+        setResolving(false)
+        if (status !== g.maps.GeocoderStatus.OK || !results?.[0]?.geometry?.location) {
+          if (venueHint) setField('venue', venueHint)
+          return
+        }
+        const loc = results[0].geometry.location
+        placeMarker(loc.lat(), loc.lng(), 15, false)
+        applyGeocodeResult(results[0], {
+          venueName: venueHint,
+          keepQuery: h.description,
+        })
+      })
+    }
+
+    const finishFromLegacyPlaces = () => {
+      if (!places) {
+        finishFromGeocode()
+        return
+      }
+      places.getDetails(
+        {
+          placeId: h.placeId,
+          fields: ['name', 'formatted_address', 'geometry', 'address_components', 'types', 'place_id'],
+        },
+        (place, status) => {
+          if (placesStatusOk(g, status) && place?.geometry?.location) {
+            setResolving(false)
+            const loc = place.geometry.location
+            placeMarker(loc.lat(), loc.lng(), 15, false)
+            applyGeocodeResult(
+              {
+                formatted_address: place.formatted_address,
+                address_components: place.address_components,
+                types: place.types,
+                geometry: place.geometry,
+              },
+              {
+                venueName: (place.name || venueHint).trim(),
+                keepQuery: h.description,
+              },
+            )
+            return
+          }
+          finishFromGeocode()
+        },
+      )
+    }
+
+    const finishFromNewPlace = async () => {
+      try {
+        let PlaceCtor = g.maps.places.Place
+        if (!PlaceCtor && g.maps.importLibrary) {
+          const lib = await g.maps.importLibrary('places') as {
+            Place?: GoogleMapsApi['maps']['places']['Place']
+          }
+          PlaceCtor = lib.Place || g.maps.places.Place
+        }
+        if (!PlaceCtor) {
+          finishFromLegacyPlaces()
+          return
+        }
+
+        const place = new PlaceCtor({ id: h.placeId })
+        await place.fetchFields({
+          fields: ['displayName', 'formattedAddress', 'location', 'addressComponents', 'types', 'id'],
+        })
+        const ll = placeLatLng(place.location)
+        if (!ll) {
+          finishFromLegacyPlaces()
+          return
+        }
+        setResolving(false)
+        placeMarker(ll.lat, ll.lng, 15, false)
+        applyGeocodeResult(placeToGeocodeResult(place), {
+          venueName: (place.displayName || venueHint).trim(),
+          keepQuery: h.description,
+        })
+      } catch {
+        finishFromLegacyPlaces()
+      }
+    }
+
+    void finishFromNewPlace()
   }
 
   return (

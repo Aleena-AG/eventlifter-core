@@ -8,7 +8,7 @@ import { fetchChannelConnectionMap } from '@/lib/channel-connection'
 import { resolveHtApiAuthHeader } from '@/lib/ewentcast-session'
 import { buildEbTicketClass, ebTicketQuantity } from '@/lib/eventbrite-ticket'
 import { resolveEbTimezone } from '@/lib/eventbrite-timezone'
-import { lumaEntryMatchesId, lumaEventToNorm, unwrapLumaEvent } from '@/lib/luma-event-utils'
+import { lumaEntryMatchesId, lumaEventToNorm, unwrapLumaEvent, isLumaDescriptionSentinel } from '@/lib/luma-event-utils'
 import { refreshStoredEventsForChannels, markEventsListStale } from '@/lib/channel-data-sync'
 import { resolveLumaCoverUrl } from '@/lib/cover-image'
 import { normalizeEbCountry, writeEventbriteStructuredDescription } from '@/lib/publish-event'
@@ -167,7 +167,12 @@ async function fetchHtEvent(id: string | number): Promise<NormEvent> {
   return {
     title: String(e.title || ''),
     summary: optStr(e.summary) || optStr(e.short_description) || optStr(e.overview) || undefined,
-    description: String(e.description || e.overview || ''),
+    description: (() => {
+      const rawDesc = String(e.description || '').trim()
+      if (rawDesc && !isLumaDescriptionSentinel(rawDesc)) return rawDesc
+      // Don't fall back to overview/summary here — that belongs in Summary
+      return ''
+    })(),
     startUtc, endUtc,
     timezone: String(d?.timezone || e.timezone || 'UTC'),
     coverImage: optStr(e.cover_image),
@@ -444,12 +449,13 @@ export function SyncModal({ open, event, onClose }: Props) {
           if (ch === 'luma') {
             const { startUtc, endUtc } = ensureEndAfterStart(norm.startUtc, norm.endUtc)
             const coverUrl = await resolveLumaCover(norm.coverImage)
+            const lumaDesc = String(norm.description || '').trim()
             const body: Record<string, unknown> = {
               name: norm.title,
               start_at: startUtc,
               end_at: endUtc,
               timezone: norm.timezone || 'UTC',
-              description: norm.description || undefined,
+              ...(lumaDesc ? { description_md: lumaDesc } : {}),
               require_rsvp_approval: false,
               visibility: 'public',
             }

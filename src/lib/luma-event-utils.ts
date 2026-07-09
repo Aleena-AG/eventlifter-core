@@ -64,6 +64,7 @@ export function unwrapLumaEvent(data: unknown): Record<string, unknown> {
       title: inner.title ?? payload.title,
       description: inner.description ?? payload.description,
       description_md: inner.description_md ?? payload.description_md,
+      description_html: inner.description_html ?? payload.description_html,
       cover_url: inner.cover_url ?? payload.cover_url,
       geo_address_json: inner.geo_address_json ?? payload.geo_address_json,
       geo_latitude: inner.geo_latitude ?? payload.geo_latitude,
@@ -215,6 +216,39 @@ function parseLatLng(...candidates: unknown[]): number | undefined {
   return undefined
 }
 
+/**
+ * Luma stores the real body in `description_md`. The `description` field is often
+ * the sentinel `"ONLY_MD"` (or empty) meaning "read markdown instead".
+ * Never surface these sentinels in the edit form.
+ */
+export function isLumaDescriptionSentinel(value: unknown): boolean {
+  const s = value != null ? String(value).trim() : ''
+  return !s || /^ONLY_MD$/i.test(s) || /^ONLY_HTML$/i.test(s)
+}
+
+export function lumaDescriptionText(e: Record<string, unknown>): string {
+  const md = e.description_md != null ? String(e.description_md).trim() : ''
+  const html = e.description_html != null ? String(e.description_html).trim() : ''
+  const plain = e.description != null ? String(e.description).trim() : ''
+
+  if (md && !isLumaDescriptionSentinel(md)) return md
+  if (plain && !isLumaDescriptionSentinel(plain)) return plain
+  if (html && !isLumaDescriptionSentinel(html)) {
+    return html
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/p>/gi, '\n')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/[ \t]{2,}/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+  }
+  return ''
+}
+
 /** Normalise Luma event fields for cross-channel publish / edit forms. */
 export function lumaEventToNorm(e: Record<string, unknown>) {
   const geo = (e.geo_address_json || {}) as Record<string, unknown>
@@ -222,7 +256,7 @@ export function lumaEventToNorm(e: Record<string, unknown>) {
   const endAt = e.end_at
     ? stripMs(String(e.end_at))
     : new Date(Date.now() + 3600_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
-  const desc = e.description ?? e.description_md ?? e.description_html ?? ''
+  const desc = lumaDescriptionText(e)
   const address = geo.address != null ? String(geo.address).trim() || undefined
     : geo.full_address != null ? String(geo.full_address).trim() || undefined : undefined
   const inferred = inferPlaceFromAddress(address)
@@ -238,7 +272,7 @@ export function lumaEventToNorm(e: Record<string, unknown>) {
     : null
   return {
     title: lumaName(e),
-    description: String(desc || ''),
+    description: desc,
     startUtc: startAt,
     endUtc: endAt,
     timezone: inferTimezoneFromEvent(e, geo),

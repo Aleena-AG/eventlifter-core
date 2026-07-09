@@ -306,7 +306,7 @@ function buildHightribeEventBody(
       location: String(ev.venue || ev.address || 'TBD'),
       venue_name: String(ev.venue || '') || undefined,
       address: String(ev.address || ev.venue || 'TBD'),
-      city: String(ev.city || ev.venue || 'TBD'),
+      city: String(ev.city || '') || undefined,
       region: String(ev.region || '') || undefined,
       state: String(ev.region || '') || undefined,
       postal: String(ev.postal || '') || undefined,
@@ -629,12 +629,14 @@ export async function publishToChannel(
   }
 
   if (ch === 'luma') {
+    const lumaDesc = String(ev.description || '').trim()
     const body: Record<string, unknown> = {
       name: ev.title,
       start_at: startUtc,
       end_at: endUtc,
       timezone: tz,
-      description: ev.description || undefined,
+      // Luma expects markdown in description_md; plain `description` becomes "ONLY_MD"
+      ...(lumaDesc ? { description_md: lumaDesc } : {}),
       cover_url: publicCoverUrl || undefined,
       require_rsvp_approval: !!ev.requireApproval,
       capacity: cap,
@@ -644,17 +646,22 @@ export async function publishToChannel(
     if (hostName) body.host = hostName
     if (online) body.meeting_url = ev.onlineUrl || undefined
     else if (inPerson && (ev.city || ev.address || ev.venue)) {
+      const lat = ev.lat ? parseFloat(String(ev.lat)) : undefined
+      const lng = ev.lng ? parseFloat(String(ev.lng)) : undefined
       body.geo_address_json = {
         type: 'manual',
         description: String(ev.venue || '') || undefined,
-        address: [ev.venue, ev.address, ev.city, ev.region, ev.postal, ev.country].filter(Boolean).join(', '),
+        address: [ev.address, ev.city, ev.region, ev.postal, ev.country].filter(Boolean).join(', ')
+          || [ev.venue, ev.address, ev.city].filter(Boolean).join(', '),
         city: ev.city || undefined,
         region: ev.region || undefined,
         postal: ev.postal || undefined,
         country: ev.country || undefined,
-        latitude: ev.lat ? parseFloat(String(ev.lat)) : undefined,
-        longitude: ev.lng ? parseFloat(String(ev.lng)) : undefined,
+        latitude: Number.isFinite(lat) ? lat : undefined,
+        longitude: Number.isFinite(lng) ? lng : undefined,
       }
+      if (Number.isFinite(lat)) body.geo_latitude = lat
+      if (Number.isFinite(lng)) body.geo_longitude = lng
     }
     const res = await channelFetch('/api/luma/events', {
       method: 'POST',
@@ -816,6 +823,7 @@ export async function updateChannelEvent(
 
   if (ch === 'luma') {
     const id = String(eventId)
+    const lumaDesc = String(ev.description || '').trim()
     const body: Record<string, unknown> = {
       event_id: id,
       api_id: id,
@@ -823,7 +831,7 @@ export async function updateChannelEvent(
       start_at: startUtc,
       end_at: endUtc,
       timezone: tz,
-      description: ev.description || undefined,
+      ...(lumaDesc ? { description_md: lumaDesc } : {}),
       cover_url: publicCoverUrl || undefined,
       require_rsvp_approval: !!ev.requireApproval,
       capacity: ev.capacity ? parseInt(String(ev.capacity)) : undefined,
@@ -833,17 +841,22 @@ export async function updateChannelEvent(
     if (hostName) body.host = hostName
     if (online) body.meeting_url = ev.onlineUrl || undefined
     else if (inPerson && (ev.city || ev.address || ev.venue)) {
+      const lat = ev.lat ? parseFloat(String(ev.lat)) : undefined
+      const lng = ev.lng ? parseFloat(String(ev.lng)) : undefined
       body.geo_address_json = {
         type: 'manual',
         description: String(ev.venue || '') || undefined,
-        address: [ev.venue, ev.address, ev.city, ev.region, ev.postal, ev.country].filter(Boolean).join(', '),
+        address: [ev.address, ev.city, ev.region, ev.postal, ev.country].filter(Boolean).join(', ')
+          || [ev.venue, ev.address, ev.city].filter(Boolean).join(', '),
         city: ev.city || undefined,
         region: ev.region || undefined,
         postal: ev.postal || undefined,
         country: ev.country || undefined,
-        latitude: ev.lat ? parseFloat(String(ev.lat)) : undefined,
-        longitude: ev.lng ? parseFloat(String(ev.lng)) : undefined,
+        latitude: Number.isFinite(lat) ? lat : undefined,
+        longitude: Number.isFinite(lng) ? lng : undefined,
       }
+      if (Number.isFinite(lat)) body.geo_latitude = lat
+      if (Number.isFinite(lng)) body.geo_longitude = lng
     }
     const res = await channelFetch('/api/luma/events', {
       method: 'PUT',
@@ -940,18 +953,24 @@ export async function updateChannelEvent(
       const orgId = orgData.organizations?.[0]?.id
       const country = normalizeEbCountry(String(ev.country || ''))
       if (orgId && country) {
+        const lat = ev.lat ? parseFloat(String(ev.lat)) : undefined
+        const lng = ev.lng ? parseFloat(String(ev.lng)) : undefined
         const vRes = await channelFetch(`/api/eventbrite/organizations/${orgId}/venues`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             venue: {
-              name: String(ev.venue || ev.city),
+              name: String(ev.venue || ev.address || ev.city || 'Venue'),
+              ...(Number.isFinite(lat) ? { latitude: String(lat) } : {}),
+              ...(Number.isFinite(lng) ? { longitude: String(lng) } : {}),
               address: {
                 address_1: String(ev.address || ev.venue || ev.city),
                 city: ev.city || undefined,
                 region: ev.region || undefined,
                 postal_code: ev.postal || undefined,
                 country,
+                ...(Number.isFinite(lat) ? { latitude: String(lat) } : {}),
+                ...(Number.isFinite(lng) ? { longitude: String(lng) } : {}),
               },
             },
           }),
@@ -1036,6 +1055,7 @@ async function persistPublishedEvent(
 
   if (ch === 'luma') {
     const url = ref.url ? (/^https?:\/\//i.test(ref.url) ? ref.url : `https://${ref.url}`) : ''
+    const lumaDesc = String(ev.description || '').trim()
     raw = {
       api_id: ref.eventId,
       name: ev.title,
@@ -1044,6 +1064,8 @@ async function persistPublishedEvent(
       timezone: tz,
       url,
       cover_url: cover,
+      // Persist markdown so edit form hydrates from description_md
+      ...(lumaDesc ? { description_md: lumaDesc } : {}),
       status: htStatus === 'published' ? 'published' : 'draft',
       visibility: String(ev.visibility || 'Public').toLowerCase() === 'public' ? 'public' : 'private',
       host: hostName || undefined,
@@ -1101,9 +1123,13 @@ async function persistPublishedEvent(
       } : {}),
     }
   } else {
+    const htSummary = String(ev.summary || '').trim()
+    const htDesc = String(ev.description || '').trim()
     raw = {
       id: ref.eventId,
       title: ev.title,
+      ...(htSummary ? { summary: htSummary, overview: htSummary, short_description: htSummary } : {}),
+      ...(htDesc ? { description: htDesc } : {}),
       dates: { starts_at: startUtc, ends_at: endUtc, timezone: tz },
       timezone: tz,
       cover_url: cover,
