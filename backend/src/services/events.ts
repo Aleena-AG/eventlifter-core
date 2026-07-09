@@ -353,7 +353,7 @@ function normalizeEvent(channel: ChannelName, raw: Record<string, unknown>) {
     meeting_url: null,
     is_free: null,
     location: String(raw.location || raw.venue || '') || null,
-    status: String(raw.status || '') || null,
+    status: String(raw.publish_status || raw.status || '') || null,
   }
 }
 

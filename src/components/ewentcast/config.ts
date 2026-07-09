@@ -63,9 +63,9 @@ export const SECTIONS: { key: string; label: string; fields: FieldDef[] }[] = [
   { key: 'when', label: 'When', fields: [
     { k: 'date', label: 'Start date', type: 'date', on: ALL_CHANNELS },
     { k: 'endDate', label: 'End date', type: 'date', on: ALL_CHANNELS },
+    { k: 'timezone', label: 'Timezone', type: 'timezone', full: true, on: ALL_CHANNELS },
     { k: 'time', label: 'Start time', type: 'time', on: ALL_CHANNELS },
     { k: 'endTime', label: 'End time', type: 'time', on: ALL_CHANNELS },
-    { k: 'timezone', label: 'Timezone', type: 'timezone', full: true, on: ALL_CHANNELS },
   ]},
   { key: 'where', label: 'Where', fields: [
     { k: 'format', label: 'Format', type: 'select', opts: ['In person', 'Online', 'Hybrid'], on: ALL_CHANNELS },
@@ -90,6 +90,7 @@ export const SECTIONS: { key: string; label: string; fields: FieldDef[] }[] = [
     { k: 'waitlist', label: 'Waitlist when full', type: 'toggle', on: ['hightribe', 'luma'] },
   ]},
   { key: 'access', label: 'Access', fields: [
+    { k: 'status', label: 'Publish status', type: 'select', opts: ['Draft', 'Published'], on: ALL_CHANNELS },
     { k: 'visibility', label: 'Visibility', type: 'select', opts: ['Public', 'Unlisted', 'Private', 'Member-only'], on: ALL_CHANNELS },
     { k: 'requireApproval', label: 'Require host approval', type: 'toggle', on: ['hightribe', 'luma'] },
     { k: 'inviteOnly', label: 'Invite only', type: 'toggle', on: ['hightribe', 'eventbrite'] },
@@ -134,7 +135,8 @@ export const DEFAULT_EVENT: Record<string, string | boolean> = {
   salesStart: '',
   salesEnd: '',
   waitlist: false,
-  visibility: '',
+  status: 'Draft',
+  visibility: 'Public',
   requireApproval: false,
   inviteOnly: false,
   showRemaining: false,
