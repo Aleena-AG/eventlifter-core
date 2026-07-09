@@ -149,6 +149,8 @@ interface LocalAppStore {
   registry_attendees: LocalRegistryAttendee[]
 }
 
+const REGISTRY_CHANNELS: ChannelKey[] = ['hightribe', 'luma', 'eventbrite']
+
 declare global {
   // eslint-disable-next-line no-var
   var __ewentcastLocalStore: LocalAppStore | undefined
@@ -173,14 +175,115 @@ function emptyStore(): LocalAppStore {
   }
 }
 
+const STORE_ARRAY_KEYS = [
+  'users',
+  'sessions',
+  'subscriptions',
+  'ht_connections',
+  'password_reset_tokens',
+  'luma_events',
+  'eventbrite_events',
+  'hightribe_events',
+  'channel_bookings',
+  'master_events',
+  'channel_refs',
+  'registry_attendees',
+] as const satisfies ReadonlyArray<keyof LocalAppStore>
+
+function normalizeStore(raw: Partial<LocalAppStore>): LocalAppStore {
+  const store = { ...emptyStore(), ...raw }
+  for (const key of STORE_ARRAY_KEYS) {
+    if (!Array.isArray(store[key])) {
+      ;(store as Record<string, unknown>)[key] = []
+    }
+  }
+  if (!store.user_settings || typeof store.user_settings !== 'object' || Array.isArray(store.user_settings)) {
+    store.user_settings = {}
+  }
+  const next = store.nextId
+  store.nextId = {
+    user: Number(next?.user) > 0 ? Number(next.user) : 1,
+    session: Number(next?.session) > 0 ? Number(next.session) : 1,
+    resetToken: Number(next?.resetToken) > 0 ? Number(next.resetToken) : 1,
+    event: Number(next?.event) > 0 ? Number(next.event) : 1,
+    booking: Number(next?.booking) > 0 ? Number(next.booking) : 1,
+  }
+  return store
+}
+
+function seedRegistryFromJsonIfEmpty(store: LocalAppStore): LocalAppStore {
+  if (store.master_events.length > 0) return store
+
+  const jsonPath = path.join(dataDir(), 'event-registry.json')
+  if (!fs.existsSync(jsonPath)) return store
+
+  try {
+    const raw = JSON.parse(fs.readFileSync(jsonPath, 'utf8')) as {
+      events?: Array<{
+        id: string
+        title: string
+        capacity: number
+        sold: number
+        channels: Partial<Record<ChannelKey, { eventId: string; ticketId?: string; url?: string }>>
+        attendees: Array<{ email: string; name: string; source: ChannelKey; registeredAt: string }>
+        createdAt: string
+        updatedAt: string
+      }>
+    }
+
+    for (const evt of raw.events || []) {
+      store.master_events.push({
+        id: evt.id,
+        user_id: null,
+        title: evt.title,
+        capacity: evt.capacity,
+        sold: evt.sold,
+        created_at: evt.createdAt,
+        updated_at: evt.updatedAt,
+      })
+
+      for (const [channel, ref] of Object.entries(evt.channels || {})) {
+        if (!ref || !REGISTRY_CHANNELS.includes(channel as ChannelKey)) continue
+        store.channel_refs.push({
+          master_id: evt.id,
+          channel: channel as ChannelKey,
+          event_id: ref.eventId || '',
+          ticket_id: ref.ticketId || null,
+          url: ref.url || null,
+        })
+      }
+
+      for (const att of evt.attendees || []) {
+        store.registry_attendees.push({
+          master_id: evt.id,
+          email: att.email.toLowerCase().trim(),
+          name: att.name,
+          source_channel: att.source,
+          registered_at: att.registeredAt,
+        })
+      }
+    }
+  } catch {
+    /* ignore corrupt seed file */
+  }
+
+  return store
+}
+
 function loadStore(): LocalAppStore {
-  if (global.__ewentcastLocalStore) return global.__ewentcastLocalStore
+  if (global.__ewentcastLocalStore) {
+    global.__ewentcastLocalStore = normalizeStore(global.__ewentcastLocalStore)
+    return global.__ewentcastLocalStore
+  }
   try {
     const file = storePath()
     if (fs.existsSync(file)) {
       const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<LocalAppStore>
-      // Merge onto an empty store so older files missing newer tables stay valid.
-      global.__ewentcastLocalStore = { ...emptyStore(), ...parsed }
+      const before = Array.isArray(parsed.master_events) ? parsed.master_events.length : 0
+      global.__ewentcastLocalStore = seedRegistryFromJsonIfEmpty(normalizeStore(parsed))
+      if (before === 0 && global.__ewentcastLocalStore.master_events.length > 0) {
+        saveStore(global.__ewentcastLocalStore)
+      }
       return global.__ewentcastLocalStore
     }
   } catch {
@@ -533,8 +636,6 @@ export function localDeleteAllBookings(userId: number, channel?: ChannelName): n
 }
 
 // ── Registry (master events + channel refs + attendees) ─────────────────────
-
-const REGISTRY_CHANNELS: ChannelKey[] = ['hightribe', 'luma', 'eventbrite']
 
 export function localCreateMasterEvent(input: {
   id: string

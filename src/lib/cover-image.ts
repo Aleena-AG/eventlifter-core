@@ -8,6 +8,10 @@ function isHttpUrl(v: string): boolean {
   return /^https?:\/\//i.test(v.trim())
 }
 
+export function isLumaCdnUrl(url: string): boolean {
+  return /^https:\/\/images\.lumacdn\.com\//i.test(url.trim())
+}
+
 async function fileFromUrl(url: string): Promise<File | undefined> {
   try {
     const res = await channelFetch('/api/cover/fetch', {
@@ -25,16 +29,7 @@ async function fileFromUrl(url: string): Promise<File | undefined> {
   }
 }
 
-/** Resolve a public cover URL for Luma / Eventbrite (upload file to Luma when needed). */
-export async function resolveCoverUrl(
-  coverUrl: string,
-  coverFile?: File | null,
-): Promise<string | undefined> {
-  const url = coverUrl.trim()
-  if (isHttpUrl(url)) return url
-  const file = coverFile || (url ? await fileFromUrl(url) : undefined)
-  if (!file) return undefined
-
+async function uploadFileToLuma(file: File): Promise<string | undefined> {
   try {
     const metaRes = await channelFetch('/api/luma/images/upload-url', {
       method: 'POST',
@@ -62,10 +57,35 @@ export async function resolveCoverUrl(
       body: file,
     })
     if (!putRes.ok) throw new Error(`Cover upload failed (${putRes.status})`)
-    return publicUrl || undefined
+    const resolved = publicUrl.trim()
+    return resolved && isLumaCdnUrl(resolved) ? resolved : undefined
   } catch {
     return undefined
   }
+}
+
+/** Luma only accepts cover_url on images.lumacdn.com — re-upload other hosts. */
+export async function resolveLumaCoverUrl(
+  coverUrl: string,
+  coverFile?: File | null,
+): Promise<string | undefined> {
+  const url = coverUrl.trim()
+  if (url && isLumaCdnUrl(url)) return url
+  const file = coverFile || (url ? await fileFromUrl(url) : undefined)
+  if (!file) return undefined
+  return uploadFileToLuma(file)
+}
+
+/** Resolve a public cover URL for Eventbrite (any reachable https URL). */
+export async function resolveCoverUrl(
+  coverUrl: string,
+  coverFile?: File | null,
+): Promise<string | undefined> {
+  const url = coverUrl.trim()
+  if (isHttpUrl(url)) return url
+  const file = coverFile || (url ? await fileFromUrl(url) : undefined)
+  if (!file) return undefined
+  return uploadFileToLuma(file)
 }
 
 /** File for Hightribe multipart `cover_image` field. */
