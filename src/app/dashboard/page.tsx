@@ -1,13 +1,18 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import { getSettings } from '@/lib/api'
-import { isHightribeChannelConnected, isLumaConnected, isEventbriteConnected } from '@/lib/channel-connection'
-import { loadDashboardStats, type DashboardStats } from '@/lib/dashboard-stats'
+import { isHightribeChannelConnected } from '@/lib/channel-connection'
+import {
+  loadDashboardStats,
+  type DashboardRecentEvent,
+  type DashboardStats,
+} from '@/lib/dashboard-stats'
 import { syncAllConnectedChannels } from '@/lib/sync-all-connected'
 import { ChannelLogo } from '@/components/ChannelLogo'
 import { PageLoader, Spinner } from '@/components/Loader'
+import { encodeEventRef } from '@/lib/event-ref'
 import type { ChannelKey } from '@/lib/types'
 import './dashboard.css'
 import { CHANNEL_META } from '@/lib/channels'
@@ -25,6 +30,28 @@ const KPI_CARDS = [
   { key: 'attendees', label: 'Unique Attendees', icon: '👥', accent: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.12)' },
 ] as const
 
+type EventPhase = 'ongoing' | 'upcoming' | 'past'
+
+function parseMs(iso?: string | null): number {
+  if (!iso) return 0
+  const ms = new Date(iso).getTime()
+  return Number.isNaN(ms) ? 0 : ms
+}
+
+function getEventPhase(evt: DashboardRecentEvent, now = Date.now()): EventPhase {
+  const startMs = parseMs(evt.startUtc)
+  const endMs = parseMs(evt.endUtc) || startMs
+  const st = (evt.status || '').toLowerCase()
+
+  if (/cancel|canceled|cancelled|draft|completed|ended|past|closed/.test(st)) {
+    return 'past'
+  }
+  if (endMs > 0 && endMs < now) return 'past'
+  if (startMs > 0 && startMs <= now && (endMs <= 0 || endMs >= now)) return 'ongoing'
+  if (startMs > now) return 'upcoming'
+  return 'past'
+}
+
 function formatDate(utc: string) {
   try {
     return new Date(utc).toLocaleString(undefined, {
@@ -36,6 +63,14 @@ function formatDate(utc: string) {
     })
   } catch {
     return utc
+  }
+}
+
+function formatShortDay(isoDate: string) {
+  try {
+    return new Date(isoDate + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short' })
+  } catch {
+    return isoDate.slice(5)
   }
 }
 
@@ -55,6 +90,49 @@ function formatRelativeDate(utc: string) {
   }
 }
 
+function formatCountdown(startUtc: string): string {
+  const ms = parseMs(startUtc) - Date.now()
+  if (ms <= 0) return 'Starting soon'
+  const mins = Math.floor(ms / 60_000)
+  if (mins < 60) return `in ${mins}m`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 48) return `in ${hrs}h`
+  const days = Math.floor(hrs / 24)
+  return `in ${days}d`
+}
+
+const QUICK_ACTIONS = [
+  {
+    href: '/create',
+    title: 'Create event',
+    desc: 'Draft once, publish everywhere',
+    icon: '✦',
+    accent: '#ff4b2b',
+    featured: true,
+  },
+  {
+    href: '/events',
+    title: 'Manage events',
+    desc: 'Edit, sync, or archive',
+    icon: '📅',
+    accent: '#10b981',
+  },
+  {
+    href: '/bookings',
+    title: 'All bookings',
+    desc: 'Unified guest list',
+    icon: '✓',
+    accent: '#8b5cf6',
+  },
+  {
+    href: '/channels',
+    title: 'Channels',
+    desc: 'Connections & sync',
+    icon: '🔗',
+    accent: '#f59e0b',
+  },
+] as const
+
 function avatarColors(name: string) {
   const hues = [12, 28, 160, 265, 200, 330]
   const hash = name.split('').reduce((sum, c) => sum + c.charCodeAt(0), 0)
@@ -63,6 +141,44 @@ function avatarColors(name: string) {
     background: `hsl(${hue} 72% 93%)`,
     color: `hsl(${hue} 52% 36%)`,
   }
+}
+
+function DashboardEventCard({ evt, phase }: { evt: DashboardRecentEvent; phase: EventPhase }) {
+  const meta = CH_META[evt.channel]
+  const href = `/events/e/${encodeEventRef(evt.channel, evt.id)}`
+
+  return (
+    <Link
+      href={href}
+      className={`dash-event-card dash-event-card--${phase}`}
+      style={{ ['--ch-color' as string]: meta.color }}
+    >
+      <div className="dash-event-card__media">
+        {evt.coverUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={evt.coverUrl} alt="" />
+        ) : (
+          <span className="dash-event-card__placeholder" aria-hidden="true">
+            📅
+          </span>
+        )}
+        <span className={`dash-event-card__badge dash-event-card__badge--${phase}`}>
+          {phase === 'ongoing' ? 'Live now' : 'Upcoming'}
+        </span>
+      </div>
+      <div className="dash-event-card__body">
+        <h3 className="dash-event-card__title">{evt.title}</h3>
+        <p className="dash-event-card__date">{formatDate(evt.startUtc)}</p>
+        <div className="dash-event-card__foot">
+          <span className="dash-ch-pill">
+            <ChannelLogo channel={evt.channel} size={14} />
+            {meta.label}
+          </span>
+          <span className="dash-event-card__cta">Open →</span>
+        </div>
+      </div>
+    </Link>
+  )
 }
 
 type SafeSettings = {
@@ -126,16 +242,41 @@ export default function DashboardPage() {
   const lumaConfigured = !!settings.luma?.configured
   const ebConfigured = !!settings.eventbrite?.hasPrivateToken
   const anyConfigured = lumaConfigured || ebConfigured || htConfigured
-  const recent = stats?.recent ?? []
-  const channelKeys: ChannelKey[] = ['eventbrite', 'luma', 'hightribe']
-  const channelRows = channelKeys
-    .map((ch) => {
-      const count = stats?.channels[ch]?.bookings ?? 0
-      const configured = stats?.channels[ch]?.configured ?? false
-      return { ch, count, configured, meta: CH_META[ch] }
-    })
-    .sort((a, b) => b.count - a.count)
-  const totalChannelBookings = channelRows.reduce((s, r) => s + r.count, 0)
+
+  const { ongoing, upcoming, nextUp, weekEvents } = useMemo(() => {
+    const now = Date.now()
+    const weekEnd = now + 7 * 24 * 60 * 60 * 1000
+    const all = stats?.recent ?? []
+    const ongoingList: DashboardRecentEvent[] = []
+    const upcomingList: DashboardRecentEvent[] = []
+    let weekCount = 0
+
+    for (const evt of all) {
+      const phase = getEventPhase(evt, now)
+      const start = parseMs(evt.startUtc)
+      if (phase === 'ongoing') ongoingList.push(evt)
+      else if (phase === 'upcoming') {
+        upcomingList.push(evt)
+        if (start > now && start <= weekEnd) weekCount += 1
+      }
+    }
+
+    ongoingList.sort((a, b) => parseMs(a.startUtc) - parseMs(b.startUtc))
+    upcomingList.sort((a, b) => parseMs(a.startUtc) - parseMs(b.startUtc))
+
+    return {
+      ongoing: ongoingList.slice(0, 6),
+      upcoming: upcomingList.slice(0, 6),
+      nextUp: ongoingList[0] || upcomingList[0] || null,
+      weekEvents: weekCount + ongoingList.length,
+    }
+  }, [stats?.recent])
+
+  const connectedChannels = [
+    { key: 'eventbrite' as const, on: ebConfigured },
+    { key: 'luma' as const, on: lumaConfigured },
+    { key: 'hightribe' as const, on: htConfigured },
+  ].filter((c) => c.on)
 
   const kpiValues: Record<(typeof KPI_CARDS)[number]['key'], string | number> = {
     events: stats?.totalEvents ?? 0,
@@ -144,6 +285,22 @@ export default function DashboardPage() {
     attendees: stats?.unifiedAttendees ?? 0,
   }
   const recentOrders = (stats?.recentBookings ?? []).slice(0, 5)
+  const bookingTrend = stats?.bookingTrend ?? []
+  const trendMax = Math.max(1, ...bookingTrend.map((p) => p.count))
+  const trendTotal = bookingTrend.reduce((s, p) => s + p.count, 0)
+
+  const totalBookings = stats?.totalBookings ?? 0
+  const uniqueAttendees = stats?.unifiedAttendees ?? 0
+  const repeatRate =
+    totalBookings > 0 && uniqueAttendees > 0
+      ? Math.max(0, Math.round(((totalBookings - uniqueAttendees) / totalBookings) * 100))
+      : 0
+  const avgPerEvent =
+    (stats?.totalEvents ?? 0) > 0
+      ? Math.round((totalBookings / (stats?.totalEvents || 1)) * 10) / 10
+      : 0
+  const nextPhase = nextUp ? getEventPhase(nextUp) : null
+  const nextHref = nextUp ? `/events/e/${encodeEventRef(nextUp.channel, nextUp.id)}` : null
 
   return (
     <div className="dash">
@@ -201,61 +358,192 @@ export default function DashboardPage() {
             ))}
           </div>
 
+          <section className="dash-panel dash-panel--live-events">
+            <div className="dash-panel-head dash-panel-head--flush">
+              <div>
+                <h2>Your events</h2>
+                <p className="dash-section-sub">Ongoing and upcoming — click a card to open details</p>
+              </div>
+              <Link href="/events" className="dash-panel-link">
+                All events →
+              </Link>
+            </div>
+
+            {ongoing.length === 0 && upcoming.length === 0 ? (
+              <div className="dash-empty">
+                No upcoming or ongoing events. <Link href="/create">Create one →</Link>
+              </div>
+            ) : (
+              <div className="dash-event-sections">
+                <div className="dash-event-section">
+                  <div className="dash-event-section__head">
+                    <h3>
+                      <span className="dash-live-dot" aria-hidden="true" />
+                      Ongoing
+                    </h3>
+                    <span className="dash-event-section__count">{ongoing.length}</span>
+                  </div>
+                  {ongoing.length === 0 ? (
+                    <p className="dash-event-section__empty">No events happening right now.</p>
+                  ) : (
+                    <div className="dash-event-grid">
+                      {ongoing.map((evt) => (
+                        <DashboardEventCard
+                          key={`ongoing-${evt.channel}-${evt.id}`}
+                          evt={evt}
+                          phase="ongoing"
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="dash-event-section">
+                  <div className="dash-event-section__head">
+                    <h3>Upcoming</h3>
+                    <span className="dash-event-section__count">{upcoming.length}</span>
+                  </div>
+                  {upcoming.length === 0 ? (
+                    <p className="dash-event-section__empty">No upcoming events scheduled.</p>
+                  ) : (
+                    <div className="dash-event-grid">
+                      {upcoming.map((evt) => (
+                        <DashboardEventCard
+                          key={`upcoming-${evt.channel}-${evt.id}`}
+                          evt={evt}
+                          phase="upcoming"
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </section>
+
+          <section className="dash-panel dash-panel--pulse">
+            <div className="dash-panel-head dash-panel-head--flush">
+              <div>
+                <h2>Event pulse</h2>
+                <p className="dash-section-sub">What matters next — timing, pace, and audience</p>
+              </div>
+            </div>
+
+            <div className="dash-pulse-grid">
+              {nextUp && nextHref ? (
+                <Link
+                  href={nextHref}
+                  className="dash-pulse-hero"
+                  style={{ ['--ch-color' as string]: CH_META[nextUp.channel].color }}
+                >
+                  <div className="dash-pulse-hero__top">
+                    <span className={`dash-pulse-tag dash-pulse-tag--${nextPhase}`}>
+                      {nextPhase === 'ongoing' ? 'Live now' : 'Next up'}
+                    </span>
+                    <span className="dash-pulse-countdown">
+                      {nextPhase === 'ongoing' ? 'Happening now' : formatCountdown(nextUp.startUtc)}
+                    </span>
+                  </div>
+                  <h3 className="dash-pulse-hero__title">{nextUp.title}</h3>
+                  <p className="dash-pulse-hero__date">{formatDate(nextUp.startUtc)}</p>
+                  <div className="dash-pulse-hero__foot">
+                    <span className="dash-ch-pill">
+                      <ChannelLogo channel={nextUp.channel} size={14} />
+                      {CH_META[nextUp.channel].label}
+                    </span>
+                    <span className="dash-pulse-hero__cta">Open details →</span>
+                  </div>
+                </Link>
+              ) : (
+                <div className="dash-pulse-hero dash-pulse-hero--empty">
+                  <h3>Nothing on the calendar</h3>
+                  <p>Create an event to see your next countdown here.</p>
+                  <Link href="/create" className="dash-btn dash-btn--primary">
+                    ✦ Create event
+                  </Link>
+                </div>
+              )}
+
+              <div className="dash-pulse-metrics">
+                <div className="dash-pulse-metric">
+                  <span className="dash-pulse-metric__label">This week</span>
+                  <strong className="dash-pulse-metric__value">{weekEvents}</strong>
+                  <span className="dash-pulse-metric__hint">
+                    {weekEvents === 1 ? 'event live or starting' : 'events live or starting'}
+                  </span>
+                </div>
+                <div className="dash-pulse-metric">
+                  <span className="dash-pulse-metric__label">Avg bookings / event</span>
+                  <strong className="dash-pulse-metric__value">{avgPerEvent}</strong>
+                  <span className="dash-pulse-metric__hint">across all events</span>
+                </div>
+                <div className="dash-pulse-metric">
+                  <span className="dash-pulse-metric__label">Repeat interest</span>
+                  <strong className="dash-pulse-metric__value">{repeatRate}%</strong>
+                  <span className="dash-pulse-metric__hint">
+                    {uniqueAttendees} unique of {totalBookings} bookings
+                  </span>
+                </div>
+                <div className="dash-pulse-metric">
+                  <span className="dash-pulse-metric__label">Connected</span>
+                  <strong className="dash-pulse-metric__value">
+                    {connectedChannels.length}
+                    <span className="dash-pulse-metric__of">/3</span>
+                  </strong>
+                  <div className="dash-pulse-channels">
+                    {(['eventbrite', 'luma', 'hightribe'] as ChannelKey[]).map((ch) => {
+                      const on = connectedChannels.some((c) => c.key === ch)
+                      return (
+                        <span
+                          key={ch}
+                          className={`dash-pulse-ch${on ? ' dash-pulse-ch--on' : ''}`}
+                          style={{ ['--ch-color' as string]: CH_META[ch].color }}
+                          title={`${CH_META[ch].label}${on ? '' : ' (not connected)'}`}
+                        >
+                          <ChannelLogo channel={ch} size={16} />
+                        </span>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
           <div className="dash-panels">
-            <section className="dash-panel dash-panel--perf">
+            <section className="dash-panel dash-panel--trend">
               <div className="dash-perf-head">
                 <div>
-                  <h2>Channel Performance</h2>
-                  <p className="dash-perf-sub">Share of bookings by channel</p>
+                  <h2>Bookings (7 days)</h2>
+                  <p className="dash-perf-sub">Daily registrations across all channels</p>
                 </div>
-                <span className="dash-perf-total">{totalChannelBookings} bookings</span>
+                <span className="dash-perf-total">{trendTotal} this week</span>
               </div>
 
-              {totalChannelBookings === 0 ? (
+              {trendTotal === 0 ? (
                 <div className="dash-perf-empty">
-                  No channel bookings yet. Publish an event to see performance here.
+                  No bookings in the last 7 days yet.
                 </div>
               ) : (
-                <div className="dash-perf-list">
-                  {channelRows.map(({ ch, count, configured, meta }) => {
-                    const pct = Math.round((count / totalChannelBookings) * 100)
+                <div className="dash-trend" role="img" aria-label="Bookings over the last 7 days">
+                  {bookingTrend.map((point) => {
+                    const height = Math.max(4, Math.round((point.count / trendMax) * 100))
                     return (
-                      <div
-                        key={ch}
-                        className="dash-perf-item"
-                        style={{ ['--ch-color' as string]: meta.color }}
-                      >
-                        <div className="dash-perf-item-top">
-                          <span className="dash-perf-label">
-                            <ChannelLogo channel={ch} size={22} />
-                            <span className="dash-perf-name">{meta.label}</span>
-                            {!configured && (
-                              <span className="dash-perf-off">Not connected</span>
-                            )}
-                          </span>
-                          <span className="dash-perf-pct">{pct}%</span>
-                        </div>
-                        <div className="dash-perf-bar" aria-hidden="true">
+                      <div key={point.date} className="dash-trend-col">
+                        <div className="dash-trend-value">{point.count || ''}</div>
+                        <div className="dash-trend-bar-wrap">
                           <div
-                            className="dash-perf-fill"
-                            style={{
-                              width: `${pct}%`,
-                              minWidth: pct > 0 ? 6 : 0,
-                            }}
+                            className="dash-trend-bar"
+                            style={{ height: `${height}%` }}
+                            title={`${point.count} on ${point.date}`}
                           />
                         </div>
-                        <div className="dash-perf-count">
-                          {count} {count === 1 ? 'booking' : 'bookings'}
-                        </div>
+                        <div className="dash-trend-label">{formatShortDay(point.date)}</div>
                       </div>
                     )
                   })}
                 </div>
               )}
-
-              <Link href="/channels" className="dash-view-all">
-                Manage channels →
-              </Link>
             </section>
 
             <section className="dash-panel dash-panel--orders">
@@ -318,7 +606,7 @@ export default function DashboardPage() {
             </section>
           </div>
 
-          {!anyConfigured && (
+          {!anyConfigured ? (
             <div className="dash-setup">
               <div className="dash-setup-icon" aria-hidden="true">
                 ⚙️
@@ -329,44 +617,37 @@ export default function DashboardPage() {
                 Go to Settings
               </Link>
             </div>
+          ) : (
+            <section className="dash-panel dash-panel--quick">
+              <div className="dash-panel-head dash-panel-head--flush">
+                <div>
+                  <h2>Quick actions</h2>
+                  <p className="dash-section-sub">Jump straight into the work that moves events forward</p>
+                </div>
+              </div>
+              <div className="dash-quick-grid">
+                {QUICK_ACTIONS.map((action) => (
+                  <Link
+                    key={action.href}
+                    href={action.href}
+                    className={`dash-quick-link${'featured' in action && action.featured ? ' dash-quick-link--featured' : ''}`}
+                    style={{ ['--qa-accent' as string]: action.accent }}
+                  >
+                    <span className="dash-quick-icon" aria-hidden="true">
+                      {action.icon}
+                    </span>
+                    <span className="dash-quick-text">
+                      <strong>{action.title}</strong>
+                      <em>{action.desc}</em>
+                    </span>
+                    <span className="dash-quick-arrow" aria-hidden="true">
+                      →
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            </section>
           )}
-
-          <section className="dash-panel dash-panel--events">
-            <div className="dash-panel-head">
-              <h2>Recent events</h2>
-              <Link href="/events" className="dash-panel-link">
-                All events →
-              </Link>
-            </div>
-
-            {recent.length === 0 ? (
-              <div className="dash-empty">
-                No events yet. <Link href="/create">Create one →</Link>
-              </div>
-            ) : (
-              <div className="dash-list">
-                {recent.map((evt) => {
-                  const meta = CH_META[evt.channel]
-                  return (
-                    <div
-                      key={`${evt.channel}-${evt.id}`}
-                      className="dash-event-row"
-                      style={{ ['--ch-color' as string]: meta.color }}
-                    >
-                      <div className="dash-event-info">
-                        <div className="dash-event-title">{evt.title}</div>
-                        <div className="dash-event-date">{formatDate(evt.startUtc)}</div>
-                      </div>
-                      <span className="dash-ch-pill">
-                        <ChannelLogo channel={evt.channel} size={16} />
-                        {meta.label}
-                      </span>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </section>
         </>
       )}
     </div>

@@ -24,8 +24,16 @@ export interface DashboardRecentEvent {
   id: string
   title: string
   startUtc: string
+  endUtc?: string | null
+  coverUrl?: string | null
+  status?: string | null
   channel: ChannelKey
   priceLabel: string
+}
+
+export interface DashboardBookingTrendPoint {
+  date: string
+  count: number
 }
 
 export interface DashboardStats {
@@ -36,6 +44,19 @@ export interface DashboardStats {
   unifiedAttendees: number
   recent: DashboardRecentEvent[]
   recentBookings: DashboardBooking[]
+  bookingTrend: DashboardBookingTrendPoint[]
+}
+
+function emptyTrend(days = 7): DashboardBookingTrendPoint[] {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const points: DashboardBookingTrendPoint[] = []
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(today)
+    d.setDate(today.getDate() - i)
+    points.push({ date: d.toISOString().slice(0, 10), count: 0 })
+  }
+  return points
 }
 
 export async function loadDashboardStats(settings: {
@@ -61,6 +82,7 @@ export async function loadDashboardStats(settings: {
       unifiedAttendees: number
       recent: DashboardRecentEvent[]
       recentBookings: DashboardBooking[]
+      bookingTrend?: DashboardBookingTrendPoint[]
     }
 
     return {
@@ -84,6 +106,7 @@ export async function loadDashboardStats(settings: {
       unifiedAttendees: data.unifiedAttendees,
       recent: data.recent,
       recentBookings: data.recentBookings,
+      bookingTrend: data.bookingTrend?.length ? data.bookingTrend : emptyTrend(),
     }
   }
 
@@ -110,11 +133,14 @@ export async function loadDashboardStats(settings: {
       const bMs = b.row.start_at ? new Date(b.row.start_at).getTime() : 0
       return bMs - aMs
     })
-    .slice(0, 5)
+    .slice(0, 60)
     .map(({ row, channel }) => ({
       id: row.external_id,
       title: row.title || 'Untitled',
       startUtc: row.start_at || new Date().toISOString(),
+      endUtc: row.end_at,
+      coverUrl: row.cover_url,
+      status: row.status,
       channel,
       priceLabel: '',
     }))
@@ -129,5 +155,6 @@ export async function loadDashboardStats(settings: {
     unifiedAttendees: 0,
     recent,
     recentBookings: [],
+    bookingTrend: emptyTrend(),
   }
 }

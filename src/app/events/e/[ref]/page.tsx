@@ -70,7 +70,20 @@ export default function EventDetailPage() {
       channels={data.channels}
       channelCounts={data.channelCounts}
       registrations={data.registrations}
-      uniqueAttendees={data.uniqueAttendees}
+      ticketPrice={data.ticketPrice}
+      currency={data.currency}
+      isFree={data.isFree}
+      hasPricing={data.hasPricing}
+      revenue={data.revenue}
+      ticketsSoldPct={data.ticketsSoldPct}
+      ticketTypes={data.ticketTypes}
+      startAt={data.startAt}
+      endAt={data.endAt}
+      coverUrl={data.coverUrl}
+      venue={data.venue}
+      status={data.status}
+      eventUrl={data.eventUrl}
+      primaryChannel={data.primaryChannel}
       loading={refreshing}
       onRefresh={() => load(true)}
     />
