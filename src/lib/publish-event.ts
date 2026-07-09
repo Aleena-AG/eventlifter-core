@@ -2,6 +2,7 @@
 
 import { channelFetch } from '@/lib/channel-fetch'
 import { authHeader } from '@/lib/auth'
+import { syncStoredEvents } from '@/lib/channel-events-store'
 import type { ChannelKey } from '@/lib/types'
 import { buildEbTicketClass, ebTicketQuantity } from '@/lib/eventbrite-ticket'
 import { resolveEbTimezone } from '@/lib/eventbrite-timezone'
@@ -63,6 +64,90 @@ function buildHightribeTicketsFromForm(ev: EventFormData): {
       minQty,
       maxQty,
     },
+  }
+}
+
+async function fetchHightribeTicketIds(eventId: string | number): Promise<string[]> {
+  try {
+    const res = await channelFetch(
+      `/api/hightribe/tickets?ticketable_type=event&ticketable_id=${encodeURIComponent(String(eventId))}`,
+    )
+    if (!res.ok) return []
+    const raw = await res.json() as { data?: { tickets?: Array<{ id?: unknown }> } }
+    const list = raw.data?.tickets
+    if (!Array.isArray(list)) return []
+    return list.map((t) => String(t.id ?? '')).filter(Boolean)
+  } catch {
+    return []
+  }
+}
+
+/** Push ticket pricing to Hightribe via the dedicated tickets endpoint (more reliable than event PUT alone). */
+async function syncHightribeTickets(eventId: string | number, ev: EventFormData): Promise<void> {
+  const bundle = buildHightribeTicketsFromForm(ev)
+  if (!bundle.tickets?.length) return
+
+  let tickets = bundle.tickets.map((t) => ({ ...t }))
+  const knownId = String(ev.htTicketId || '').trim()
+  if (knownId) {
+    tickets[0] = { ...tickets[0], id: knownId }
+  } else {
+    const ids = await fetchHightribeTicketIds(eventId)
+    if (ids.length) tickets[0] = { ...tickets[0], id: ids[0] }
+  }
+
+  const body: Record<string, unknown> = {
+    ticketable_type: 'event',
+    ticketable_id: eventId,
+    tickets,
+  }
+  if (bundle.ticketSetting) body.ticketSetting = bundle.ticketSetting
+
+  const res = await channelFetch('/api/hightribe/tickets', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const data = await res.json() as { message?: string; errors?: Record<string, string[]> }
+  if (!res.ok) {
+    throw new Error(data.message || (data.errors ? Object.values(data.errors).flat().join(', ') : `HTTP ${res.status}`))
+  }
+}
+
+async function updateEventbriteTickets(eventId: string | number, ev: EventFormData): Promise<void> {
+  const cap = ebTicketQuantity(ev.capacity as string | number | undefined)
+  const listRes = await channelFetch(`/api/eventbrite/events/${eventId}/ticket_classes`)
+  const listData = await listRes.json() as {
+    ticket_classes?: Array<{ id?: string }>
+    error_description?: string
+  }
+  if (!listRes.ok) {
+    throw new Error(listData.error_description || `HTTP ${listRes.status}`)
+  }
+  const ticketClassId = listData.ticket_classes?.[0]?.id
+  if (!ticketClassId) return
+
+  const tc = buildEbTicketClass({
+    name: String(ev.htTicketName || 'General Admission'),
+    free: ev.ticketType === 'Free' || ev.ticketType === 'Donation',
+    capacity: cap,
+    currency: String(ev.currency || 'USD'),
+    price: ev.ticketType === 'Free' || ev.ticketType === 'Donation'
+      ? 0
+      : parseFloat(String(ev.price || '0')),
+  })
+
+  const tcRes = await channelFetch(
+    `/api/eventbrite/events/${eventId}/ticket_classes/${ticketClassId}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticket_class: tc }),
+    },
+  )
+  const tcData = await tcRes.json() as { error_description?: string; error?: string }
+  if (!tcRes.ok) {
+    throw new Error(tcData.error_description || tcData.error || `HTTP ${tcRes.status}`)
   }
 }
 
@@ -293,6 +378,9 @@ export async function updateChannelEvent(
     const res = await postHtEvent(`/api/hightribe/events/${eventId}`, body, 'PUT', htCoverFile)
     const data = await res.json() as { message?: string; errors?: Record<string, string[]> }
     if (!res.ok) throw new Error(data.message || (data.errors ? Object.values(data.errors).flat().join(', ') : `HTTP ${res.status}`))
+    if (ticketBundle.tickets) {
+      await syncHightribeTickets(eventId, ev)
+    }
     return
   }
 
@@ -348,6 +436,7 @@ export async function updateChannelEvent(
   })
   const data = await res.json() as { error_description?: string; error?: string }
   if (!res.ok) throw new Error(data.error_description || data.error || `HTTP ${res.status}`)
+  await updateEventbriteTickets(eventId, ev)
 }
 
 export async function updateChannelEventsAll(
@@ -375,26 +464,94 @@ export async function updateChannelEventsAll(
   return results
 }
 
+/**
+ * Save a just-published event into our local channel store so it shows up on
+ * the Events page immediately (without waiting for a manual/live re-sync).
+ * Best-effort: failures here never fail the publish.
+ */
+async function persistPublishedEvent(
+  ch: ChannelKey,
+  ev: EventFormData,
+  ref: { eventId: string; url?: string },
+): Promise<void> {
+  if (!ref.eventId) return
+  const tz = String(ev.timezone || 'UTC')
+  const startUtc = toIso(String(ev.date), String(ev.time), tz)
+  const endUtc = toIso(String(ev.endDate || ev.date), String(ev.endTime || ev.time), tz)
+  const cover = String(ev.coverUrl || '')
+
+  let raw: Record<string, unknown>
+  if (ch === 'luma') {
+    const url = ref.url ? (/^https?:\/\//i.test(ref.url) ? ref.url : `https://${ref.url}`) : ''
+    raw = {
+      api_id: ref.eventId,
+      name: ev.title,
+      start_at: startUtc,
+      end_at: endUtc,
+      timezone: tz,
+      url,
+      cover_url: cover,
+      status: 'published',
+    }
+  } else if (ch === 'eventbrite') {
+    raw = {
+      id: ref.eventId,
+      name: { text: ev.title },
+      start: { utc: startUtc },
+      end: { utc: endUtc },
+      url: ref.url || '',
+      is_free: ev.ticketType === 'Free',
+      status: 'live',
+    }
+  } else {
+    raw = {
+      id: ref.eventId,
+      title: ev.title,
+      dates: { starts_at: startUtc, ends_at: endUtc },
+      timezone: tz,
+      cover_url: cover,
+      location: String(ev.venue || ev.address || ev.city || ''),
+      status: 'published',
+    }
+  }
+
+  try {
+    await syncStoredEvents(ch, [raw], { prune: false })
+  } catch {
+    // non-fatal — event still exists on the channel; a later sync will pick it up
+  }
+}
+
+export type PublishResults = Partial<Record<ChannelKey, { status: 'synced' | 'error'; url?: string; message?: string }>>
+
 export async function publishToAllChannels(
   ev: EventFormData,
   targets: ChannelKey[],
   files?: EventCoverFiles,
-): Promise<Partial<Record<ChannelKey, { status: 'synced' | 'error'; url?: string; message?: string }>>> {
-  const masterRes = await fetch('/api/registry', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: authHeader(),
-    },
-    body: JSON.stringify({
-      action: 'create',
-      title: String(ev.title),
-      capacity: parseInt(String(ev.capacity || '150')) || 150,
-    }),
-  })
-  const master = await masterRes.json() as { id: string }
+  existingMasterId?: string,
+): Promise<{ masterId: string; results: PublishResults }> {
+  let masterId = existingMasterId || ''
+  if (!masterId) {
+    const masterRes = await fetch('/api/registry', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: authHeader(),
+      },
+      body: JSON.stringify({
+        action: 'create',
+        title: String(ev.title),
+        capacity: parseInt(String(ev.capacity || '150')) || 150,
+      }),
+    })
+    const master = await masterRes.json() as { id?: string; error?: string }
+    if (!masterRes.ok || !master.id) {
+      throw new Error(master.error || `Could not create master event (HTTP ${masterRes.status})`)
+    }
+    masterId = master.id
+  }
 
-  const results: Partial<Record<ChannelKey, { status: 'synced' | 'error'; url?: string; message?: string }>> = {}
+  const results: PublishResults = {}
 
   for (const ch of targets) {
     try {
@@ -407,11 +564,12 @@ export async function publishToAllChannels(
         },
         body: JSON.stringify({
           action: 'link',
-          masterId: master.id,
+          masterId,
           channel: ch,
           ref: { eventId: ref.eventId, ticketId: ref.ticketId, url: ref.url },
         }),
       })
+      await persistPublishedEvent(ch, ev, { eventId: ref.eventId, url: ref.url })
       results[ch] = { status: 'synced', url: ref.url }
     } catch (e) {
       results[ch] = { status: 'error', message: e instanceof Error ? e.message : String(e) }
@@ -420,5 +578,5 @@ export async function publishToAllChannels(
 
   try { await fetch('/api/webhooks/setup', { method: 'POST' }) } catch { /* non-fatal */ }
 
-  return results
+  return { masterId, results }
 }

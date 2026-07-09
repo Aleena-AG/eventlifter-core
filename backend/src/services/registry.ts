@@ -2,6 +2,19 @@ import type { ResultSetHeader } from 'mysql2'
 import type { RowDataPacket } from 'mysql2'
 import { useDatabase } from '../config'
 import { getPool, query } from '../db/pool'
+import {
+  localCreateMasterEvent,
+  localDeleteMasterEvent,
+  localFindMasterByChannelEvent,
+  localGetAttendees,
+  localGetChannelRefs,
+  localGetMasterEvent,
+  localLinkChannelEvent,
+  localListMasterEvents,
+  localRegisterAttendee,
+  localRemoveChannelFromMaster,
+  type LocalMasterEvent,
+} from '../db/local-store'
 import type { AttendeeRecord, ChannelKey, ChannelRef, MasterEventRecord } from '../types'
 
 type MasterRow = RowDataPacket & {
@@ -30,6 +43,33 @@ type AttendeeRow = RowDataPacket & {
 
 function toIso(d: Date | string): string {
   return d instanceof Date ? d.toISOString() : new Date(d).toISOString()
+}
+
+function assembleLocalMaster(master: LocalMasterEvent): MasterEventRecord {
+  const channels: Partial<Record<ChannelKey, ChannelRef>> = {}
+  for (const ref of localGetChannelRefs(master.id)) {
+    channels[ref.channel] = {
+      eventId: ref.event_id,
+      ticketId: ref.ticket_id || undefined,
+      url: ref.url || undefined,
+    }
+  }
+  const attendees: AttendeeRecord[] = localGetAttendees(master.id).map((a) => ({
+    email: a.email,
+    name: a.name,
+    source: a.source_channel,
+    registeredAt: toIso(a.registered_at),
+  }))
+  return {
+    id: master.id,
+    title: master.title,
+    capacity: master.capacity,
+    sold: master.sold,
+    channels,
+    attendees,
+    createdAt: toIso(master.created_at),
+    updatedAt: toIso(master.updated_at),
+  }
 }
 
 async function loadChannels(masterIds: string[]): Promise<Map<string, Partial<Record<ChannelKey, ChannelRef>>>> {
@@ -100,7 +140,7 @@ async function assembleMasters(rows: MasterRow[]): Promise<MasterEventRecord[]> 
 }
 
 export async function listMasterEvents(): Promise<MasterEventRecord[]> {
-  if (!useDatabase()) return []
+  if (!useDatabase()) return localListMasterEvents().map(assembleLocalMaster)
   const rows = await query<MasterRow[]>(
     'SELECT id, title, capacity, sold, created_at, updated_at FROM master_events ORDER BY updated_at DESC',
   )
@@ -108,7 +148,10 @@ export async function listMasterEvents(): Promise<MasterEventRecord[]> {
 }
 
 export async function getMasterEvent(id: string): Promise<MasterEventRecord | null> {
-  if (!useDatabase()) return null
+  if (!useDatabase()) {
+    const master = localGetMasterEvent(id)
+    return master ? assembleLocalMaster(master) : null
+  }
   const rows = await query<MasterRow[]>(
     'SELECT id, title, capacity, sold, created_at, updated_at FROM master_events WHERE id = ? LIMIT 1',
     [id],
@@ -122,7 +165,10 @@ export async function findMasterByChannelEvent(
   channel: ChannelKey,
   eventId: string,
 ): Promise<MasterEventRecord | null> {
-  if (!useDatabase()) return null
+  if (!useDatabase()) {
+    const master = localFindMasterByChannelEvent(channel, eventId)
+    return master ? assembleLocalMaster(master) : null
+  }
   const rows = await query<MasterRow[]>(
     `SELECT m.id, m.title, m.capacity, m.sold, m.created_at, m.updated_at
      FROM master_events m
@@ -146,7 +192,17 @@ export async function findMasterContextByChannelEvent(
   capacity: number
   sold: number
 } | null> {
-  if (!useDatabase()) return null
+  if (!useDatabase()) {
+    const master = localFindMasterByChannelEvent(channel, eventId)
+    if (!master) return null
+    return {
+      masterId: master.id,
+      title: master.title,
+      userId: master.user_id,
+      capacity: master.capacity,
+      sold: master.sold,
+    }
+  }
   const rows = await query<(MasterRow & { user_id: number | null })[]>(
     `SELECT m.id, m.title, m.user_id, m.capacity, m.sold, m.created_at, m.updated_at
      FROM master_events m
@@ -172,11 +228,18 @@ export async function createMasterEvent(input: {
   userId?: number | null
   channels?: Partial<Record<ChannelKey, ChannelRef>>
 }): Promise<MasterEventRecord> {
+  const id = `mst_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
   if (!useDatabase()) {
-    throw new Error('Registry is unavailable while MySQL is disabled')
+    const master = localCreateMasterEvent({
+      id,
+      title: input.title,
+      capacity: input.capacity,
+      userId: input.userId ?? null,
+      channels: input.channels,
+    })
+    return assembleLocalMaster(master)
   }
   const now = new Date()
-  const id = `mst_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
   const pool = getPool()
 
   await pool.query(
@@ -202,7 +265,10 @@ export async function linkChannelEvent(
   channel: ChannelKey,
   ref: ChannelRef,
 ): Promise<MasterEventRecord | null> {
-  if (!useDatabase()) return null
+  if (!useDatabase()) {
+    const master = localLinkChannelEvent(masterId, channel, ref)
+    return master ? assembleLocalMaster(master) : null
+  }
   const master = await getMasterEvent(masterId)
   if (!master) return null
 
@@ -221,7 +287,15 @@ export async function registerAttendee(
   masterId: string,
   attendee: Omit<AttendeeRecord, 'registeredAt'> & { registeredAt?: string },
 ): Promise<MasterEventRecord | null> {
-  if (!useDatabase()) return null
+  if (!useDatabase()) {
+    const master = localRegisterAttendee(masterId, {
+      email: attendee.email,
+      name: attendee.name,
+      source: attendee.source,
+      registeredAt: attendee.registeredAt,
+    })
+    return master ? assembleLocalMaster(master) : null
+  }
   const exists = await query<{ id: string }[]>(
     'SELECT id FROM master_events WHERE id = ? LIMIT 1',
     [masterId],
@@ -249,7 +323,7 @@ export async function registerAttendee(
 }
 
 export async function deleteMasterEvent(id: string): Promise<boolean> {
-  if (!useDatabase()) return false
+  if (!useDatabase()) return localDeleteMasterEvent(id)
   const [result] = await getPool().query<ResultSetHeader>(
     'DELETE FROM master_events WHERE id = ?',
     [id],
@@ -261,7 +335,10 @@ export async function removeChannelFromMaster(
   masterId: string,
   channel: ChannelKey,
 ): Promise<MasterEventRecord | null> {
-  if (!useDatabase()) return null
+  if (!useDatabase()) {
+    const master = localRemoveChannelFromMaster(masterId, channel)
+    return master ? assembleLocalMaster(master) : null
+  }
   const master = await getMasterEvent(masterId)
   if (!master) return null
 

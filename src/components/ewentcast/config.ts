@@ -7,7 +7,9 @@ export const CH_META: Record<ChannelKey, { name: string; color: string; auth: st
   luma: { name: 'Luma', color: LUMA_COLOR, auth: 'API key', cap: 'Two-way sync · Luma Plus', base: 'lu.ma/', signin: 'Sign in to Luma for your key' },
 }
 
-export const ALL_CHANNELS: ChannelKey[] = ['hightribe', 'eventbrite', 'luma']
+// Display order: Eventbrite & Luma lead, Hightribe intentionally last (kept less
+// prominent in channel chips, dots and copy).
+export const ALL_CHANNELS: ChannelKey[] = ['eventbrite', 'luma', 'hightribe']
 
 export const WIZARD_STEPS = ['Create event', 'Publish', 'Dashboard'] as const
 
@@ -16,10 +18,37 @@ export type FieldDef = {
   label: string
   hint?: string
   placeholder?: string
-  type?: 'textarea' | 'select' | 'toggle' | 'cover'
+  type?: 'textarea' | 'select' | 'toggle' | 'cover' | 'date' | 'time' | 'timezone' | 'country' | 'region'
   opts?: string[]
   full?: boolean
   on: ChannelKey[]
+}
+
+const FALLBACK_TIMEZONES = [
+  'UTC', 'America/Los_Angeles', 'America/Denver', 'America/Chicago', 'America/New_York',
+  'America/Sao_Paulo', 'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Europe/Moscow',
+  'Africa/Cairo', 'Africa/Lagos', 'Asia/Dubai', 'Asia/Karachi', 'Asia/Kolkata', 'Asia/Dhaka',
+  'Asia/Bangkok', 'Asia/Shanghai', 'Asia/Singapore', 'Asia/Tokyo', 'Australia/Sydney',
+  'Pacific/Auckland',
+]
+
+/** Full IANA timezone list from the runtime (browser/Node), with a static fallback. */
+export function getTimeZones(): string[] {
+  try {
+    const intl = Intl as typeof Intl & { supportedValuesOf?: (key: string) => string[] }
+    const list = intl.supportedValuesOf?.('timeZone')
+    if (Array.isArray(list) && list.length) return list
+  } catch { /* ignore */ }
+  return FALLBACK_TIMEZONES
+}
+
+/** The visitor's current timezone (used as a sensible default). */
+export function detectTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+  } catch {
+    return 'UTC'
+  }
 }
 
 export const SECTIONS: { key: string; label: string; fields: FieldDef[] }[] = [
@@ -32,20 +61,20 @@ export const SECTIONS: { key: string; label: string; fields: FieldDef[] }[] = [
     { k: 'tags', label: 'Tags', hint: 'comma separated', on: ['hightribe', 'luma'] },
   ]},
   { key: 'when', label: 'When', fields: [
-    { k: 'date', label: 'Start date', on: ALL_CHANNELS },
-    { k: 'time', label: 'Start time', on: ALL_CHANNELS },
-    { k: 'endDate', label: 'End date', on: ALL_CHANNELS },
-    { k: 'endTime', label: 'End time', on: ALL_CHANNELS },
-    { k: 'timezone', label: 'Timezone', type: 'select', opts: ['America/Los_Angeles', 'America/New_York', 'Asia/Karachi', 'Europe/London', 'UTC'], on: ALL_CHANNELS },
+    { k: 'date', label: 'Start date', type: 'date', on: ALL_CHANNELS },
+    { k: 'endDate', label: 'End date', type: 'date', on: ALL_CHANNELS },
+    { k: 'time', label: 'Start time', type: 'time', on: ALL_CHANNELS },
+    { k: 'endTime', label: 'End time', type: 'time', on: ALL_CHANNELS },
+    { k: 'timezone', label: 'Timezone', type: 'timezone', full: true, on: ALL_CHANNELS },
   ]},
   { key: 'where', label: 'Where', fields: [
     { k: 'format', label: 'Format', type: 'select', opts: ['In person', 'Online', 'Hybrid'], on: ALL_CHANNELS },
     { k: 'venue', label: 'Venue name', placeholder: 'e.g. The Grand Hall', on: ALL_CHANNELS },
     { k: 'address', label: 'Street address', placeholder: '123 Main St', on: ALL_CHANNELS },
     { k: 'city', label: 'City', placeholder: 'City', on: ALL_CHANNELS },
-    { k: 'region', label: 'Region / State', on: ALL_CHANNELS },
+    { k: 'country', label: 'Country', type: 'country', on: ALL_CHANNELS },
+    { k: 'region', label: 'Region / State', type: 'region', on: ALL_CHANNELS },
     { k: 'postal', label: 'Postal code', on: ALL_CHANNELS },
-    { k: 'country', label: 'Country', on: ALL_CHANNELS },
     { k: 'lat', label: 'Latitude', on: ALL_CHANNELS },
     { k: 'lng', label: 'Longitude', on: ALL_CHANNELS },
     { k: 'onlineUrl', label: 'Online link', hint: 'online / hybrid', on: ALL_CHANNELS },
@@ -57,8 +86,8 @@ export const SECTIONS: { key: string; label: string; fields: FieldDef[] }[] = [
     { k: 'capacity', label: 'Capacity', on: ALL_CHANNELS },
     { k: 'minPerOrder', label: 'Min per order', on: ['eventbrite', 'hightribe'] },
     { k: 'maxPerOrder', label: 'Max per order', on: ['eventbrite', 'hightribe'] },
-    { k: 'salesStart', label: 'Sales start', on: ['eventbrite', 'luma'] },
-    { k: 'salesEnd', label: 'Sales end', on: ['eventbrite', 'luma'] },
+    { k: 'salesStart', label: 'Sales start', hint: 'within event days', type: 'date', on: ['eventbrite', 'luma'] },
+    { k: 'salesEnd', label: 'Sales end', hint: 'within event days', type: 'date', on: ['eventbrite', 'luma'] },
     { k: 'waitlist', label: 'Waitlist when full', type: 'toggle', on: ['hightribe', 'luma'] },
   ]},
   { key: 'access', label: 'Access', fields: [
@@ -93,13 +122,13 @@ export const DEFAULT_EVENT: Record<string, string | boolean> = {
   city: '',
   region: '',
   postal: '',
-  country: '',
+  country: 'United States',
   lat: '',
   lng: '',
   onlineUrl: '',
   ticketType: '',
   price: '',
-  currency: '',
+  currency: 'USD',
   capacity: '',
   minPerOrder: '',
   maxPerOrder: '',

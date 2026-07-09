@@ -6,15 +6,37 @@ import { getUser } from '@/lib/auth'
 import { connectedChannelsFromMap, fetchChannelConnectionMap } from '@/lib/channel-connection'
 import type { AttendeeRecord } from '@/lib/event-registry'
 import { publishToAllChannels, updateChannelEventsAll, type EventFormData } from '@/lib/publish-event'
+import { syncChannelDataToDb } from '@/lib/channel-data-sync'
 import type { EventCoverFiles } from '@/lib/cover-image'
 import { loadEventFormData } from '@/lib/event-form-data'
 import type { ChannelKey } from '@/lib/types'
 import {
   ALL_CHANNELS, CH_META, DEFAULT_EVENT, SECTIONS, WIZARD_STEPS,
+  getTimeZones, detectTimeZone,
 } from './config'
 import { getFormCompletion } from './form-completion'
+import { fetchCountries, fetchStates } from '@/lib/geo'
+import { CoverCropper } from './CoverCropper'
+import { LocationSection } from './LocationSection'
 import { InlineLoader, PageLoader } from '@/components/Loader'
-import { EwentcastLogo } from '@/components/EwentcastLogo'
+
+const TIME_ZONES = getTimeZones()
+
+/** Cross-field checks for the When step (end must not be before start). */
+function getWhenErrors(ev: EventFormData): Record<string, string> {
+  const errors: Record<string, string> = {}
+  const date = String(ev.date || '')
+  const time = String(ev.time || '')
+  const endDate = String(ev.endDate || '')
+  const endTime = String(ev.endTime || '')
+
+  if (date && endDate && endDate < date) {
+    errors.endDate = 'End date can’t be before the start date.'
+  } else if (date && endDate && endDate === date && time && endTime && endTime <= time) {
+    errors.endTime = 'End time must be after the start time.'
+  }
+  return errors
+}
 
 function Swatch({ color, size = 10 }: { color: string; size?: number }) {
   return <span className="ew-swatch" style={{ width: size, height: size, background: color }} />
@@ -61,10 +83,16 @@ export function EwentcastWizard({
   const [section, setSection] = useState(0)
   const [ev, setEv] = useState<EventFormData>({ ...DEFAULT_EVENT })
   const [coverFile, setCoverFile] = useState<File | null>(null)
+  const [cropState, setCropState] = useState<{ file: File; fieldKey: string } | null>(null)
+  const [countries, setCountries] = useState<string[]>([])
+  const [regions, setRegions] = useState<string[]>([])
+  const [regionsLoading, setRegionsLoading] = useState(false)
   const [targets, setTargets] = useState<ChannelKey[]>(
     isEdit ? editTargetChannels : [],
   )
   const [pub, setPub] = useState<PubState>({})
+  const [masterId, setMasterId] = useState<string | null>(null)
+  const [publishError, setPublishError] = useState<string | null>(null)
   const [publishing, setPublishing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -75,6 +103,7 @@ export function EwentcastWizard({
   const [conns, setConns] = useState<Record<ChannelKey, boolean>>({
     hightribe: false, eventbrite: false, luma: false,
   })
+  const [connsLoaded, setConnsLoaded] = useState(false)
 
   useEffect(() => {
     if (!isEdit || !editChannel || editEventId == null || editEventId === '') return
@@ -88,6 +117,52 @@ export function EwentcastWizard({
         setLoadingEvent(false)
       })
   }, [isEdit, editChannel, editEventId, editChannelIds])
+
+  useEffect(() => {
+    if (isEdit) return
+    setEv(prev => (prev.timezone ? prev : { ...prev, timezone: detectTimeZone() }))
+  }, [isEdit])
+
+  useEffect(() => {
+    let cancelled = false
+    fetchCountries().then(list => { if (!cancelled) setCountries(list) }).catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    const country = String(ev.country || '')
+    if (!country) { setRegions([]); return }
+    let cancelled = false
+    setRegionsLoading(true)
+    fetchStates(country)
+      .then(list => { if (!cancelled) { setRegions(list); setRegionsLoading(false) } })
+      .catch(() => { if (!cancelled) { setRegions([]); setRegionsLoading(false) } })
+    return () => { cancelled = true }
+  }, [ev.country])
+
+  // Keep the ticket sales window inside the event's day range: pull any sales
+  // date that lands before the start day or after the end day back into range.
+  useEffect(() => {
+    const eventStart = String(ev.date || '')
+    if (!eventStart) return
+    const eventEnd = String(ev.endDate || '') || eventStart
+    const clamp = (val: string) => {
+      let v = val
+      if (v && v < eventStart) v = eventStart
+      if (v && eventEnd && v > eventEnd) v = eventEnd
+      return v
+    }
+    setEv(prev => {
+      const start = String(prev.salesStart || '')
+      const end = String(prev.salesEnd || '')
+      const next: Record<string, string> = {}
+      const cs = clamp(start)
+      const ce = clamp(end)
+      if (start && cs !== start) next.salesStart = cs
+      if (end && ce !== end) next.salesEnd = ce
+      return Object.keys(next).length ? { ...prev, ...next } : prev
+    })
+  }, [ev.date, ev.endDate])
 
   useEffect(() => {
     if (step !== 2) return
@@ -109,6 +184,7 @@ export function EwentcastWizard({
         if (!isEdit) setTargets(connectedChannelsFromMap(map))
       })
       .catch(() => {})
+      .finally(() => { if (!cancelled) setConnsLoaded(true) })
     return () => { cancelled = true }
   }, [isEdit])
 
@@ -116,6 +192,8 @@ export function EwentcastWizard({
   const connCount = ALL_CHANNELS.filter(c => conns[c]).length
   const formCompletion = getFormCompletion(ev, liveTargets)
   const { pct: formPct, allComplete: formComplete, sectionStatuses } = formCompletion
+  const whenErrors = getWhenErrors(ev)
+  const hasErrors = Object.keys(whenErrors).length > 0
   const user = getUser()
   const initials = user?.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'UH'
 
@@ -158,29 +236,91 @@ export function EwentcastWizard({
   }
 
   async function startPublish() {
-    setPublishing(true)
-    const queued: PubState = {}
-    liveTargets.forEach(ch => { queued[ch] = { status: 'queued' } })
-    setPub(queued)
+    // First run publishes every connected channel; a retry only re-publishes the
+    // ones that aren't already synced (so we never duplicate a synced channel).
+    const toPublish = liveTargets.filter(ch => pub[ch]?.status !== 'synced')
+    const targets = toPublish.length > 0 ? toPublish : liveTargets
+    if (targets.length === 0) return
 
-    for (const ch of liveTargets) {
+    setPublishError(null)
+    setPublishing(true)
+    setPub(p => {
+      const next = { ...p }
+      targets.forEach(ch => { next[ch] = { status: 'queued' } })
+      return next
+    })
+
+    for (const ch of targets) {
       setPub(p => ({ ...p, [ch]: { status: 'publishing' } }))
       await new Promise(r => setTimeout(r, 300))
     }
 
-    const results = await publishToAllChannels(ev, liveTargets, coverFiles)
-    const next: PubState = {}
-    for (const ch of liveTargets) {
-      const r = results[ch]
-      next[ch] = r?.status === 'synced'
-        ? { status: 'synced', url: r.url }
-        : { status: 'error', message: r?.message || 'Failed' }
+    try {
+      const { masterId: mid, results } = await publishToAllChannels(
+        ev, targets, coverFiles, masterId ?? undefined,
+      )
+      setMasterId(mid)
+      setPub(p => {
+        const next = { ...p }
+        for (const ch of targets) {
+          const r = results[ch]
+          next[ch] = r?.status === 'synced'
+            ? { status: 'synced', url: r.url }
+            : { status: 'error', message: r?.message || 'Failed' }
+        }
+        return next
+      })
+
+      // A publish only creates the event on the remote channel + registry; it
+      // doesn't write to our local event store, so the new event wouldn't show
+      // on the Events page until a manual sync. Pull each successfully published
+      // channel into the store now so it appears immediately.
+      const publishedChannels = targets.filter(ch => results[ch]?.status === 'synced')
+      await Promise.all(
+        publishedChannels.map(ch =>
+          syncChannelDataToDb(ch).catch(() => { /* best-effort refresh */ }),
+        ),
+      )
+    } catch (e) {
+      // Master-event creation failed — nothing was published, so reset lanes.
+      setPublishError(e instanceof Error ? e.message : 'Publish failed')
+      setPub(p => {
+        const next = { ...p }
+        for (const ch of targets) next[ch] = { status: 'error', message: 'Not published' }
+        return next
+      })
+    } finally {
+      setPublishing(false)
     }
-    setPub(next)
-    setPublishing(false)
   }
 
   const sec = SECTIONS[section]
+
+  // Tickets can only be sold on the days the event runs: any day before the
+  // event's start day or after its end day is disabled.
+  function dateBounds(k: string): { min?: string; max?: string } {
+    const eventStart = String(ev.date || '') || undefined
+    const eventEnd = String(ev.endDate || '') || eventStart
+    if (k === 'salesStart') {
+      const salesEnd = String(ev.salesEnd || '') || undefined
+      const max = salesEnd && eventEnd && salesEnd < eventEnd ? salesEnd : eventEnd
+      return { min: eventStart, max }
+    }
+    if (k === 'salesEnd') {
+      const salesStart = String(ev.salesStart || '') || undefined
+      const min = salesStart && eventStart && salesStart > eventStart ? salesStart : eventStart
+      return { min, max: eventEnd }
+    }
+    return {}
+  }
+
+  function setDateField(k: string, value: string) {
+    const { min, max } = dateBounds(k)
+    let next = value
+    if (next && max && next > max) next = max
+    if (next && min && next < min) next = min
+    setField(k, next)
+  }
 
   function renderField(f: typeof SECTIONS[0]['fields'][0]) {
     const v = ev[f.k]
@@ -209,6 +349,70 @@ export function EwentcastWizard({
           {(f.opts || []).map(o => <option key={o} value={o}>{o}</option>)}
         </select>
       )
+    } else if (f.type === 'timezone') {
+      ctrl = (
+        <select value={String(v ?? '')} onChange={e => setField(f.k, e.target.value)}>
+          <option value="">Select timezone…</option>
+          {TIME_ZONES.map(tz => (
+            <option key={tz} value={tz}>{tz.replace(/_/g, ' ')}</option>
+          ))}
+        </select>
+      )
+    } else if (f.type === 'country') {
+      const current = String(v ?? '')
+      const opts = current && !countries.includes(current) ? [current, ...countries] : countries
+      ctrl = countries.length > 0 ? (
+        <select
+          value={current}
+          onChange={e => setEv(prev => ({ ...prev, country: e.target.value, region: '' }))}
+        >
+          <option value="">Select country…</option>
+          {opts.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+      ) : (
+        <input
+          value={current}
+          placeholder={f.placeholder}
+          onChange={e => setField(f.k, e.target.value)}
+        />
+      )
+    } else if (f.type === 'region') {
+      const hasCountry = !!String(ev.country || '')
+      const current = String(v ?? '')
+      const opts = current && !regions.includes(current) ? [current, ...regions] : regions
+      ctrl = regions.length > 0 ? (
+        <select value={current} onChange={e => setField(f.k, e.target.value)}>
+          <option value="">{regionsLoading ? 'Loading…' : 'Select region / state…'}</option>
+          {opts.map(r => <option key={r} value={r}>{r}</option>)}
+        </select>
+      ) : (
+        <input
+          value={String(v ?? '')}
+          placeholder={
+            regionsLoading ? 'Loading…' : hasCountry ? 'Type region / state' : 'Select a country first'
+          }
+          onChange={e => setField(f.k, e.target.value)}
+        />
+      )
+    } else if (f.type === 'date' || f.type === 'time') {
+      const isSalesDate = f.k === 'salesStart' || f.k === 'salesEnd'
+      const sales = isSalesDate ? dateBounds(f.k) : {}
+      const min =
+        sales.min ??
+        (f.k === 'endDate'
+          ? (String(ev.date || '') || undefined)
+          : f.k === 'endTime' && ev.date && ev.endDate && String(ev.endDate) === String(ev.date)
+            ? (String(ev.time || '') || undefined)
+            : undefined)
+      ctrl = (
+        <input
+          type={f.type}
+          min={min}
+          max={sales.max}
+          value={String(v ?? '')}
+          onChange={e => (isSalesDate ? setDateField(f.k, e.target.value) : setField(f.k, e.target.value))}
+        />
+      )
     } else if (f.type === 'toggle') {
       const on = !!v
       ctrl = (
@@ -236,11 +440,20 @@ export function EwentcastWizard({
                 onChange={e => {
                   const file = e.target.files?.[0]
                   if (!file) return
-                  setCoverFile(file)
-                  setField(f.k, URL.createObjectURL(file))
+                  setCropState({ file, fieldKey: f.k })
+                  e.target.value = ''
                 }}
               />
             </label>
+            {coverFile && (
+              <button
+                type="button"
+                className="ew-btn ghost"
+                onClick={() => setCropState({ file: coverFile, fieldKey: f.k })}
+              >
+                Adjust crop
+              </button>
+            )}
             {preview && (
               <button
                 type="button"
@@ -271,7 +484,14 @@ export function EwentcastWizard({
         />
       )
     }
-    return <div key={f.k} className={`ew-field${f.full ? ' full' : ''}`}>{lab}{ctrl}</div>
+    const err = whenErrors[f.k]
+    return (
+      <div key={f.k} className={`ew-field${f.full ? ' full' : ''}${err ? ' ew-field--invalid' : ''}`}>
+        {lab}
+        {ctrl}
+        {err && <span className="ew-field-err" role="alert">{err}</span>}
+      </div>
+    )
   }
 
   function viewCreate() {
@@ -297,6 +517,9 @@ export function EwentcastWizard({
       )
     }
 
+    const noneConnected = !isEdit && connsLoaded && connCount === 0
+    const someConnected = !isEdit && connsLoaded && connCount > 0 && connCount < ALL_CHANNELS.length
+
     return (
       <div className="ew-view">
         <div className="ew-view-body">
@@ -315,6 +538,34 @@ export function EwentcastWizard({
               : 'Work through each tab below. Colored dots on each field show which platforms need it.'}
           </p>
         </div>
+
+        {!isEdit && (
+          <div className="ew-publish-headline">
+            Publish your event to <b>Eventbrite</b>, <b>Luma</b>
+            <span className="ew-publish-headline-muted"> &amp; Hightribe</span>
+          </div>
+        )}
+
+        {noneConnected && (
+          <div className="ew-connect-note ew-connect-note--warn" role="status">
+            <span className="ew-connect-note-icon" aria-hidden="true">🔌</span>
+            <div className="ew-connect-note-body">
+              <strong>No channel connected.</strong> You can build your event, but it won’t publish
+              until at least one channel is connected.
+            </div>
+            <Link href="/channels" className="ew-connect-note-link">Connect channels →</Link>
+          </div>
+        )}
+        {someConnected && (
+          <div className="ew-connect-note" role="status">
+            <span className="ew-connect-note-icon" aria-hidden="true">✓</span>
+            <div className="ew-connect-note-body">
+              <strong>{connCount} of {ALL_CHANNELS.length} channels connected.</strong> Connect the
+              rest if you want to publish to all {ALL_CHANNELS.length}.
+            </div>
+            <Link href="/channels" className="ew-connect-note-link">Manage channels →</Link>
+          </div>
+        )}
 
         <div className="ew-pubto">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -352,9 +603,11 @@ export function EwentcastWizard({
           <div className="ew-tabs" role="tablist" aria-label="Event sections">
             {SECTIONS.map((s, i) => {
               const st = sectionStatuses[i]
+              const sectionInvalid = s.key === 'when' && hasErrors
               const tabClass = [
                 i === section ? 'active' : '',
-                st.complete ? 'done' : '',
+                sectionInvalid ? 'invalid' : '',
+                st.complete && !sectionInvalid ? 'done' : '',
                 st.pct > 0 && !st.complete ? 'started' : '',
               ].filter(Boolean).join(' ')
               return (
@@ -368,7 +621,7 @@ export function EwentcastWizard({
                   onClick={() => setSection(i)}
                 >
                   <span className="ew-tab-label">
-                    <span className="ew-tab-step">{st.complete ? '✓' : i + 1}</span>
+                    <span className="ew-tab-step">{sectionInvalid ? '!' : st.complete ? '✓' : i + 1}</span>
                     {s.label}
                   </span>
                   <span className="ew-tab-track" aria-hidden="true">
@@ -406,12 +659,15 @@ export function EwentcastWizard({
               ))}
             </div>
           </div>
-          <div className="ew-grid2">{sec.fields.map(renderField)}</div>
+          {sec.key === 'where'
+            ? <LocationSection ev={ev} setField={setField} />
+            : <div className="ew-grid2">{sec.fields.map(renderField)}</div>}
         </div>
         </div>
 
         <div className="ew-foot">
           {saveError && <span className="note ew-foot-error">{saveError}</span>}
+          {hasErrors && <span className="note ew-foot-error">{Object.values(whenErrors)[0]}</span>}
           <div className="ew-foot-actions">
             {section > 0 && (
               <button type="button" className="ew-btn ghost" onClick={() => setSection(section - 1)}>
@@ -424,15 +680,21 @@ export function EwentcastWizard({
               </button>
             )}
             {isEdit ? (
-              <button type="button" className="ew-btn primary" disabled={saving} onClick={saveEdit}>
+              <button type="button" className="ew-btn primary" disabled={saving || hasErrors} onClick={saveEdit}>
                 {saving ? <InlineLoader label="Saving" /> : 'Save changes'}
               </button>
             ) : (
               <button
                 type="button"
                 className="ew-btn primary"
-                disabled={liveTargets.length === 0 || !formComplete}
-                title={!formComplete ? `Complete all sections to publish (${formPct}% done)` : undefined}
+                disabled={liveTargets.length === 0 || !formComplete || hasErrors}
+                title={
+                  hasErrors
+                    ? 'Fix the date/time errors to continue'
+                    : !formComplete
+                      ? `Complete all sections to publish (${formPct}% done)`
+                      : undefined
+                }
                 onClick={() => setStep(1)}
               >
                 Review &amp; publish →
@@ -447,6 +709,10 @@ export function EwentcastWizard({
   function viewPublish() {
     const allDone = liveTargets.length > 0 && liveTargets.every(ch => pub[ch]?.status === 'synced')
     const started = Object.keys(pub).length > 0
+    const settled = started && !publishing
+    const syncedCount = liveTargets.filter(ch => pub[ch]?.status === 'synced').length
+    const failedCount = liveTargets.filter(ch => pub[ch]?.status === 'error').length
+    const hasFailed = settled && failedCount > 0
 
     return (
       <div className="ew-view">
@@ -508,15 +774,25 @@ export function EwentcastWizard({
         <div className="ew-foot">
           <span className="note">
             {allDone ? 'All channels synced. Attendees now flow back into one dashboard.' :
-              started ? 'Publishing — links appear as each channel confirms.' : 'Nothing published yet.'}
+              publishing ? 'Publishing — links appear as each channel confirms.' :
+              hasFailed ? `${syncedCount} synced · ${failedCount} failed. Fix the issue and retry the failed channel${failedCount > 1 ? 's' : ''}.` :
+              'Nothing published yet.'}
           </span>
+          {publishError && <span className="note ew-foot-error">{publishError}</span>}
           <div className="ew-foot-actions">
             <button type="button" className="ew-btn ghost" onClick={() => setStep(0)}>← Back to form</button>
+            {syncedCount > 0 && !allDone && !publishing && (
+              <button type="button" className="ew-btn ghost" onClick={() => setStep(2)}>Skip to dashboard →</button>
+            )}
             {allDone ? (
               <button type="button" className="ew-btn primary" onClick={() => setStep(2)}>Open dashboard →</button>
             ) : (
-              <button type="button" className="ew-btn primary" disabled={publishing || started} onClick={startPublish}>
-                {publishing || started ? <InlineLoader label="Publishing" /> : `Publish to ${liveTargets.length} channels`}
+              <button type="button" className="ew-btn primary" disabled={publishing} onClick={startPublish}>
+                {publishing
+                  ? <InlineLoader label="Publishing" />
+                  : hasFailed
+                    ? `Retry ${failedCount} failed channel${failedCount > 1 ? 's' : ''}`
+                    : `Publish to ${liveTargets.length} channels`}
               </button>
             )}
           </div>
@@ -584,47 +860,61 @@ export function EwentcastWizard({
   return (
     <div className={`ew-root${modal ? ' ew-in-modal' : ''}`}>
       <div className="ew-wrap">
-        <header className="ew-bar">
-          <div className="ew-brand">
-            <img
-              src="https://res.cloudinary.com/dstnwi5iq/image/upload/v1782741555/image-removebg-preview_5_tpubho.png"
-              alt="Ewentcast"
-              className="ew-brand-logo"
-            />
-            <div>
-              <div className="tag">
-                {isEdit
-                  ? editTargetChannels.length > 1
-                    ? `Edit event — updates ${editTargetChannels.map(ch => CH_META[ch].name).join(', ')}`
-                    : 'Edit event on channel.'
-                  : 'Create once. Publish everywhere.'}
+        {modal && (
+          <header className="ew-bar">
+            <div className="ew-brand">
+              <img
+                src="https://res.cloudinary.com/dstnwi5iq/image/upload/v1782741555/image-removebg-preview_5_tpubho.png"
+                alt="Ewentcast"
+                className="ew-brand-logo"
+              />
+              <div>
+                <div className="tag">
+                  {isEdit
+                    ? editTargetChannels.length > 1
+                      ? `Edit event — updates ${editTargetChannels.map(ch => CH_META[ch].name).join(', ')}`
+                      : 'Edit event on channel.'
+                    : 'Create once. Publish everywhere.'}
+                </div>
               </div>
             </div>
-          </div>
-          <div className="ew-bar-tools">
-            <div className="ew-stepper" role="navigation" aria-label="Wizard steps">
-              {(isEdit ? WIZARD_STEPS.slice(0, 1) : WIZARD_STEPS).map((label, i) => (
-                <span key={label} style={{ display: 'contents' }}>
-                  <button type="button" className={i === step ? 'active' : ''} onClick={() => !isEdit && setStep(i)} disabled={isEdit && i > 0}>
-                    <span className="n">{i + 1}</span>
-                    <span className="ew-stepper-label">{isEdit ? 'Edit' : label}</span>
-                  </button>
-                  {!isEdit && i < WIZARD_STEPS.length - 1 && <span style={{ color: 'var(--line)' }}>·</span>}
-                </span>
-              ))}
+            <div className="ew-bar-tools">
+              <div className="ew-stepper" role="navigation" aria-label="Wizard steps">
+                {(isEdit ? WIZARD_STEPS.slice(0, 1) : WIZARD_STEPS).map((label, i) => (
+                  <span key={label} style={{ display: 'contents' }}>
+                    <button type="button" className={i === step ? 'active' : ''} onClick={() => !isEdit && setStep(i)} disabled={isEdit && i > 0}>
+                      <span className="n">{i + 1}</span>
+                      <span className="ew-stepper-label">{isEdit ? 'Edit' : label}</span>
+                    </button>
+                    {!isEdit && i < WIZARD_STEPS.length - 1 && <span style={{ color: 'var(--line)' }}>·</span>}
+                  </span>
+                ))}
+              </div>
+              <div className="ew-bar-conn">
+                <span className="ew-bar-conn-dot" />
+                <span className="ew-bar-conn-count">{connCount}/3</span>
+                <span className="ew-bar-conn-avatar">{initials}</span>
+              </div>
             </div>
-            <div className="ew-bar-conn">
-              <span className="ew-bar-conn-dot" />
-              <span className="ew-bar-conn-count">{connCount}/3</span>
-              <span className="ew-bar-conn-avatar">{initials}</span>
-            </div>
-          </div>
-        </header>
+          </header>
+        )}
 
         {step === 0 && viewCreate()}
         {step === 1 && viewPublish()}
         {step === 2 && viewDashboard()}
       </div>
+
+      {cropState && (
+        <CoverCropper
+          file={cropState.file}
+          onCancel={() => setCropState(null)}
+          onCropped={(cropped, previewUrl) => {
+            setCoverFile(cropped)
+            setField(cropState.fieldKey, previewUrl)
+            setCropState(null)
+          }}
+        />
+      )}
     </div>
   )
 }

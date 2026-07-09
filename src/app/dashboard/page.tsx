@@ -150,7 +150,7 @@ export default function DashboardPage() {
       <div className="dash-header">
         <h1>Overview</h1>
         <div className="dash-header-actions">
-          <Link href="/events?create=1" className="dash-btn dash-btn--primary">
+          <Link href="/create" className="dash-btn dash-btn--primary">
             ✦ Create event
           </Link>
           <button onClick={load} disabled={loading || syncing} className="dash-btn dash-btn--ghost" type="button">
@@ -341,7 +341,7 @@ export default function DashboardPage() {
 
             {recent.length === 0 ? (
               <div className="dash-empty">
-                No events yet. <Link href="/events?create=1">Create one →</Link>
+                No events yet. <Link href="/create">Create one →</Link>
               </div>
             ) : (
               <div className="dash-list">

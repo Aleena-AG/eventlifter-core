@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import Link from 'next/link'
-import { useSearchParams, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { channelFetch } from '@/lib/channel-fetch'
 import { getEwentcastAccount, isEwentcastSignupUser } from '@/lib/ewentcast-session'
 import { deleteStoredEvent, listStoredEvents } from '@/lib/channel-events-store'
@@ -252,7 +252,10 @@ function titleDateKey(evt: UnifiedEvent): string {
   return day ? `${title}::${day}` : title
 }
 
-function mergeMembers(members: UnifiedEvent[]): GroupedEvent {
+function mergeMembers(
+  members: UnifiedEvent[],
+  registryChannels?: Partial<Record<ChannelKey, { eventId: string; url?: string }>>,
+): GroupedEvent {
   const sorted = [...members].sort((a, b) => {
     // Prefer the channel with more complete data / earlier start
     if (!a.sortMs && !b.sortMs) return CHANNEL_ORDER.indexOf(a.channel) - CHANNEL_ORDER.indexOf(b.channel)
@@ -262,14 +265,31 @@ function mergeMembers(members: UnifiedEvent[]): GroupedEvent {
     return CHANNEL_ORDER.indexOf(a.channel) - CHANNEL_ORDER.indexOf(b.channel)
   })
   const primary = sorted[0]
-  const channelSet = new Set(members.map(m => m.channel))
-  const channels = CHANNEL_ORDER.filter(ch => channelSet.has(ch))
   const channelIds: Partial<Record<ChannelKey, string | number>> = {}
   const channelStatuses: Partial<Record<ChannelKey, string | undefined>> = {}
   for (const m of members) {
     channelIds[m.channel] = m.id
     channelStatuses[m.channel] = m.status
   }
+
+  // Include every channel this event was published to per the registry, even
+  // when that channel's copy isn't in our local store yet — so the card shows
+  // all platform badges (e.g. Hightribe + Luma) instead of just the one synced.
+  let registryUrl: string | undefined
+  if (registryChannels) {
+    for (const ch of CHANNEL_ORDER) {
+      const ref = registryChannels[ch]
+      if (!ref?.eventId) continue
+      if (channelIds[ch] == null) channelIds[ch] = ref.eventId
+      if (!registryUrl && ref.url) registryUrl = ref.url
+    }
+  }
+
+  const channelSet = new Set<ChannelKey>([
+    ...members.map(m => m.channel),
+    ...(Object.keys(channelIds) as ChannelKey[]),
+  ])
+  const channels = CHANNEL_ORDER.filter(ch => channelSet.has(ch))
   const bestImage = members.find(m => m.image)?.image
   const bestLocation = members.find(m => m.location)?.location
   const bestUrl = members.find(m => m.url)?.url
@@ -280,7 +300,7 @@ function mergeMembers(members: UnifiedEvent[]): GroupedEvent {
     key: members.map(m => m.key).join('|'),
     image: bestImage || primary.image,
     location: bestLocation || primary.location,
-    url: bestUrl || primary.url,
+    url: bestUrl || primary.url || registryUrl,
     channels,
     channelIds,
     channelStatuses,
@@ -314,7 +334,7 @@ function groupUnifiedEvents(
       }
     }
     if (members.length === 0) continue
-    result.push(mergeMembers(members))
+    result.push(mergeMembers(members, master.channels))
   }
 
   // 2) Remaining events → group by title + start day (cross-channel publish without registry)
@@ -662,14 +682,12 @@ function EventCard({
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function EventsPage() {
   const router = useRouter()
-  const searchParams = useSearchParams()
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilters, setStatusFilters] = useState<Set<EventStatusFilter>>(
     () => new Set(DEFAULT_STATUS_FILTERS),
   )
   const [page, setPage] = useState(1)
   const [perPage, setPerPage] = useState(12) // hydrated from localStorage on mount
-  const [createOpen, setCreateOpen] = useState(false)
   const [editModal, setEditModal] = useState<{
     open: boolean
     channel: ChannelKey
@@ -1128,19 +1146,6 @@ export default function EventsPage() {
     try { localStorage.setItem(PER_PAGE_STORAGE_KEY, String(value)) } catch { /* ignore */ }
   }
 
-  function openCreate() { setCreateOpen(true) }
-  function closeCreate() {
-    setCreateOpen(false)
-    router.replace('/events', { scroll: false })
-  }
-
-  useEffect(() => {
-    if (searchParams.get('create') === '1') setCreateOpen(true)
-  }, [searchParams])
-
-  function onPublished() {
-    void loadAllEvents()
-  }
   function openEdit(
     channel: ChannelKey,
     id: string | number,
@@ -1169,12 +1174,6 @@ export default function EventsPage() {
       <Toast toasts={toasts} onRemove={removeToast} />
 
       <SyncModal open={!!syncEvent} event={syncEvent} onClose={() => setSyncEvent(null)} />
-
-      <CreateEventWizardModal
-        open={createOpen}
-        onClose={closeCreate}
-        onPublished={onPublished}
-      />
 
       <CreateEventWizardModal
         open={editModal.open}
@@ -1218,7 +1217,7 @@ export default function EventsPage() {
           <h1>Events</h1>
           <p>All your events from Hightribe, Luma, and Eventbrite in one place.</p>
         </div>
-        <button type="button" className="events-create-btn" onClick={openCreate}>
+        <button type="button" className="events-create-btn" onClick={() => router.push('/create')}>
           <span className="events-create-btn__icon" aria-hidden="true">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
               <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />

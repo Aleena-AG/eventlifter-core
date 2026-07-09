@@ -139,12 +139,9 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
     const ticket = ticketsRaw[0]
     const ticketSetting = (e.ticket_setting || e.ticketSetting || {}) as Record<string, unknown>
     const rawPrice = ticket ? parseFloat(String(ticket.price ?? 0)) : undefined
-    const discountPrice = ticket && ticket.discount_price != null
-      ? parseFloat(String(ticket.discount_price))
-      : undefined
-    const effectivePrice = discountPrice != null && Number.isFinite(discountPrice)
-      ? discountPrice
-      : rawPrice
+    // Use stored ticket.price for the edit form — discount_price can still show a paid amount
+    // after the base price was set to 0 until discounts are cleared on save.
+    const effectivePrice = rawPrice != null && Number.isFinite(rawPrice) ? rawPrice : undefined
     const ticketQty = ticket ? parseInt(String(ticket.quantity ?? ''), 10) : undefined
     return {
       title: String(e.title || raw.title || ''),
@@ -219,6 +216,20 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
 }
 
 /** Load edit form data from stored cache; Hightribe also refreshes from API for tickets. */
+async function loadHightribeTickets(eventId: string | number): Promise<Array<Record<string, unknown>>> {
+  try {
+    const res = await channelFetch(
+      `/api/hightribe/tickets?ticketable_type=event&ticketable_id=${encodeURIComponent(String(eventId))}`,
+    )
+    if (!res.ok) return []
+    const raw = await res.json() as { data?: { tickets?: Array<Record<string, unknown>> } }
+    const list = raw.data?.tickets
+    return Array.isArray(list) ? list : []
+  } catch {
+    return []
+  }
+}
+
 export async function loadEventFormData(channel: ChannelKey, eventId: string | number): Promise<EventFormData> {
   if (channel === 'hightribe') {
     try {
@@ -226,6 +237,19 @@ export async function loadEventFormData(channel: ChannelKey, eventId: string | n
       if (res.ok) {
         const fresh = await res.json() as Record<string, unknown>
         const norm = normFromPayload(channel, fresh)
+        if (!norm.htTicketId) {
+          const tickets = await loadHightribeTickets(eventId)
+          const first = tickets[0]
+          if (first?.id != null) {
+            norm.htTicketId = String(first.id)
+            norm.htTicketName = first.name != null ? String(first.name) : norm.htTicketName
+            const p = parseFloat(String(first.price ?? ''))
+            if (Number.isFinite(p)) {
+              norm.ticketPrice = p
+              norm.ticketType = p <= 0 ? 'Free' : 'Paid'
+            }
+          }
+        }
         if (!norm.title) {
           const stored = await getStoredEvent(channel as ChannelName, String(eventId))
           if (stored?.title) norm.title = stored.title
