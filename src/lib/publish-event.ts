@@ -523,23 +523,36 @@ export async function updateChannelEvent(
     return
   }
 
+  const ebTz = await resolveEbTimezone(tz, startUtc, {
+    country: String(ev.country || ''),
+    city: String(ev.city || ''),
+  })
+
   const res = await channelFetch(`/api/eventbrite/events/${eventId}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       event: {
         name: { html: ev.title },
-        description: { html: String(ev.description || '') },
-        start: { utc: startUtc, timezone: tz },
-        end: { utc: endUtc, timezone: tz },
-        currency: 'USD',
+        description: { html: String(ev.description || ev.title || '') },
+        start: { utc: startUtc, timezone: ebTz },
+        end: { utc: endUtc, timezone: ebTz },
         online_event: online && !inPerson,
-        listed: ev.visibility === 'Public',
+        listed: String(ev.visibility || 'Public').toLowerCase() === 'public',
       },
     }),
   })
-  const data = await res.json() as { error_description?: string; error?: string }
-  if (!res.ok) throw new Error(data.error_description || data.error || `HTTP ${res.status}`)
+  const data = await res.json() as {
+    error_description?: string
+    error?: string
+    errors?: Record<string, string>
+  }
+  if (!res.ok) {
+    const detail = data.error_description
+      || data.error
+      || (data.errors ? Object.values(data.errors).join(', ') : undefined)
+    throw new Error(detail || `HTTP ${res.status}`)
+  }
   await updateEventbriteTickets(eventId, ev)
 }
 
