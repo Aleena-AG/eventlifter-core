@@ -3,6 +3,11 @@ import { channelFetch } from '@/lib/channel-fetch'
 import { getStoredEvent, type ChannelName } from '@/lib/channel-events-store'
 import { canonicalizeCountry, COUNTRIES } from '@/components/ewentcast/location-data'
 import { extractHightribeTags, extractLumaTags, formatTagsInput } from '@/lib/event-tags'
+import {
+  hightribeDatesToUtc,
+  normalizeTimeZone,
+  utcIsoToZonedParts,
+} from '@/lib/event-datetime'
 import type { ChannelKey } from '@/lib/types'
 import type { EventFormData } from '@/lib/publish-event'
 
@@ -262,34 +267,8 @@ function pickHostName(...candidates: unknown[]): string | undefined {
   return undefined
 }
 
-function buildDateStr(date?: string, time?: string): string {
-  if (!date) return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
-  const raw = time ? `${date}T${time}` : `${date}T00:00:00`
-  return new Date(raw).toISOString().replace(/\.\d{3}Z$/, 'Z')
-}
-
 function utcParts(utc: string, tz: string): { date: string; time: string } {
-  const d = new Date(utc)
-  if (Number.isNaN(d.getTime())) return { date: '', time: '' }
-  try {
-    const fmt = new Intl.DateTimeFormat('en-CA', {
-      timeZone: tz,
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', hour12: false,
-    })
-    const parts = fmt.formatToParts(d)
-    const get = (t: string) => parts.find(p => p.type === t)?.value || ''
-    // Some runtimes emit "24:00" for midnight — normalize for <input type="time">.
-    let hour = get('hour')
-    if (hour === '24') hour = '00'
-    return { date: `${get('year')}-${get('month')}-${get('day')}`, time: `${hour}:${get('minute')}` }
-  } catch {
-    const pad = (n: number) => String(n).padStart(2, '0')
-    return {
-      date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
-      time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
-    }
-  }
+  return utcIsoToZonedParts(utc, tz)
 }
 
 interface NormEvent {
@@ -317,6 +296,8 @@ interface NormEvent {
   status?: string
   visibility?: string
   hostName?: string
+  refundPolicy?: string
+  faq?: string
   ticketType?: string
   ticketPrice?: number
   salesStartUtc?: string
@@ -327,6 +308,64 @@ interface NormEvent {
   htTicketName?: string
 }
 
+/** Hightribe stores Host-step text as a `policies` string list; wizard uses refund + FAQ. */
+function policiesFromPayload(...sources: Array<Record<string, unknown> | null | undefined>): string[] {
+  for (const src of sources) {
+    if (!src) continue
+    const raw = src.policies ?? src.policy
+    if (Array.isArray(raw)) {
+      return raw
+        .map((p) => (typeof p === 'string' ? p : optStr((p as { text?: string })?.text) || ''))
+        .map((s) => s.trim())
+        .filter(Boolean)
+    }
+    const single = optStr(raw)
+    if (single) return [single]
+  }
+  return []
+}
+
+function refundAndFaqFromPayload(
+  ...sources: Array<Record<string, unknown> | null | undefined>
+): { refundPolicy?: string; faq?: string } {
+  for (const src of sources) {
+    if (!src) continue
+    let refund: string | undefined
+    const rp = src.refund_policy
+    if (typeof rp === 'string') refund = optStr(rp)
+    else if (rp && typeof rp === 'object') {
+      refund =
+        optStr((rp as { description?: string; text?: string; policy_description?: string }).description)
+        || optStr((rp as { description?: string; text?: string; policy_description?: string }).text)
+        || optStr((rp as { description?: string; text?: string; policy_description?: string }).policy_description)
+    }
+    if (!refund) {
+      refund =
+        optStr(src.refund_policy_text)
+        || optStr(src._refund_policy)
+    }
+    const faq =
+      optStr(src.faq)
+      || optStr(src._faq)
+      || (Array.isArray(src.faqs)
+        ? (src.faqs as unknown[])
+          .map((f) => (typeof f === 'string' ? f : optStr((f as { text?: string; question?: string; answer?: string })?.text)
+            || [optStr((f as { question?: string })?.question), optStr((f as { answer?: string })?.answer)].filter(Boolean).join('\n')
+            || ''))
+          .filter(Boolean)
+          .join('\n\n') || undefined
+        : undefined)
+    if (refund || faq) return { refundPolicy: refund, faq: faq || undefined }
+  }
+
+  const policies = policiesFromPayload(...sources)
+  if (!policies.length) return {}
+  return {
+    refundPolicy: policies[0],
+    faq: policies.slice(1).join('\n\n') || undefined,
+  }
+}
+
 function scrubFormText(value: unknown): string {
   const s = value != null ? String(value).trim() : ''
   if (!s || isLumaDescriptionSentinel(s)) return ''
@@ -334,7 +373,7 @@ function scrubFormText(value: unknown): string {
 }
 
 function normToForm(n: NormEvent): EventFormData {
-  const tz = n.timezone || 'UTC'
+  const tz = normalizeTimeZone(n.timezone || 'UTC')
   const start = utcParts(n.startUtc, tz)
   const end = utcParts(n.endUtc, tz)
   let format = 'In person'
@@ -345,9 +384,21 @@ function normToForm(n: NormEvent): EventFormData {
   const venue = n.venueName || inferred.venueName || ''
   // Prefer a clean street line when the stored address is a full "venue, street, city…" blob
   let address = n.address || ''
-  if (inferred.street && address.includes(',')) {
+  if (venue && address && address.toLowerCase() === venue.toLowerCase()) {
+    // Channel often echoes venue into address when street was blank — keep street empty.
+    address = ''
+  } else if (inferred.street && address.includes(',')) {
     const looksLikeBlob = !n.venueName || address.toLowerCase().startsWith(String(n.venueName).toLowerCase() + ',')
     if (looksLikeBlob) address = inferred.street
+  }
+
+  // Don't invent a city from a free-form blob when the channel already gave structured fields
+  // (or when the only "city" guess is really the venue name).
+  let city = n.city || ''
+  if (!city && inferred.city) {
+    const sameAsVenue = venue && inferred.city.toLowerCase() === venue.toLowerCase()
+    const venueContains = venue && venue.toLowerCase().includes(inferred.city.toLowerCase())
+    if (!sameAsVenue && !venueContains) city = inferred.city
   }
 
   const salesStart = n.salesStartUtc ? utcParts(n.salesStartUtc, tz).date : ''
@@ -369,7 +420,7 @@ function normToForm(n: NormEvent): EventFormData {
     format,
     venue,
     address,
-    city: n.city || inferred.city || '',
+    city,
     region: n.region || inferred.region || '',
     postal: n.postal || inferred.postal || '',
     country: canonicalizeCountry(n.country) || inferred.country || '',
@@ -393,8 +444,8 @@ function normToForm(n: NormEvent): EventFormData {
     showRemaining: true,
     password: '',
     hostName: n.hostName || '',
-    refundPolicy: '',
-    faq: '',
+    refundPolicy: n.refundPolicy || '',
+    faq: n.faq || '',
     htTicketId: n.htTicketId || '',
     htTicketName: n.htTicketName || 'General Admission',
   }
@@ -426,8 +477,11 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
     const e = (raw.data as Record<string, unknown>) || raw
     const d = e.dates as Record<string, string> | undefined
     const loc = e.location as Record<string, unknown> | undefined
-    const startUtc = d?.starts_at ? stripMs(d.starts_at) : buildDateStr(d?.start_date, d?.start_time)
-    const endUtc = d?.ends_at ? stripMs(d.ends_at) : buildDateStr(d?.end_date, d?.end_time)
+    const {
+      startUtc,
+      endUtc,
+      timezone: htTimezone,
+    } = hightribeDatesToUtc(d, String(e.timezone || raw.timezone || 'UTC'))
     const venueLabel = optStr(loc?.venue_name) || optStr(loc?.location)
     const ticketsRaw = (Array.isArray(e.tickets) ? e.tickets : Array.isArray(raw.tickets) ? raw.tickets : []) as Array<Record<string, unknown>>
     const ticket = ticketsRaw[0]
@@ -436,15 +490,28 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
     // Prefer base ticket.price for edit — don't guess Free when price is missing.
     const effectivePrice = rawPrice
     const ticketQty = ticket ? parseInt(String(ticket.quantity ?? ''), 10) : undefined
-    const address = optStr(loc?.address) || venueLabel
-    const inferred = inferPlaceFromAddress(address)
-    // When HT stores venue in `location` and street in `address`, keep them separate.
+    const locLabel = optStr(loc?.location)
+    const rawAddress = optStr(loc?.address)
+    const locLooksLikeStreet = !!(locLabel && (
+      /^\d/.test(locLabel)
+      || /\b(st|street|ave|avenue|rd|road|blvd|lane|ln|dr|drive|way|court|ct)\b/i.test(locLabel)
+    ))
+    // Publish often sets address = venue when street is blank — don't lose the venue on edit.
     const venueName =
       optStr(loc?.venue_name)
-      || (optStr(loc?.location) && optStr(loc?.address) && optStr(loc?.location) !== optStr(loc?.address)
-        ? optStr(loc?.location)
-        : undefined)
-      || inferred.venueName
+      || (!locLooksLikeStreet ? locLabel : undefined)
+      || undefined
+    const addressBlob = rawAddress || (locLooksLikeStreet ? locLabel : undefined) || venueLabel
+    const inferred = inferPlaceFromAddress(addressBlob)
+    const sameAsVenue = !!(
+      venueName
+      && rawAddress
+      && rawAddress.toLowerCase() === venueName.toLowerCase()
+    )
+    const address = sameAsVenue
+      ? (inferred.street || '')
+      : (rawAddress || (locLooksLikeStreet ? locLabel : undefined) || inferred.street || '')
+    const resolvedVenue = venueName || inferred.venueName
     const city = optStr(loc?.city) || inferred.city
     const country = canonicalizeCountry(optStr(loc?.country)) || inferred.country
     const region = optStr(loc?.region) || optStr(loc?.state) || inferred.region
@@ -459,11 +526,11 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
         return ''
       })(),
       startUtc, endUtc,
-      timezone: String(d?.timezone || e.timezone || raw.timezone || 'UTC'),
+      timezone: htTimezone,
       coverImage: hightribeCoverUrl(e, raw),
       isOnline: loc?.type === 'online',
-      venueName,
-      address: optStr(loc?.address) || inferred.street || address,
+      venueName: resolvedVenue,
+      address,
       city,
       region,
       postal,
@@ -485,6 +552,7 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
         e.host_name, e.organizer_name, e.host, e.organizer,
         raw.host_name, raw.organizer_name, e.user, e.creator,
       ),
+      ...refundAndFaqFromPayload(e, raw),
       ticketType: effectivePrice != null && effectivePrice <= 0 ? 'Free' : effectivePrice != null ? 'Paid' : undefined,
       ticketPrice: effectivePrice,
       salesStartUtc: ticket
@@ -546,7 +614,7 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
       description: norm.description,
       startUtc: norm.startUtc,
       endUtc: norm.endUtc,
-      timezone: norm.timezone || String(raw.timezone || e.timezone || 'UTC'),
+      timezone: normalizeTimeZone(norm.timezone || String(raw.timezone || e.timezone || 'UTC')),
       coverImage: norm.coverImage,
       isOnline: norm.isOnline,
       onlineUrl: norm.onlineUrl,
@@ -564,6 +632,7 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
       visibility: mapVisibility(String(e.visibility || raw.visibility || '')),
       hostName: pickHostName(e.host, e.host_name, e.organizer, hosts, e.hosts, raw.host, raw.hosts),
       tags: extractLumaTags({ ...e, ...raw }),
+      ...refundAndFaqFromPayload(e, raw),
       ticketType,
       ticketPrice,
       salesStartUtc: ticket
@@ -643,7 +712,7 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
     description: descText,
     startUtc: start?.utc ? stripMs(start.utc) : new Date().toISOString(),
     endUtc: end?.utc ? stripMs(end.utc) : new Date().toISOString(),
-    timezone: start?.timezone || String(e.timezone || 'UTC'),
+    timezone: normalizeTimeZone(start?.timezone || String(e.timezone || 'UTC')),
     coverImage: logo?.original?.url || logo?.url,
     isOnline: !!(e.online_event),
     venueName: optStr(venue?.name) || inferred.venueName,
@@ -659,6 +728,7 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
     visibility: mapVisibility(null, typeof e.listed === 'boolean' ? e.listed : null),
     hostName: pickHostName(e.organizer, e.organizer_name, e.host, e.host_name),
     capacity: Number.isFinite(tcQty) && tcQty! > 0 ? tcQty : undefined,
+    ...refundAndFaqFromPayload(e),
     ticketType,
     ticketPrice,
     salesStartUtc: tc
@@ -798,7 +868,9 @@ function mergeStoredMeta(norm: NormEvent, stored: Awaited<ReturnType<typeof getS
   if (!norm.title && stored.title) norm.title = stored.title
   if (!norm.coverImage && stored.cover_url) norm.coverImage = stored.cover_url
   if (stored.timezone && (!norm.timezone || norm.timezone === 'UTC')) {
-    norm.timezone = stored.timezone
+    norm.timezone = normalizeTimeZone(stored.timezone)
+  } else if (norm.timezone) {
+    norm.timezone = normalizeTimeZone(norm.timezone)
   }
   if (stored.start_at && (!norm.startUtc || Number.isNaN(new Date(norm.startUtc).getTime()))) {
     norm.startUtc = stripMs(stored.start_at)
@@ -919,6 +991,12 @@ function mergeStoredMeta(norm: NormEvent, stored: Awaited<ReturnType<typeof getS
     }
   }
 
+  if (!norm.refundPolicy || !norm.faq) {
+    const fromStore = refundAndFaqFromPayload(payload)
+    if (!norm.refundPolicy && fromStore.refundPolicy) norm.refundPolicy = fromStore.refundPolicy
+    if (!norm.faq && fromStore.faq) norm.faq = fromStore.faq
+  }
+
 }
 
 async function enrichTickets(norm: NormEvent, channel: ChannelKey, eventId: string | number) {
@@ -969,7 +1047,7 @@ async function loadEventbriteFullDescription(eventId: string | number): Promise<
 
 async function loadEventbriteEventFresh(eventId: string | number): Promise<Record<string, unknown> | null> {
   try {
-    const res = await channelFetch(`/api/eventbrite/events/${eventId}?expand=venue`)
+    const res = await channelFetch(`/api/eventbrite/events/${eventId}?expand=venue,refund_policy`)
     if (!res.ok) return null
     const raw = await res.json() as Record<string, unknown>
     const fullDesc = await loadEventbriteFullDescription(eventId)
@@ -1072,6 +1150,9 @@ function mergeNormTextFields(primary: NormEvent, extra: NormEvent) {
   if (!primary.country && extra.country) primary.country = extra.country
   if (primary.lat == null && extra.lat != null) primary.lat = extra.lat
   if (primary.lng == null && extra.lng != null) primary.lng = extra.lng
+  if (!primary.refundPolicy && extra.refundPolicy) primary.refundPolicy = extra.refundPolicy
+  if (!primary.faq && extra.faq) primary.faq = extra.faq
+  if (!primary.hostName && extra.hostName) primary.hostName = extra.hostName
 }
 
 async function loadNormForChannel(

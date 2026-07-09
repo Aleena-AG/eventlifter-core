@@ -12,6 +12,7 @@ import { lumaEntryMatchesId, lumaEventToNorm, unwrapLumaEvent, isLumaDescription
 import { refreshStoredEventsForChannels, markEventsListStale } from '@/lib/channel-data-sync'
 import { resolveLumaCoverUrl } from '@/lib/cover-image'
 import { normalizeEbCountry, writeEventbriteStructuredDescription } from '@/lib/publish-event'
+import { hightribeDatesToUtc } from '@/lib/event-datetime'
 import { InlineLoader } from '@/components/Loader'
 import { HIGHTRIBE_COLOR, LUMA_COLOR, EVENTBRITE_COLOR } from '@/lib/brand'
 
@@ -66,12 +67,6 @@ interface Props {
 
 function stripMs(s: string): string {
   return s.replace(/\.\d{3}Z$/, 'Z')
-}
-
-function buildDateStr(date?: string, time?: string): string {
-  if (!date) return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
-  const raw = time ? `${date}T${time}` : `${date}T00:00:00`
-  return new Date(raw).toISOString().replace(/\.\d{3}Z$/, 'Z')
 }
 
 function ensureFuture(startUtc: string, endUtc: string): { startUtc: string; endUtc: string } {
@@ -160,8 +155,11 @@ async function fetchHtEvent(id: string | number): Promise<NormEvent> {
   const e = (raw.data || raw) as Record<string, unknown>
   const d = e.dates as Record<string, string> | undefined
   const loc = e.location as Record<string, unknown> | undefined
-  const startUtc = d?.starts_at ? stripMs(d.starts_at) : buildDateStr(d?.start_date, d?.start_time)
-  const endUtc   = d?.ends_at   ? stripMs(d.ends_at)   : buildDateStr(d?.end_date,   d?.end_time)
+  const {
+    startUtc,
+    endUtc,
+    timezone,
+  } = hightribeDatesToUtc(d, String(e.timezone || 'UTC'))
   // HT API stores venue label in location.location (see EventbriteService::importEventToHightribe)
   const venueLabel = optStr(loc?.location)
   return {
@@ -174,7 +172,7 @@ async function fetchHtEvent(id: string | number): Promise<NormEvent> {
       return ''
     })(),
     startUtc, endUtc,
-    timezone: String(d?.timezone || e.timezone || 'UTC'),
+    timezone,
     coverImage: optStr(e.cover_image),
     isOnline: loc?.type === 'online',
     venueName: venueLabel,
