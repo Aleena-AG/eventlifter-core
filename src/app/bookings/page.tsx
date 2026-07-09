@@ -472,14 +472,14 @@ export default function BookingsPage() {
   const [notesBooking, setNotesBooking] = useState<BookingListItem | null>(null)
   const htLoggedIn = !!getUser()
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true)
     try {
       setBookings(await loadAllBookings())
     } catch {
-      setBookings([])
+      if (!opts?.silent) setBookings([])
     } finally {
-      setLoading(false)
+      if (!opts?.silent) setLoading(false)
     }
   }, [])
 
@@ -496,7 +496,22 @@ export default function BookingsPage() {
     }
   }, [load])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { void load() }, [load])
+
+  // Poll for new webhook/API bookings while this tab is open (no full channel sync).
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === 'visible') void load({ silent: true })
+    }
+    const interval = window.setInterval(refresh, 30_000)
+    window.addEventListener('focus', refresh)
+    document.addEventListener('visibilitychange', refresh)
+    return () => {
+      window.clearInterval(interval)
+      window.removeEventListener('focus', refresh)
+      document.removeEventListener('visibilitychange', refresh)
+    }
+  }, [load])
 
   useEffect(() => {
     if (!notesBooking) return
