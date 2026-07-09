@@ -10,7 +10,11 @@ function isHttpUrl(v: string): boolean {
 
 async function fileFromUrl(url: string): Promise<File | undefined> {
   try {
-    const res = await fetch(url)
+    const res = await channelFetch('/api/cover/fetch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    })
     if (!res.ok) return undefined
     const blob = await res.blob()
     const type = blob.type || 'image/jpeg'
