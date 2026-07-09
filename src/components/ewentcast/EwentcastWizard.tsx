@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { getUser } from '@/lib/auth'
 import { connectedChannelsFromMap, fetchChannelConnectionMap } from '@/lib/channel-connection'
 import type { AttendeeRecord } from '@/lib/event-registry'
-import { publishToAllChannels, updateChannelEvent, type EventFormData } from '@/lib/publish-event'
+import { publishToAllChannels, updateChannelEventsAll, type EventFormData } from '@/lib/publish-event'
 import type { EventCoverFiles } from '@/lib/cover-image'
 import { loadEventFormData } from '@/lib/event-form-data'
 import type { ChannelKey } from '@/lib/types'
@@ -36,22 +36,33 @@ type PubState = Partial<Record<ChannelKey, { status: PubStatus; url?: string; me
 interface WizardProps {
   modal?: boolean
   onClose?: () => void
-  onDone?: () => void
+  onDone?: (updatedChannels?: ChannelKey[]) => void
   mode?: 'create' | 'edit'
   editChannel?: ChannelKey
   editEventId?: string | number
+  editChannelIds?: Partial<Record<ChannelKey, string | number>>
 }
 
 export function EwentcastWizard({
-  modal, onClose, onDone, mode = 'create', editChannel, editEventId,
+  modal, onClose, onDone, mode = 'create', editChannel, editEventId, editChannelIds,
 }: WizardProps = {}) {
   const isEdit = mode === 'edit' && !!editChannel && editEventId != null && editEventId !== ''
+  const editTargets: Partial<Record<ChannelKey, string | number>> = isEdit
+    ? (editChannelIds && Object.keys(editChannelIds).length > 0
+      ? editChannelIds
+      : editChannel && editEventId != null
+        ? { [editChannel]: editEventId }
+        : {})
+    : {}
+  const editTargetChannels = ALL_CHANNELS.filter(
+    (ch) => editTargets[ch] != null && editTargets[ch] !== '',
+  )
   const [step, setStep] = useState(0)
   const [section, setSection] = useState(0)
   const [ev, setEv] = useState<EventFormData>({ ...DEFAULT_EVENT })
   const [coverFile, setCoverFile] = useState<File | null>(null)
   const [targets, setTargets] = useState<ChannelKey[]>(
-    isEdit && editChannel ? [editChannel] : [],
+    isEdit ? editTargetChannels : [],
   )
   const [pub, setPub] = useState<PubState>({})
   const [publishing, setPublishing] = useState(false)
@@ -69,14 +80,14 @@ export function EwentcastWizard({
     if (!isEdit || !editChannel || editEventId == null || editEventId === '') return
     setLoadingEvent(true)
     setLoadError(null)
-    setTargets([editChannel])
+    setTargets(editTargetChannels)
     loadEventFormData(editChannel, editEventId)
       .then(data => { setEv(data); setCoverFile(null); setLoadingEvent(false) })
       .catch(err => {
         setLoadError(err instanceof Error ? err.message : 'Failed to load event')
         setLoadingEvent(false)
       })
-  }, [isEdit, editChannel, editEventId])
+  }, [isEdit, editChannel, editEventId, editChannelIds])
 
   useEffect(() => {
     if (step !== 2) return
@@ -108,7 +119,13 @@ export function EwentcastWizard({
   const user = getUser()
   const initials = user?.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'UH'
 
-  const setField = (k: string, v: string | boolean) => setEv(prev => ({ ...prev, [k]: v }))
+  const setField = (k: string, v: string | boolean) => setEv(prev => {
+    const next = { ...prev, [k]: v }
+    if (k === 'ticketType' && (v === 'Free' || v === 'Donation')) {
+      next.price = '0'
+    }
+    return next
+  })
   const toggleTarget = (ch: ChannelKey) => {
     if (isEdit) return
     if (!conns[ch]) return
@@ -118,12 +135,21 @@ export function EwentcastWizard({
   const coverFiles: EventCoverFiles = { cover: coverFile }
 
   async function saveEdit() {
-    if (!editChannel || editEventId == null) return
+    if (!isEdit || editTargetChannels.length === 0) return
     setSaving(true)
     setSaveError(null)
     try {
-      await updateChannelEvent(editChannel, editEventId, ev, coverFiles)
-      onDone?.()
+      const results = await updateChannelEventsAll(ev, editTargets, coverFiles)
+      const failed = editTargetChannels
+        .map((ch) => ({ ch, ...results[ch] }))
+        .filter((r) => !r.ok)
+      if (failed.length > 0) {
+        const msg = failed
+          .map((r) => `${CH_META[r.ch].name}: ${r.message || 'Update failed'}`)
+          .join(' · ')
+        throw new Error(msg)
+      }
+      onDone?.(editTargetChannels)
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Save failed')
     } finally {
@@ -275,16 +301,28 @@ export function EwentcastWizard({
       <div className="ew-view">
         <div className="ew-view-body">
         <div className="ew-head">
-          <span className="ew-eyebrow">{isEdit ? `Edit · ${editChannel ? CH_META[editChannel].name : ''}` : 'Step 1 · Master event'}</span>
+          <span className="ew-eyebrow">
+            {isEdit
+              ? `Edit · ${editTargetChannels.map(ch => CH_META[ch].name).join(', ')}`
+              : 'Step 1 · Master event'}
+          </span>
           <h2>{isEdit ? 'Update event' : 'Create it once'}</h2>
-          <p>{isEdit ? 'Changes save back to the channel this event lives on.' : 'Work through each tab below. Colored dots on each field show which platforms need it.'}</p>
+          <p>
+            {isEdit
+              ? editTargetChannels.length > 1
+                ? 'Changes save to every linked channel below.'
+                : 'Changes save back to the channel this event lives on.'
+              : 'Work through each tab below. Colored dots on each field show which platforms need it.'}
+          </p>
         </div>
 
         <div className="ew-pubto">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <span className="label">{isEdit ? 'CHANNEL' : 'PUBLISH TO'}</span>
-            {(isEdit && editChannel ? [editChannel] : ALL_CHANNELS).map(ch => {
-              const on = targets.includes(ch) && conns[ch]
+            <span className="label">{isEdit ? 'CHANNELS' : 'PUBLISH TO'}</span>
+            {(isEdit ? editTargetChannels : ALL_CHANNELS).map(ch => {
+              const on = isEdit
+                ? editTargetChannels.includes(ch)
+                : targets.includes(ch) && conns[ch]
               return (
                 <button
                   key={ch}
@@ -554,7 +592,13 @@ export function EwentcastWizard({
               className="ew-brand-logo"
             />
             <div>
-              <div className="tag">{isEdit ? 'Edit event on channel.' : 'Create once. Publish everywhere.'}</div>
+              <div className="tag">
+                {isEdit
+                  ? editTargetChannels.length > 1
+                    ? `Edit event — updates ${editTargetChannels.map(ch => CH_META[ch].name).join(', ')}`
+                    : 'Edit event on channel.'
+                  : 'Create once. Publish everywhere.'}
+              </div>
             </div>
           </div>
           <div className="ew-bar-tools">

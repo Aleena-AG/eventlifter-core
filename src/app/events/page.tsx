@@ -671,8 +671,11 @@ export default function EventsPage() {
   const [perPage, setPerPage] = useState(12) // hydrated from localStorage on mount
   const [createOpen, setCreateOpen] = useState(false)
   const [editModal, setEditModal] = useState<{
-    open: boolean; channel: ChannelKey; eventId: string | number
-  }>({ open: false, channel: 'hightribe', eventId: '' })
+    open: boolean
+    channel: ChannelKey
+    eventId: string | number
+    channelIds: Partial<Record<ChannelKey, string | number>>
+  }>({ open: false, channel: 'hightribe', eventId: '', channelIds: {} })
   const { toasts, toast, removeToast } = useToast()
   const toastRef = useRef(toast)
   toastRef.current = toast
@@ -1138,14 +1141,26 @@ export default function EventsPage() {
   function onPublished() {
     void loadAllEvents()
   }
-  function openEdit(channel: ChannelKey, id: string|number) {
-    setEditModal({ open: true, channel, eventId: id })
+  function openEdit(
+    channel: ChannelKey,
+    id: string | number,
+    channelIds?: Partial<Record<ChannelKey, string | number>>,
+  ) {
+    setEditModal({
+      open: true,
+      channel,
+      eventId: id,
+      channelIds: channelIds && Object.keys(channelIds).length > 0
+        ? channelIds
+        : { [channel]: id },
+    })
   }
 
-  function onSaved(channel: ChannelKey) {
-    const label = CH_LABELS[channel]
-    toastRef.current.success(`Event updated on ${label}!`)
-    setEditModal(f => ({ ...f, open: false }))
+  function onSaved(updatedChannels?: ChannelKey[]) {
+    const channels = updatedChannels?.length ? updatedChannels : [editModal.channel]
+    const labels = channels.map((ch) => CH_LABELS[ch]).join(', ')
+    toastRef.current.success(`Event updated on ${labels}!`)
+    setEditModal((f) => ({ ...f, open: false }))
     void loadAllEvents()
   }
 
@@ -1166,8 +1181,9 @@ export default function EventsPage() {
         mode="edit"
         editChannel={editModal.channel}
         editEventId={editModal.eventId}
+        editChannelIds={editModal.channelIds}
         onClose={() => setEditModal(f => ({ ...f, open: false }))}
-        onPublished={() => onSaved(editModal.channel)}
+        onPublished={onSaved}
       />
 
       {deleteTarget && !deleting && !bulkDeleteOpen && (
@@ -1341,11 +1357,7 @@ export default function EventsPage() {
                 selected={selectedKeys.has(evt.key)}
                 onToggleSelect={() => toggleSelect(evt.key)}
                 detailHref={`/events/e/${encodeEventRef(evt.channel, evt.id)}`}
-                onEdit={() => {
-                  const ch = evt.channel
-                  const id = evt.channelIds[ch] ?? evt.id
-                  openEdit(ch, id)
-                }}
+                onEdit={() => openEdit(evt.channel, evt.channelIds[evt.channel] ?? evt.id, evt.channelIds)}
                 onDelete={() => setDeleteTarget({ channel: evt.channel, id: evt.id, title: evt.title })}
                 onSync={() => setSyncEvent({ id: evt.id, title: evt.title, source: evt.syncSource })}
               />

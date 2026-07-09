@@ -5,11 +5,14 @@ import { getPool } from '../db/pool'
 export const healthRouter = Router()
 
 healthRouter.get('/health', (_req, res) => {
+  const mysql = useDatabase()
   res.json({
     ok: true,
     service: 'ewentcast-backend',
-    db: useDatabase(),
-    storage: useDatabase() ? 'mysql' : 'local-file',
+    db: mysql,
+    storage: mysql ? 'mysql' : 'local-file',
+    database: mysql ? config.db.database : null,
+    store: mysql ? undefined : 'data/local-app-store.json',
   })
 })
 
@@ -24,11 +27,17 @@ healthRouter.get('/db-health', async (req, res) => {
     return res.json({
       ok: true,
       mode: 'local',
+      storage: 'local-file',
+      database: null,
       store: 'data/local-app-store.json',
     })
   }
   if (!dbConfigured()) {
-    return res.status(503).json({ ok: false, error: 'Database env vars are not configured' })
+    return res.status(503).json({
+      ok: false,
+      database: config.db.database || null,
+      error: 'Database env vars are not configured',
+    })
   }
 
   try {
@@ -56,6 +65,7 @@ healthRouter.get('/db-health', async (req, res) => {
   } catch (err) {
     return res.status(503).json({
       ok: false,
+      database: config.db.database || null,
       error: err instanceof Error ? err.message : 'Connection failed',
     })
   }

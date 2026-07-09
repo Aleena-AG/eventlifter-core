@@ -55,8 +55,8 @@ export const SECTIONS: { key: string; label: string; fields: FieldDef[] }[] = [
     { k: 'price', label: 'Price', on: ALL_CHANNELS },
     { k: 'currency', label: 'Currency', type: 'select', opts: ['USD', 'PKR', 'EUR', 'GBP'], on: ALL_CHANNELS },
     { k: 'capacity', label: 'Capacity', on: ALL_CHANNELS },
-    { k: 'minPerOrder', label: 'Min per order', on: ['eventbrite'] },
-    { k: 'maxPerOrder', label: 'Max per order', on: ['eventbrite'] },
+    { k: 'minPerOrder', label: 'Min per order', on: ['eventbrite', 'hightribe'] },
+    { k: 'maxPerOrder', label: 'Max per order', on: ['eventbrite', 'hightribe'] },
     { k: 'salesStart', label: 'Sales start', on: ['eventbrite', 'luma'] },
     { k: 'salesEnd', label: 'Sales end', on: ['eventbrite', 'luma'] },
     { k: 'waitlist', label: 'Waitlist when full', type: 'toggle', on: ['hightribe', 'luma'] },
@@ -114,6 +114,8 @@ export const DEFAULT_EVENT: Record<string, string | boolean> = {
   hostName: '',
   refundPolicy: '',
   faq: '',
+  htTicketId: '',
+  htTicketName: 'General Admission',
 }
 
 /** @deprecated Use DEFAULT_EVENT */

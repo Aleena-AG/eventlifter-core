@@ -31,6 +31,41 @@ function isInPerson(fmt: string) {
   return fmt === 'In person' || fmt === 'Hybrid'
 }
 
+function buildHightribeTicketsFromForm(ev: EventFormData): {
+  tickets?: Array<Record<string, unknown>>
+  ticketSetting?: Record<string, unknown>
+} {
+  const cap = parseInt(String(ev.capacity || ''), 10)
+  if (!Number.isFinite(cap) || cap <= 0) return {}
+
+  const ticketType = String(ev.ticketType || '').trim()
+  const isFree = ticketType === 'Free' || ticketType === 'Donation'
+  const price = isFree ? 0 : parseFloat(String(ev.price || '0'))
+  const currency = String(ev.currency || 'USD')
+  const minQty = parseInt(String(ev.minPerOrder || '1'), 10) || 1
+  const maxQty = parseInt(String(ev.maxPerOrder || '8'), 10) || 8
+  const ticketName = String(ev.htTicketName || 'General Admission').trim() || 'General Admission'
+  const ticketId = String(ev.htTicketId || '').trim()
+
+  const ticket: Record<string, unknown> = {
+    name: ticketName,
+    currency,
+    price: Number.isFinite(price) ? price : 0,
+    quantity: cap,
+    show_ticket: true,
+    booking_type: 'instant',
+  }
+  if (ticketId) ticket.id = ticketId
+
+  return {
+    tickets: [ticket],
+    ticketSetting: {
+      minQty,
+      maxQty,
+    },
+  }
+}
+
 export async function publishToChannel(
   ch: ChannelKey,
   ev: EventFormData,
@@ -79,12 +114,7 @@ export async function publishToChannel(
       }
     }
     if (cap) {
-      body.tickets = [{
-        name: 'General Admission',
-        price: ev.ticketType === 'Free' ? 0 : parseFloat(String(ev.price || '0')),
-        currency: String(ev.currency || 'USD'),
-        quantity: cap,
-      }]
+      Object.assign(body, buildHightribeTicketsFromForm(ev))
       const res = await postHtEvent('/api/hightribe/events/with-tickets', body, 'POST', htCoverFile)
       const data = await res.json() as { data?: { id?: unknown; tickets?: Array<{ id?: unknown }> }; message?: string; errors?: Record<string, string[]> }
       if (!res.ok) throw new Error(data.message || (data.errors ? Object.values(data.errors).flat().join(', ') : `HTTP ${res.status}`))
@@ -256,6 +286,10 @@ export async function updateChannelEvent(
         lng: ev.lng ? parseFloat(String(ev.lng)) : undefined,
       }
     }
+    const ticketBundle = buildHightribeTicketsFromForm(ev)
+    if (ticketBundle.tickets) {
+      Object.assign(body, ticketBundle)
+    }
     const res = await postHtEvent(`/api/hightribe/events/${eventId}`, body, 'PUT', htCoverFile)
     const data = await res.json() as { message?: string; errors?: Record<string, string[]> }
     if (!res.ok) throw new Error(data.message || (data.errors ? Object.values(data.errors).flat().join(', ') : `HTTP ${res.status}`))
@@ -314,6 +348,31 @@ export async function updateChannelEvent(
   })
   const data = await res.json() as { error_description?: string; error?: string }
   if (!res.ok) throw new Error(data.error_description || data.error || `HTTP ${res.status}`)
+}
+
+export async function updateChannelEventsAll(
+  ev: EventFormData,
+  targets: Partial<Record<ChannelKey, string | number>>,
+  files?: EventCoverFiles,
+): Promise<Partial<Record<ChannelKey, { ok: boolean; message?: string }>>> {
+  const results: Partial<Record<ChannelKey, { ok: boolean; message?: string }>> = {}
+  const channels = (['hightribe', 'luma', 'eventbrite'] as ChannelKey[]).filter(
+    (ch) => targets[ch] != null && targets[ch] !== '',
+  )
+
+  for (const ch of channels) {
+    try {
+      await updateChannelEvent(ch, targets[ch]!, ev, files)
+      results[ch] = { ok: true }
+    } catch (err) {
+      results[ch] = {
+        ok: false,
+        message: err instanceof Error ? err.message : String(err),
+      }
+    }
+  }
+
+  return results
 }
 
 export async function publishToAllChannels(
