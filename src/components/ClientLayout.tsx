@@ -33,7 +33,11 @@ const BARE_PATHS = new Set([
 ])
 
 function isBarePath(pathname: string): boolean {
-  return BARE_PATHS.has(pathname.split('?')[0])
+  const base = pathname.split('?')[0]
+  if (BARE_PATHS.has(base)) return true
+  // Secret webhook log viewer — no login, no app shell
+  if (base.startsWith('/wh/')) return true
+  return false
 }
 
 export function ClientLayout({ children }: { children: React.ReactNode }) {
