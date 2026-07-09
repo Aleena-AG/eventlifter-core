@@ -6,6 +6,7 @@ import { syncStoredEvents } from '@/lib/channel-events-store'
 import type { ChannelKey } from '@/lib/types'
 import { buildEbTicketClass, ebTicketQuantity } from '@/lib/eventbrite-ticket'
 import { resolveEbTimezone } from '@/lib/eventbrite-timezone'
+import { zonedDateTimeToUtcIso } from '@/lib/event-datetime'
 import {
   postHtEvent,
   resolveCoverFileForHt,
@@ -16,12 +17,7 @@ import {
 export type EventFormData = Record<string, string | boolean>
 
 function toIso(date: string, time: string, tz: string): string {
-  const raw = `${date}T${time.length === 5 ? time : time.slice(0, 5)}:00`
-  try {
-    return new Date(raw).toISOString().replace(/\.\d{3}Z$/, 'Z')
-  } catch {
-    return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
-  }
+  return zonedDateTimeToUtcIso(date, time, tz)
 }
 
 function isOnline(fmt: string) {
@@ -465,7 +461,7 @@ export async function updateChannelEvent(
   const startUtc = toIso(String(ev.date), String(ev.time), tz)
   const endUtc = toIso(String(ev.endDate || ev.date), String(ev.endTime || ev.time), tz)
   const coverUrl = String(ev.coverUrl || '')
-  const htCoverFile = ch === 'hightribe' ? await resolveCoverFileForHt(coverUrl, files?.cover) : undefined
+  const htCoverFile = ch === 'hightribe' ? (files?.cover ?? undefined) : undefined
   const publicCoverUrl = ch !== 'hightribe'
     ? await resolveCoverUrl(coverUrl, files?.cover)
     : undefined
