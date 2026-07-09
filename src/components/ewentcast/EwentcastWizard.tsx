@@ -110,8 +110,20 @@ export function EwentcastWizard({
     setLoadingEvent(true)
     setLoadError(null)
     setTargets(editTargetChannels)
-    loadEventFormData(editChannel, editEventId)
-      .then(data => { setEv(data); setCoverFile(null); setLoadingEvent(false) })
+    loadEventFormData(editChannel, editEventId, editTargets)
+      .then(data => {
+        // Final guard: never leave Luma's ONLY_MD sentinel in the form
+        const description = String(data.description || '').trim()
+        const summary = String(data.summary || '').trim()
+        const scrubbed = {
+          ...data,
+          description: /^ONLY_MD$/i.test(description) || /^ONLY_HTML$/i.test(description) ? '' : data.description,
+          summary: /^ONLY_MD$/i.test(summary) || /^ONLY_HTML$/i.test(summary) ? '' : data.summary,
+        }
+        setEv(scrubbed)
+        setCoverFile(null)
+        setLoadingEvent(false)
+      })
       .catch(err => {
         setLoadError(err instanceof Error ? err.message : 'Failed to load event')
         setLoadingEvent(false)
@@ -249,8 +261,18 @@ export function EwentcastWizard({
         const id = editTargets[ch]
         if (id != null && id !== '') okTargets[ch] = id
       }
+      // Persist the form we just saved first, then refresh from channel APIs.
+      // Doing refresh first wiped venue/location when a channel omitted them.
       void (async () => {
+        await Promise.all(
+          succeeded.map((ch) => {
+            const id = editTargets[ch]
+            if (id == null || id === '') return Promise.resolve()
+            return upsertLocalEventSnapshot(ch, ev, { eventId: String(id) }).catch(() => {})
+          }),
+        )
         await refreshStoredEventsForChannels(okTargets).catch(() => {})
+        // Re-apply our saved form on top of whatever the live APIs returned
         await Promise.all(
           succeeded.map((ch) => {
             const id = editTargets[ch]

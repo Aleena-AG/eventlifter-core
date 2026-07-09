@@ -1,4 +1,4 @@
-import { lumaEventToNorm, unwrapLumaEvent } from '@/lib/luma-event-utils'
+import { lumaEventToNorm, unwrapLumaEvent, isLumaDescriptionSentinel } from '@/lib/luma-event-utils'
 import { channelFetch } from '@/lib/channel-fetch'
 import { getStoredEvent, type ChannelName } from '@/lib/channel-events-store'
 import { canonicalizeCountry, COUNTRIES } from '@/components/ewentcast/location-data'
@@ -305,6 +305,12 @@ interface NormEvent {
   htTicketName?: string
 }
 
+function scrubFormText(value: unknown): string {
+  const s = value != null ? String(value).trim() : ''
+  if (!s || isLumaDescriptionSentinel(s)) return ''
+  return s
+}
+
 function normToForm(n: NormEvent): EventFormData {
   const tz = n.timezone || 'UTC'
   const start = utcParts(n.startUtc, tz)
@@ -327,8 +333,9 @@ function normToForm(n: NormEvent): EventFormData {
 
   return {
     title: n.title,
-    summary: n.summary || '',
-    description: n.description,
+    summary: scrubFormText(n.summary),
+    // Never show Luma's ONLY_MD / ONLY_HTML sentinel in the Description field
+    description: scrubFormText(n.description),
     coverUrl: n.coverImage || '',
     category: 'Music',
     tags: '',
@@ -423,7 +430,12 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
     return {
       title: String(e.title || raw.title || ''),
       summary: optStr(e.summary) || optStr(e.short_description) || optStr(e.overview) || undefined,
-      description: String(e.description || e.overview || ''),
+      description: (() => {
+        const rawDesc = String(e.description || '').trim()
+        if (rawDesc && !isLumaDescriptionSentinel(rawDesc)) return rawDesc
+        // Don't fall back to overview/summary here — that belongs in Summary
+        return ''
+      })(),
       startUtc, endUtc,
       timezone: String(d?.timezone || e.timezone || raw.timezone || 'UTC'),
       coverImage: hightribeCoverUrl(e, raw),
@@ -770,6 +782,100 @@ function mergeStoredMeta(norm: NormEvent, stored: Awaited<ReturnType<typeof getS
   if (stored.end_at && (!norm.endUtc || Number.isNaN(new Date(norm.endUtc).getTime()))) {
     norm.endUtc = stripMs(stored.end_at)
   }
+  // Prefer richer text from our last publish snapshot when the live channel
+  // payload is missing it (common for Luma: description="ONLY_MD", no summary).
+  const payload = (stored.payload || {}) as Record<string, unknown>
+  if (!norm.summary) {
+    norm.summary =
+      optStr(payload.summary)
+      || optStr(payload.short_description)
+      || optStr(payload.overview)
+      || (typeof payload.summary === 'object' && payload.summary
+        ? optStr((payload.summary as { text?: string }).text)
+        : undefined)
+  }
+  const payloadDesc =
+    optStr(payload.description_md)
+    || optStr(payload._full_description)
+    || (typeof payload.description === 'string' && !isLumaDescriptionSentinel(payload.description)
+      ? optStr(payload.description)
+      : undefined)
+    || (typeof payload.description === 'object' && payload.description
+      ? optStr((payload.description as { text?: string }).text)
+        || ((payload.description as { html?: string }).html
+          ? htmlToPlainText(String((payload.description as { html?: string }).html))
+          : undefined)
+      : undefined)
+  if ((!norm.description || isLumaDescriptionSentinel(norm.description)) && payloadDesc) {
+    norm.description = payloadDesc
+  }
+
+  // Keep venue / place fields the user just saved when the live channel API
+  // omits them (common on Luma update + HT location shape quirks).
+  const loc = (payload.location && typeof payload.location === 'object')
+    ? payload.location as Record<string, unknown>
+    : null
+  const geo = (payload.geo_address_json && typeof payload.geo_address_json === 'object')
+    ? payload.geo_address_json as Record<string, unknown>
+    : null
+  const venue = (payload.venue && typeof payload.venue === 'object')
+    ? payload.venue as Record<string, unknown>
+    : null
+  const venueAddr = (venue?.address && typeof venue.address === 'object')
+    ? venue.address as Record<string, unknown>
+    : null
+
+  if (!norm.venueName) {
+    norm.venueName =
+      optStr(loc?.venue_name)
+      || optStr(geo?.description)
+      || optStr(venue?.name)
+      || (optStr(loc?.location) && optStr(loc?.address) && optStr(loc?.location) !== optStr(loc?.address)
+        ? optStr(loc?.location)
+        : undefined)
+  }
+  if (!norm.address) {
+    norm.address =
+      optStr(loc?.address)
+      || optStr(venueAddr?.address_1)
+      || optStr(geo?.address)
+  }
+  if (!norm.city) {
+    norm.city = optStr(loc?.city) || optStr(venueAddr?.city) || optStr(geo?.city)
+  }
+  if (!norm.region) {
+    norm.region =
+      optStr(loc?.region) || optStr(loc?.state)
+      || optStr(venueAddr?.region) || optStr(venueAddr?.state)
+      || optStr(geo?.region) || optStr(geo?.state)
+  }
+  if (!norm.postal) {
+    norm.postal =
+      optStr(loc?.postal) || optStr(loc?.postal_code) || optStr(loc?.zip)
+      || optStr(venueAddr?.postal_code) || optStr(venueAddr?.postal)
+      || optStr(geo?.postal) || optStr(geo?.postal_code)
+  }
+  if (!norm.country) {
+    norm.country = canonicalizeCountry(
+      optStr(loc?.country) || optStr(venueAddr?.country) || optStr(geo?.country),
+    )
+  }
+  if (norm.lat == null) {
+    norm.lat =
+      parseCoord(loc?.lat)
+      ?? parseCoord(geo?.latitude)
+      ?? parseCoord(venue?.latitude)
+      ?? parseCoord(venueAddr?.latitude)
+      ?? parseCoord(payload.geo_latitude)
+  }
+  if (norm.lng == null) {
+    norm.lng =
+      parseCoord(loc?.lng)
+      ?? parseCoord(geo?.longitude)
+      ?? parseCoord(venue?.longitude)
+      ?? parseCoord(venueAddr?.longitude)
+      ?? parseCoord(payload.geo_longitude)
+  }
 }
 
 async function enrichTickets(norm: NormEvent, channel: ChannelKey, eventId: string | number) {
@@ -847,57 +953,98 @@ async function loadLumaEventFresh(eventId: string | number): Promise<Record<stri
   }
 }
 
-export async function loadEventFormData(channel: ChannelKey, eventId: string | number): Promise<EventFormData> {
-  if (channel === 'hightribe') {
-    try {
-      const res = await channelFetch(`/api/hightribe/events/${eventId}`)
-      if (res.ok) {
-        const fresh = await res.json() as Record<string, unknown>
-        const norm = normFromPayload(channel, fresh)
-        await enrichTickets(norm, 'hightribe', eventId)
-        const stored = await getStoredEvent(channel as ChannelName, String(eventId))
-        mergeStoredMeta(norm, stored)
-        return normToForm(norm)
-      }
-    } catch {
-      // fall back to stored copy
-    }
+/** Prefer non-empty text / place fields from sibling channel payloads (multi-channel edit). */
+function mergeNormTextFields(primary: NormEvent, extra: NormEvent) {
+  if (!primary.summary && extra.summary) primary.summary = extra.summary
+  const primaryDesc = String(primary.description || '').trim()
+  const extraDesc = String(extra.description || '').trim()
+  if ((!primaryDesc || isLumaDescriptionSentinel(primaryDesc)) && extraDesc && !isLumaDescriptionSentinel(extraDesc)) {
+    primary.description = extraDesc
   }
+  if (!primary.venueName && extra.venueName) primary.venueName = extra.venueName
+  if (!primary.address && extra.address) primary.address = extra.address
+  if (!primary.city && extra.city) primary.city = extra.city
+  if (!primary.region && extra.region) primary.region = extra.region
+  if (!primary.postal && extra.postal) primary.postal = extra.postal
+  if (!primary.country && extra.country) primary.country = extra.country
+  if (primary.lat == null && extra.lat != null) primary.lat = extra.lat
+  if (primary.lng == null && extra.lng != null) primary.lng = extra.lng
+}
 
-  if (channel === 'eventbrite') {
-    const fresh = await loadEventbriteEventFresh(eventId)
-    if (fresh) {
+async function loadNormForChannel(
+  channel: ChannelKey,
+  eventId: string | number,
+): Promise<NormEvent | null> {
+  try {
+    if (channel === 'hightribe') {
+      const res = await channelFetch(`/api/hightribe/events/${eventId}`)
+      if (!res.ok) return null
+      const fresh = await res.json() as Record<string, unknown>
+      const norm = normFromPayload(channel, fresh)
+      await enrichTickets(norm, 'hightribe', eventId)
+      const stored = await getStoredEvent(channel as ChannelName, String(eventId))
+      mergeStoredMeta(norm, stored)
+      return norm
+    }
+    if (channel === 'eventbrite') {
+      const fresh = await loadEventbriteEventFresh(eventId)
+      if (!fresh) return null
       const norm = normFromPayload(channel, fresh)
       await enrichTickets(norm, 'eventbrite', eventId)
       const stored = await getStoredEvent(channel as ChannelName, String(eventId))
       mergeStoredMeta(norm, stored)
-      return normToForm(norm)
+      return norm
     }
-  }
-
-  if (channel === 'luma') {
-    const fresh = await loadLumaEventFresh(eventId)
-    if (fresh) {
+    if (channel === 'luma') {
+      const fresh = await loadLumaEventFresh(eventId)
+      if (!fresh) return null
       const norm = normFromPayload(channel, fresh)
       await enrichTickets(norm, 'luma', eventId)
       const stored = await getStoredEvent(channel as ChannelName, String(eventId))
       mergeStoredMeta(norm, stored)
-      return normToForm(norm)
+      return norm
     }
+  } catch {
+    return null
+  }
+  return null
+}
+
+export async function loadEventFormData(
+  channel: ChannelKey,
+  eventId: string | number,
+  siblingIds?: Partial<Record<ChannelKey, string | number>>,
+): Promise<EventFormData> {
+  let norm = await loadNormForChannel(channel, eventId)
+
+  if (!norm) {
+    const stored = await getStoredEvent(channel as ChannelName, String(eventId))
+    if (!stored) {
+      throw new Error('Event not in database. Open Events and use Sync for this channel first.')
+    }
+    const payload = { ...stored.payload } as Record<string, unknown>
+    if (channel === 'eventbrite' && !payload._full_description) {
+      const fullDesc = await loadEventbriteFullDescription(eventId)
+      if (fullDesc) payload._full_description = fullDesc
+    }
+    norm = normFromPayload(channel, payload)
+    mergeStoredMeta(norm, stored)
+    await enrichTickets(norm, channel, eventId)
   }
 
-  const stored = await getStoredEvent(channel as ChannelName, String(eventId))
-  if (!stored) {
-    throw new Error('Event not in database. Open Events and use Sync for this channel first.')
+  // When editing a multi-channel event, fill blank summary/description/place from siblings
+  // (e.g. open via Luma → pull Summary / venue from Eventbrite / Hightribe).
+  const siblings = siblingIds || {}
+  for (const ch of (['hightribe', 'eventbrite', 'luma'] as ChannelKey[])) {
+    if (ch === channel) continue
+    const sid = siblings[ch]
+    if (sid == null || sid === '') continue
+    const hasText = !!(norm.summary && norm.description && !isLumaDescriptionSentinel(norm.description))
+    const hasPlace = !!(norm.venueName && (norm.address || norm.city))
+    if (hasText && hasPlace) break
+    const extra = await loadNormForChannel(ch, sid)
+    if (extra) mergeNormTextFields(norm, extra)
   }
-  const payload = { ...stored.payload } as Record<string, unknown>
-  if (channel === 'eventbrite' && !payload._full_description) {
-    const fullDesc = await loadEventbriteFullDescription(eventId)
-    if (fullDesc) payload._full_description = fullDesc
-  }
-  const norm = normFromPayload(channel, payload)
-  mergeStoredMeta(norm, stored)
-  await enrichTickets(norm, channel, eventId)
 
   return normToForm(norm)
 }

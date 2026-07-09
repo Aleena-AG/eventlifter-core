@@ -697,6 +697,7 @@
   list-style: none; margin: 0; padding: 4px;
   border: 1px solid var(--line); border-radius: 10px; background: var(--paper);
   box-shadow: 0 4px 16px var(--shadow); max-height: 200px; overflow-y: auto;
+  position: relative; z-index: 5;
 }
 .ew-loc-hits li { margin: 0; }
 .ew-loc-hits button {
