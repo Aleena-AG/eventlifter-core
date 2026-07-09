@@ -34,6 +34,7 @@ export interface BookingListItem {
   currency?: string
   notes?: string
   source: 'webhook' | 'api'
+  raw?: Record<string, unknown>
 }
 
 function optStr(v: unknown): string | undefined {
@@ -107,6 +108,7 @@ function normalizeHtBooking(raw: Record<string, unknown>): BookingListItem {
     phone,
     channel: 'hightribe',
     eventTitle: String(raw.title || 'Event'),
+    eventExternalId: optStr(raw.event_id),
     registeredAt,
     eventStart: start,
     eventEnd: end,
@@ -119,6 +121,7 @@ function normalizeHtBooking(raw: Record<string, unknown>): BookingListItem {
     currency: optStr(raw.currency),
     notes: optStr(raw.notes),
     source: 'api',
+    raw,
   }
 }
 
@@ -133,15 +136,26 @@ function normalizeEbAttendee(
   const last = optStr(profile?.last_name)
   const name = optStr(profile?.name) || [first, last].filter(Boolean).join(' ') || email.split('@')[0] || 'Guest'
   const registeredAt = String(raw.created || raw.changed || new Date().toISOString())
+  const costs = raw.costs as Record<string, unknown> | undefined
+  const gross = costs?.gross as Record<string, unknown> | undefined
+  const totalPrice = gross?.major_value != null ? parseFloat(String(gross.major_value)) : undefined
+  const currency = optStr(gross?.currency)
+  const ticketCount = typeof raw.quantity === 'number' ? raw.quantity : undefined
   return {
     id: `eb-${raw.id ?? email}-${registeredAt}`,
     name,
     email,
+    phone: optStr(profile?.cell_phone) || optStr(profile?.phone),
     channel: 'eventbrite',
     eventTitle,
+    eventExternalId: optStr(raw.event_id),
     registeredAt,
     status: optStr(raw.status),
+    ticketCount,
+    totalPrice: Number.isFinite(totalPrice) ? totalPrice : undefined,
+    currency,
     source: 'api',
+    raw,
   }
 }
 
@@ -157,16 +171,24 @@ function normalizeLumaGuest(
   const registeredAt = String(
     raw.registered_at || raw.created_at || raw.approval_status_at || new Date().toISOString(),
   )
+  const ticketType = raw.ticket_type as Record<string, unknown> | undefined
+  const payment = raw.payment as Record<string, unknown> | undefined
+  const ticketName = optStr(ticketType?.name) || optStr(ticketType?.label)
   return {
     id: `luma-${raw.api_id || raw.id || email}-${registeredAt}`,
     name,
     email,
+    phone: optStr(guest?.phone_number) || optStr(raw.phone),
     channel: 'luma',
     eventTitle,
     eventExternalId,
     registeredAt,
     status: optStr(raw.approval_status) || optStr(raw.registration_status),
+    paymentStatus: optStr(payment?.status),
+    ticketCount: 1,
+    tickets: ticketName ? [{ name: ticketName, quantity: 1 }] : undefined,
     source: 'api',
+    raw,
   }
 }
 
@@ -205,7 +227,7 @@ export async function fetchEbBookingList(
   events: Array<{ id: string; name?: { text?: string } | string }>,
 ): Promise<BookingListItem[]> {
   const list: BookingListItem[] = []
-  const concurrency = 5
+  const concurrency = 2
 
   for (let i = 0; i < events.length; i += concurrency) {
     const chunk = events.slice(i, i + concurrency)
@@ -234,6 +256,9 @@ export async function fetchEbBookingList(
         // skip event
       }
     }))
+    if (i + concurrency < events.length) {
+      await new Promise((resolve) => setTimeout(resolve, 120))
+    }
   }
 
   return list
@@ -269,25 +294,29 @@ export async function fetchLumaBookingList(
   events: Array<{ api_id: string; name: string }>,
 ): Promise<BookingListItem[]> {
   const list: BookingListItem[] = []
+  const concurrency = 3
 
-  await Promise.all(events.map(async (e) => {
-    try {
-      const res = await channelFetch(`/api/luma/guests?event_id=${encodeURIComponent(e.api_id)}`)
-      if (!res.ok) return
-      const raw = await res.json() as {
-        data?: { entries?: Array<Record<string, unknown>> }
-        entries?: Array<Record<string, unknown>>
+  for (let i = 0; i < events.length; i += concurrency) {
+    const chunk = events.slice(i, i + concurrency)
+    await Promise.all(chunk.map(async (e) => {
+      try {
+        const res = await channelFetch(`/api/luma/guests?event_id=${encodeURIComponent(e.api_id)}`)
+        if (!res.ok) return
+        const raw = await res.json() as {
+          data?: { entries?: Array<Record<string, unknown>> }
+          entries?: Array<Record<string, unknown>>
+        }
+        const d = raw.data || raw
+        const entries = d.entries || raw.entries || []
+        for (const entry of entries) {
+          const item = normalizeLumaGuest(entry, e.name, e.api_id)
+          if (item) list.push(item)
+        }
+      } catch {
+        // skip event
       }
-      const d = raw.data || raw
-      const entries = d.entries || raw.entries || []
-      for (const entry of entries) {
-        const item = normalizeLumaGuest(entry, e.name, e.api_id)
-        if (item) list.push(item)
-      }
-    } catch {
-      // skip event
-    }
-  }))
+    }))
+  }
 
   return list
 }
@@ -315,34 +344,103 @@ export async function fetchLumaEventsForSync(): Promise<Array<{ api_id: string; 
   }).filter(ev => ev.api_id)
 }
 
+export interface StoredBookingRow {
+  external_id: string
+  channel: ChannelKey
+  event_title: string
+  event_external_id?: string | null
+  guest_name: string
+  guest_email: string
+  registered_at: string
+  status: string | null
+  ticket_count: number | null
+  payload?: Record<string, unknown>
+}
+
+export function mapStoredBookingToListItem(b: StoredBookingRow): BookingListItem {
+  const payload = b.payload || {}
+  const channel = b.channel
+
+  if (channel === 'hightribe' && Object.keys(payload).length > 0) {
+    const item = normalizeHtBooking({ ...payload, title: payload.title || b.event_title })
+    return { ...item, id: b.external_id || item.id }
+  }
+  if (channel === 'eventbrite' && (payload.profile || payload.id)) {
+    const item = normalizeEbAttendee(payload, b.event_title)
+    if (item) {
+      return {
+        ...item,
+        id: b.external_id || item.id,
+        eventExternalId: b.event_external_id || item.eventExternalId,
+      }
+    }
+  }
+  if (channel === 'luma' && Object.keys(payload).length > 0) {
+    const item = normalizeLumaGuest(payload, b.event_title, b.event_external_id || '')
+    if (item) return { ...item, id: b.external_id || item.id }
+  }
+
+  return {
+    id: b.external_id,
+    name: b.guest_name,
+    email: b.guest_email,
+    channel,
+    eventTitle: b.event_title,
+    eventExternalId: b.event_external_id || undefined,
+    registeredAt: b.registered_at,
+    status: b.status || undefined,
+    ticketCount: b.ticket_count ?? undefined,
+    source: b.external_id.startsWith('wh:') ? 'webhook' : 'api',
+    raw: Object.keys(payload).length ? payload : undefined,
+  }
+}
+
+export function bookingToStoredPayload(b: BookingListItem): Record<string, unknown> {
+  if (b.raw && Object.keys(b.raw).length > 0) return b.raw
+  return {
+    id: b.id,
+    email: b.email,
+    name: b.name,
+    guest_name: b.name,
+    guest_email: b.email,
+    phone: b.phone,
+    event_title: b.eventTitle,
+    event_external_id: b.eventExternalId,
+    registered_at: b.registeredAt,
+    event_start: b.eventStart,
+    event_end: b.eventEnd,
+    status: b.status,
+    payment_status: b.paymentStatus,
+    booking_type: b.bookingType,
+    ticket_count: b.ticketCount,
+    tickets: b.tickets,
+    total_price: b.totalPrice,
+    currency: b.currency,
+    notes: b.notes,
+    booking_id: b.bookingId,
+  }
+}
+
 export async function loadAllBookings(): Promise<BookingListItem[]> {
   const res = await fetch('/api/events/bookings', {
     headers: { Authorization: authHeader(), Accept: 'application/json' },
   })
   if (!res.ok) return []
   const data = await res.json() as {
-    bookings?: Array<{
-      external_id: string
-      channel: ChannelKey
-      event_title: string
-      guest_name: string
-      guest_email: string
-      registered_at: string
-      status: string | null
-      ticket_count: number | null
-    }>
+    bookings?: Array<StoredBookingRow & { payload?: Record<string, unknown> }>
   }
 
-  const list: BookingListItem[] = (data.bookings || []).map((b) => ({
-    id: b.external_id,
-    name: b.guest_name,
-    email: b.guest_email,
+  const list = (data.bookings || []).map((b) => mapStoredBookingToListItem({
+    external_id: b.external_id,
     channel: b.channel,
-    eventTitle: b.event_title,
-    registeredAt: b.registered_at,
-    status: b.status || undefined,
-    ticketCount: b.ticket_count ?? undefined,
-    source: b.external_id.startsWith('wh:') ? 'webhook' as const : 'api' as const,
+    event_title: b.event_title,
+    event_external_id: b.event_external_id,
+    guest_name: b.guest_name,
+    guest_email: b.guest_email,
+    registered_at: b.registered_at,
+    status: b.status,
+    ticket_count: b.ticket_count,
+    payload: b.payload,
   }))
 
   list.sort((a, b) => new Date(b.registeredAt).getTime() - new Date(a.registeredAt).getTime())

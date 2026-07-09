@@ -7,6 +7,7 @@ import {
   fetchHightribeBookingsList,
   fetchLumaBookingList,
   fetchLumaEventsForSync,
+  bookingToStoredPayload,
   type BookingListItem,
 } from '@/lib/bookings'
 import {
@@ -20,16 +21,7 @@ import { lumaHostedEventRef } from '@/lib/luma-event-utils'
 import type { ChannelKey } from '@/lib/types'
 
 function bookingsToPayload(items: BookingListItem[]): Array<Record<string, unknown>> {
-  return items.map((b) => ({
-    id: b.id,
-    email: b.email,
-    name: b.name,
-    event_title: b.eventTitle,
-    event_external_id: b.eventExternalId,
-    registered_at: b.registeredAt,
-    status: b.status,
-    ticket_count: b.ticketCount,
-  }))
+  return items.map(bookingToStoredPayload)
 }
 
 async function fetchHightribeEventRows(): Promise<Array<Record<string, unknown>>> {

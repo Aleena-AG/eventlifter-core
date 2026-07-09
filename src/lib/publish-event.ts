@@ -13,6 +13,7 @@ import {
   postHtEvent,
   resolveCoverFileForHt,
   resolveCoverUrl,
+  resolveLumaCoverUrl,
   type EventCoverFiles,
 } from '@/lib/cover-image'
 
@@ -189,7 +190,7 @@ const EB_COUNTRY_ALIASES: Record<string, string> = {
   FRANCE: 'FR',
 }
 
-function normalizeEbCountry(raw?: string): string | undefined {
+export function normalizeEbCountry(raw?: string): string | undefined {
   const value = String(raw || '').trim().toUpperCase()
   if (!value) return undefined
   if (/^[A-Z]{2}$/.test(value)) return value
@@ -603,9 +604,11 @@ export async function publishToChannel(
   const cap = ebTicketQuantity(ev.capacity as string | number | undefined)
   const coverUrl = String(ev.coverUrl || '')
   const htCoverFile = ch === 'hightribe' ? await resolveCoverFileForHt(coverUrl, files?.cover) : undefined
-  const publicCoverUrl = ch !== 'hightribe'
-    ? await resolveCoverUrl(coverUrl, files?.cover)
-    : undefined
+  const publicCoverUrl = ch === 'luma'
+    ? await resolveLumaCoverUrl(coverUrl, files?.cover)
+    : ch === 'eventbrite'
+      ? await resolveCoverUrl(coverUrl, files?.cover)
+      : undefined
 
   if (ch === 'hightribe') {
     const published = await publishHightribeChannel(ev, online, inPerson, tz, startUtc, endUtc, cap, htCoverFile)
@@ -786,9 +789,11 @@ export async function updateChannelEvent(
   const endUtc = toIso(String(ev.endDate || ev.date), String(ev.endTime || ev.time), tz)
   const coverUrl = String(ev.coverUrl || '')
   const htCoverFile = ch === 'hightribe' ? (files?.cover ?? undefined) : undefined
-  const publicCoverUrl = ch !== 'hightribe'
-    ? await resolveCoverUrl(coverUrl, files?.cover)
-    : undefined
+  const publicCoverUrl = ch === 'luma'
+    ? await resolveLumaCoverUrl(coverUrl, files?.cover)
+    : ch === 'eventbrite'
+      ? await resolveCoverUrl(coverUrl, files?.cover)
+      : undefined
 
   if (ch === 'hightribe') {
     const body = buildHightribeEventBody(ev, online, inPerson, tz, startUtc, endUtc)

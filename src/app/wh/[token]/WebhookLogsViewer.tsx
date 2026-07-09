@@ -38,6 +38,13 @@ function statusClass(code: number) {
   return 'wh-badge wh-badge-ok'
 }
 
+function skipHint(response: unknown): string {
+  if (!response || typeof response !== 'object') return ''
+  const skipped = (response as { skipped?: unknown }).skipped
+  if (typeof skipped !== 'string' || !skipped) return ''
+  return ` · ${skipped}`
+}
+
 export function WebhookLogsViewer({ token, initialLogs }: Props) {
   const [logs, setLogs] = useState(initialLogs)
   const [loading, setLoading] = useState(false)
@@ -113,7 +120,7 @@ export function WebhookLogsViewer({ token, initialLogs }: Props) {
                       <td>{formatWhen(log.created_at)}</td>
                       <td><span className="wh-channel">{log.channel}</span></td>
                       <td><span className={statusClass(log.status_code)}>{log.status_code}</span></td>
-                      <td>{log.outcome || '—'}</td>
+                      <td>{log.outcome || '—'}{skipHint(log.response_json)}</td>
                       <td>{log.duration_ms != null ? `${log.duration_ms}ms` : '—'}</td>
                       <td className="wh-preview">{preview.slice(0, 120)}{preview.length > 120 ? '…' : ''}</td>
                     </tr>

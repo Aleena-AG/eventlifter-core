@@ -3,23 +3,20 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { channelFetch } from '@/lib/channel-fetch'
+import { authHeader } from '@/lib/auth'
 import { fetchChannelConnectionMap } from '@/lib/channel-connection'
 import { resolveHtApiAuthHeader } from '@/lib/ewentcast-session'
 import { buildEbTicketClass, ebTicketQuantity } from '@/lib/eventbrite-ticket'
 import { resolveEbTimezone } from '@/lib/eventbrite-timezone'
 import { lumaEntryMatchesId, lumaEventToNorm, unwrapLumaEvent, isLumaDescriptionSentinel } from '@/lib/luma-event-utils'
 import { refreshStoredEventsForChannels, markEventsListStale } from '@/lib/channel-data-sync'
-import { writeEventbriteStructuredDescription } from '@/lib/publish-event'
+import { resolveLumaCoverUrl } from '@/lib/cover-image'
+import { normalizeEbCountry, writeEventbriteStructuredDescription } from '@/lib/publish-event'
 import { hightribeDatesToUtc } from '@/lib/event-datetime'
 import { InlineLoader } from '@/components/Loader'
 import { HIGHTRIBE_COLOR, LUMA_COLOR, EVENTBRITE_COLOR } from '@/lib/brand'
 
 export type SyncSource = 'hightribe' | 'luma' | 'eventbrite'
-
-const EB_VALID_CURRENCIES = new Set(['USD','CAD','GBP','EUR','AUD','NZD','SGD','HKD','MYR','CHF','INR','BRL','MXN','SEK','NOK','DKK','JPY','ZAR','TWD','TRY','PLN','CZK','HUF','ILS','ARS','CLP','PEN','UYU','PHP','IDR','KRW'])
-function toEbCurrency(c?: string): string {
-  return (c && EB_VALID_CURRENCIES.has(c.toUpperCase())) ? c.toUpperCase() : 'USD'
-}
 
 function toEbHtml(text: string): string {
   const t = text.trim()
@@ -84,6 +81,45 @@ function ensureFuture(startUtc: string, endUtc: string): { startUtc: string; end
     startUtc: newStart.toISOString().replace(/\.\d{3}Z$/, 'Z'),
     endUtc: newEnd.toISOString().replace(/\.\d{3}Z$/, 'Z'),
   }
+}
+
+function ensureEndAfterStart(startUtc: string, endUtc: string): { startUtc: string; endUtc: string } {
+  const window = ensureFuture(startUtc, endUtc)
+  if (new Date(window.endUtc).getTime() > new Date(window.startUtc).getTime()) {
+    return window
+  }
+  const end = new Date(new Date(window.startUtc).getTime() + 3600_000)
+  return {
+    startUtc: window.startUtc,
+    endUtc: end.toISOString().replace(/\.\d{3}Z$/, 'Z'),
+  }
+}
+
+async function resolveLumaCover(url?: string): Promise<string | undefined> {
+  const raw = String(url || '').trim()
+  if (!raw) return undefined
+  return resolveLumaCoverUrl(raw)
+}
+
+function registryHeaders(): Record<string, string> {
+  const auth = authHeader()
+  return {
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+    ...(auth ? { Authorization: auth } : {}),
+  }
+}
+
+function parseApiError(data: Record<string, unknown>, fallback: string): string {
+  const msg = data.message || data.error || data.error_description
+  if (typeof msg === 'string' && msg.trim()) return msg.trim()
+  const detail = data.error_detail
+  if (detail && typeof detail === 'object') {
+    const parts = Object.entries(detail as Record<string, unknown>)
+      .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : String(v)}`)
+    if (parts.length) return parts.join('; ')
+  }
+  return fallback
 }
 
 // ─── Fetch & normalise event from each source ────────────────────────────────
@@ -295,7 +331,9 @@ export function SyncModal({ open, event, onClose }: Props) {
   useEffect(() => {
     if (!open || !event) { setExistingLinks({}); return }
     let cancelled = false
-    fetch(`/api/registry?channel=${event.source}&eventId=${encodeURIComponent(String(event.id))}`)
+    fetch(`/api/registry?channel=${event.source}&eventId=${encodeURIComponent(String(event.id))}`, {
+      headers: registryHeaders(),
+    })
       .then((res) => (res.ok ? res.json() : null))
       .then((data: { links?: Partial<Record<ChannelKey, { eventId: string; url?: string }>> } | null) => {
         if (!cancelled) setExistingLinks(data?.links || {})
@@ -407,7 +445,8 @@ export function SyncModal({ open, event, onClose }: Props) {
           }
 
           if (ch === 'luma') {
-            const { startUtc, endUtc } = norm
+            const { startUtc, endUtc } = ensureEndAfterStart(norm.startUtc, norm.endUtc)
+            const coverUrl = await resolveLumaCover(norm.coverImage)
             const lumaDesc = String(norm.description || '').trim()
             const body: Record<string, unknown> = {
               name: norm.title,
@@ -415,20 +454,24 @@ export function SyncModal({ open, event, onClose }: Props) {
               end_at: endUtc,
               timezone: norm.timezone || 'UTC',
               ...(lumaDesc ? { description_md: lumaDesc } : {}),
-              cover_url: norm.coverImage || undefined,
               require_rsvp_approval: false,
+              visibility: 'public',
             }
+            if (coverUrl) body.cover_url = coverUrl
             if (norm.isOnline) {
               body.meeting_url = norm.onlineUrl || undefined
             } else if (norm.city || norm.address || norm.venueName) {
               body.geo_address_json = {
                 type: 'manual',
+                description: norm.venueName || undefined,
                 address: [norm.venueName, norm.address, norm.city, norm.country].filter(Boolean).join(', ')
                   || norm.address || norm.city || '',
                 city: norm.city || undefined,
                 country: norm.country || undefined,
-                latitude: norm.lat,
-                longitude: norm.lng,
+                ...(typeof norm.lat === 'number' && Number.isFinite(norm.lat)
+                  ? { latitude: norm.lat } : {}),
+                ...(typeof norm.lng === 'number' && Number.isFinite(norm.lng)
+                  ? { longitude: norm.lng } : {}),
               }
             }
             const res = await channelFetch('/api/luma/events', {
@@ -436,8 +479,15 @@ export function SyncModal({ open, event, onClose }: Props) {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(body),
             })
-            const raw = await res.json() as { status?: string; data?: { api_id?: string; id?: string }; message?: string; error?: string }
-            if (!res.ok || raw.status === 'error') throw new Error(raw.message || raw.error || `HTTP ${res.status}`)
+            const raw = await res.json() as Record<string, unknown> & {
+              status?: string
+              data?: { api_id?: string; id?: string }
+              message?: string
+              error?: string
+            }
+            if (!res.ok || raw.status === 'error') {
+              throw new Error(parseApiError(raw, `Luma HTTP ${res.status}`))
+            }
             const unwrapped = unwrapLumaEvent(raw.data ?? raw)
             const id = String(unwrapped.api_id || unwrapped.id || raw.data?.api_id || raw.data?.id || '').trim()
             if (!id) throw new Error('Luma did not return an event id')
@@ -446,7 +496,7 @@ export function SyncModal({ open, event, onClose }: Props) {
           }
 
           if (ch === 'eventbrite') {
-            const { startUtc, endUtc } = ensureFuture(norm.startUtc, norm.endUtc)
+            const { startUtc, endUtc } = ensureEndAfterStart(norm.startUtc, norm.endUtc)
             const tz = await resolveEbTimezone(norm.timezone, startUtc, {
               country: norm.country,
               city: norm.city,
@@ -466,7 +516,7 @@ export function SyncModal({ open, event, onClose }: Props) {
               error_description?: string
             }
             if (!orgRes.ok) {
-              throw new Error(orgData.error || orgData.error_description || `HTTP ${orgRes.status}`)
+              throw new Error(parseApiError(orgData, `Eventbrite org HTTP ${orgRes.status}`))
             }
             const orgId = orgData.organizations?.[0]?.id
             if (!orgId) throw new Error('No Eventbrite organization found. Create one on eventbrite.com first.')
@@ -474,13 +524,10 @@ export function SyncModal({ open, event, onClose }: Props) {
             const evtBody = {
               event: {
                 name: { html: toEbHtml(ebTitle) },
-                ...(ebSummary ? {
-                  summary: ebSummary,
-                  description: { html: toEbHtml(ebSummary) },
-                } : {}),
+                ...(ebSummary ? { summary: ebSummary } : {}),
                 start: { utc: startUtc, timezone: tz },
                 end: { utc: endUtc, timezone: tz },
-                currency: toEbCurrency(norm.currency),
+                currency: 'USD',
                 online_event: norm.isOnline,
                 listed: true,
                 shareable: true,
@@ -491,37 +538,40 @@ export function SyncModal({ open, event, onClose }: Props) {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(evtBody),
             })
-            const evtData = await evtRes.json() as { id?: string; error?: string; error_description?: string }
-            if (!evtRes.ok) throw new Error(evtData.error_description || evtData.error || `HTTP ${evtRes.status}`)
+            const evtData = await evtRes.json() as Record<string, unknown> & { id?: string }
+            if (!evtRes.ok) throw new Error(parseApiError(evtData, `Eventbrite HTTP ${evtRes.status}`))
             const eventId2 = evtData.id!
             if (!eventId2) throw new Error('Eventbrite did not return an event id')
 
             if (ebDesc) await writeEventbriteStructuredDescription(eventId2, ebDesc)
 
-            // Attach venue for in-person events (same flow as EventFormModal / Laravel EB import)
+            // Attach venue for in-person events (EB requires ISO country code)
             if (!norm.isOnline && (norm.venueName || norm.address || norm.city)) {
-              const vRes = await channelFetch(`/api/eventbrite/organizations/${orgId}/venues`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  venue: {
-                    name: norm.venueName || norm.city || 'Venue',
-                    address: {
-                      address_1: norm.address || undefined,
-                      city: norm.city || undefined,
-                      country: norm.country || undefined,
+              const country = normalizeEbCountry(norm.country)
+              if (country) {
+                const vRes = await channelFetch(`/api/eventbrite/organizations/${orgId}/venues`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    venue: {
+                      name: norm.venueName || norm.city || 'Venue',
+                      address: {
+                        address_1: norm.address || norm.venueName || norm.city || undefined,
+                        city: norm.city || undefined,
+                        country,
+                      },
                     },
-                  },
-                }),
-              })
-              if (vRes.ok) {
-                const vData = await vRes.json() as { id?: string }
-                if (vData.id) {
-                  await channelFetch(`/api/eventbrite/events/${eventId2}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ event: { venue_id: vData.id } }),
-                  })
+                  }),
+                })
+                if (vRes.ok) {
+                  const vData = await vRes.json() as { id?: string }
+                  if (vData.id) {
+                    await channelFetch(`/api/eventbrite/events/${eventId2}`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ event: { venue_id: vData.id } }),
+                    })
+                  }
                 }
               }
             }
@@ -535,7 +585,7 @@ export function SyncModal({ open, event, onClose }: Props) {
                   name: 'General Admission',
                   free: true,
                   capacity: ebTicketQuantity(norm.capacity),
-                  currency: norm.currency,
+                  currency: 'USD',
                 }),
               }),
             })
@@ -560,6 +610,7 @@ export function SyncModal({ open, event, onClose }: Props) {
       let masterId: string | undefined
       const lookup = await fetch(
         `/api/registry?channel=${source}&eventId=${encodeURIComponent(String(event.id))}`,
+        { headers: registryHeaders() },
       )
       if (lookup.ok) {
         const d = await lookup.json() as { master?: { id: string } }
@@ -568,22 +619,27 @@ export function SyncModal({ open, event, onClose }: Props) {
       if (!masterId) {
         const created = await fetch('/api/registry', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: registryHeaders(),
           body: JSON.stringify({
             action: 'create',
             title: publishTitle,
             capacity: ebTicketQuantity(norm.capacity),
+            channels: channelRefs,
           }),
         })
-        masterId = (await created.json() as { id: string }).id
-      }
-      for (const [ch, ref] of Object.entries(channelRefs) as [ChannelKey, { eventId: string; url?: string }][]) {
-        if (!ref?.eventId) continue
-        await fetch('/api/registry', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'link', masterId, channel: ch, ref }),
-        })
+        if (created.ok) {
+          const d = await created.json() as { id?: string }
+          masterId = d.id
+        }
+      } else {
+        for (const [ch, ref] of Object.entries(channelRefs) as [ChannelKey, { eventId: string; url?: string }][]) {
+          if (!ref?.eventId) continue
+          await fetch('/api/registry', {
+            method: 'POST',
+            headers: registryHeaders(),
+            body: JSON.stringify({ action: 'link', masterId, channel: ch, ref }),
+          })
+        }
       }
 
       // Pull newly created channel copies into the local store so Events shows

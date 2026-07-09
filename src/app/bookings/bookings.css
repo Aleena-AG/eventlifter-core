@@ -652,6 +652,137 @@
   opacity: 0.88;
 }
 
+.bookings-view-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 52px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--canvas);
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.12s;
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.bookings-view-btn:hover {
+  background: #ffffff;
+  border-color: color-mix(in srgb, var(--honey) 40%, var(--line));
+  color: var(--honey-d);
+  transform: translateY(-1px);
+}
+
+.bookings-detail-modal {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  max-width: 560px;
+  width: 100%;
+  max-height: min(88vh, 720px);
+  box-shadow: 0 24px 64px rgba(33, 27, 22, 0.14);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.bookings-detail-modal__body {
+  padding: 0 22px 20px;
+  overflow-y: auto;
+}
+
+.bookings-detail-section {
+  margin-top: 18px;
+}
+
+.bookings-detail-section:first-child {
+  margin-top: 0;
+}
+
+.bookings-detail-section__title {
+  margin: 0 0 10px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.bookings-detail-grid {
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.bookings-detail-row {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 10px;
+  align-items: start;
+}
+
+.bookings-detail-row dt {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.bookings-detail-row dd {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--ink);
+  word-break: break-word;
+}
+
+.bookings-detail-link {
+  color: var(--honey-d);
+  text-decoration: none;
+}
+
+.bookings-detail-link:hover {
+  text-decoration: underline;
+}
+
+.bookings-detail-tickets {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bookings-detail-ticket {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--canvas);
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  font-size: 0.8125rem;
+}
+
+.bookings-detail-ticket__name {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.bookings-detail-ticket__qty {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.bookings-detail-ticket__price {
+  color: var(--honey-d);
+  font-weight: 600;
+}
+
 .bookings-table td {
   padding: 8px 12px;
   border-bottom: 1px solid #ebe5db;
@@ -1154,6 +1285,21 @@
     border-radius: 16px 16px 0 0;
     max-height: 85vh;
     overflow-y: auto;
+  }
+
+  .bookings-detail-modal {
+    max-width: none;
+    border-radius: 16px 16px 0 0;
+    max-height: 90vh;
+  }
+
+  .bookings-detail-modal__body {
+    padding: 0 16px 16px;
+  }
+
+  .bookings-detail-row {
+    grid-template-columns: 1fr;
+    gap: 2px;
   }
 
   .bookings-notes-modal__head {

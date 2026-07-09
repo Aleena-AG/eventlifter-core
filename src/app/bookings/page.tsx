@@ -127,21 +127,17 @@ function sortBookings(items: BookingListItem[], key: SortKey, dir: SortDir): Boo
   return sorted
 }
 
-function NotesIcon() {
+function DetailRow({ label, value }: { label: string; value?: React.ReactNode }) {
+  if (value == null || value === '' || value === '—') return null
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinejoin="round"
-      />
-      <path d="M14 2v6h6M8 13h8M8 17h5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
+    <div className="bookings-detail-row">
+      <dt>{label}</dt>
+      <dd>{value}</dd>
+    </div>
   )
 }
 
-function BookingNotesModal({
+function BookingDetailModal({
   booking,
   onClose,
 }: {
@@ -156,40 +152,104 @@ function BookingNotesModal({
       role="presentation"
     >
       <div
-        className="bookings-notes-modal"
+        className="bookings-detail-modal"
         onClick={e => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="booking-notes-title"
+        aria-labelledby="booking-detail-title"
       >
         <div className="bookings-notes-modal__head">
           <div>
-            <h2 id="booking-notes-title" className="bookings-notes-modal__title">Booking Notes</h2>
+            <h2 id="booking-detail-title" className="bookings-notes-modal__title">Booking Details</h2>
             <p className="bookings-notes-modal__sub">{booking.name} · {booking.eventTitle}</p>
           </div>
           <button type="button" className="bookings-notes-modal__close" onClick={onClose} aria-label="Close">
             ✕
           </button>
         </div>
-        <div className="bookings-notes-modal__body">
+
+        <div className="bookings-detail-modal__body">
           <div className="bookings-notes-modal__meta">
             {booking.bookingId != null && (
               <span className="bookings-notes-modal__tag">#{booking.bookingId}</span>
             )}
             <span className="bookings-notes-modal__tag" style={{ color: meta.color }}>
+              <ChannelLogo channel={booking.channel} size={12} />
               {meta.label}
             </span>
             {booking.status && (
-              <span className="bookings-notes-modal__tag">{booking.status}</span>
+              <span className={`bookings-badge ${statusBadgeClass(booking.status)}`}>{booking.status}</span>
             )}
-            <span className="bookings-notes-modal__tag">{formatDate(booking.registeredAt)}</span>
-          </div>
-          <div className="bookings-notes-modal__content">
-            {booking.notes ? booking.notes : (
-              <span className="bookings-notes-modal__empty">No notes for this booking.</span>
+            {booking.paymentStatus && (
+              <span className={`bookings-badge ${paymentBadgeClass(booking.paymentStatus)}`}>{booking.paymentStatus}</span>
             )}
+            <span className="bookings-notes-modal__tag">{booking.source === 'webhook' ? 'Webhook' : 'API sync'}</span>
           </div>
+
+          <section className="bookings-detail-section">
+            <h3 className="bookings-detail-section__title">Guest</h3>
+            <dl className="bookings-detail-grid">
+              <DetailRow label="Name" value={booking.name} />
+              <DetailRow label="Email" value={booking.email !== '—' ? (
+                <a href={`mailto:${booking.email}`} className="bookings-detail-link">{booking.email}</a>
+              ) : undefined} />
+              <DetailRow label="Phone" value={booking.phone} />
+            </dl>
+          </section>
+
+          <section className="bookings-detail-section">
+            <h3 className="bookings-detail-section__title">Event</h3>
+            <dl className="bookings-detail-grid">
+              <DetailRow label="Title" value={booking.eventTitle} />
+              <DetailRow label="Date" value={formatEventDate(booking.eventStart, booking.eventEnd)} />
+              <DetailRow label="Event ID" value={booking.eventExternalId} />
+            </dl>
+          </section>
+
+          <section className="bookings-detail-section">
+            <h3 className="bookings-detail-section__title">Booking</h3>
+            <dl className="bookings-detail-grid">
+              <DetailRow label="Booked on" value={formatDate(booking.registeredAt)} />
+              <DetailRow label="Booking ID" value={booking.bookingId != null ? `#${booking.bookingId}` : booking.id} />
+              <DetailRow label="Type" value={booking.bookingType} />
+              <DetailRow label="Amount" value={formatAmount(booking)} />
+            </dl>
+          </section>
+
+          {(booking.tickets?.length || booking.ticketCount != null) && (
+            <section className="bookings-detail-section">
+              <h3 className="bookings-detail-section__title">Tickets</h3>
+              <div className="bookings-detail-tickets">
+                {booking.tickets?.length ? (
+                  booking.tickets.map((t, i) => (
+                    <div key={i} className="bookings-detail-ticket">
+                      <span className="bookings-detail-ticket__name">
+                        {t.color && <span className="bookings-ticket-dot" style={{ background: t.color }} />}
+                        {t.name}
+                      </span>
+                      <span className="bookings-detail-ticket__qty">×{t.quantity}</span>
+                      {t.unitPrice && <span className="bookings-detail-ticket__price">{t.unitPrice}</span>}
+                    </div>
+                  ))
+                ) : (
+                  <div className="bookings-detail-ticket">
+                    <span className="bookings-detail-ticket__name">
+                      {booking.ticketCount ?? 1} ticket{(booking.ticketCount ?? 1) === 1 ? '' : 's'}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {booking.notes && (
+            <section className="bookings-detail-section">
+              <h3 className="bookings-detail-section__title">Notes</h3>
+              <div className="bookings-notes-modal__content">{booking.notes}</div>
+            </section>
+          )}
         </div>
+
         <div className="bookings-notes-modal__foot">
           <button type="button" className="bookings-notes-modal__done" onClick={onClose}>
             Close
@@ -234,26 +294,12 @@ function SortHeader({
   )
 }
 
-function NotesHeaderIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinejoin="round"
-      />
-      <path d="M14 2v6h6M8 13h8M8 17h5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  )
-}
-
 function BookingCard({
   booking: b,
-  onNotes,
+  onView,
 }: {
   booking: BookingListItem
-  onNotes: (b: BookingListItem) => void
+  onView: (b: BookingListItem) => void
 }) {
   const meta = CH_META[b.channel]
   return (
@@ -343,11 +389,11 @@ function BookingCard({
             </span>
             <button
               type="button"
-              className={`bookings-notes-btn${b.notes ? ' bookings-notes-btn--has-note' : ''}`}
-              onClick={() => onNotes(b)}
-              aria-label={b.notes ? `View notes for ${b.name}` : `No notes for ${b.name}`}
+              className="bookings-view-btn"
+              onClick={() => onView(b)}
+              aria-label={`View booking for ${b.name}`}
             >
-              <NotesIcon />
+              View
             </button>
           </div>
         </div>
@@ -358,10 +404,10 @@ function BookingCard({
 
 function BookingTableRow({
   booking: b,
-  onNotes,
+  onView,
 }: {
   booking: BookingListItem
-  onNotes: (b: BookingListItem) => void
+  onView: (b: BookingListItem) => void
 }) {
   const meta = CH_META[b.channel]
   return (
@@ -449,12 +495,11 @@ function BookingTableRow({
       <td className="bookings-td--center">
         <button
           type="button"
-          className={`bookings-notes-btn${b.notes ? ' bookings-notes-btn--has-note' : ''}`}
-          onClick={() => onNotes(b)}
-          aria-label={b.notes ? `View notes for ${b.name}` : `No notes for ${b.name}`}
-          title={b.notes ? 'View notes' : 'No notes'}
+          className="bookings-view-btn"
+          onClick={() => onView(b)}
+          aria-label={`View booking for ${b.name}`}
         >
-          <NotesIcon />
+          View
         </button>
       </td>
     </tr>
@@ -469,7 +514,7 @@ export default function BookingsPage() {
   const [query, setQuery] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('booked')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
-  const [notesBooking, setNotesBooking] = useState<BookingListItem | null>(null)
+  const [detailBooking, setDetailBooking] = useState<BookingListItem | null>(null)
   const htLoggedIn = !!getUser()
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
@@ -514,13 +559,13 @@ export default function BookingsPage() {
   }, [load])
 
   useEffect(() => {
-    if (!notesBooking) return
+    if (!detailBooking) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setNotesBooking(null)
+      if (e.key === 'Escape') setDetailBooking(null)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [notesBooking])
+  }, [detailBooking])
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -572,8 +617,8 @@ export default function BookingsPage() {
 
   return (
     <div className="bookings-page">
-      {notesBooking && (
-        <BookingNotesModal booking={notesBooking} onClose={() => setNotesBooking(null)} />
+      {detailBooking && (
+        <BookingDetailModal booking={detailBooking} onClose={() => setDetailBooking(null)} />
       )}
 
       <div className="bookings-header">
@@ -717,7 +762,7 @@ export default function BookingsPage() {
 
           <div className="bookings-cards bookings-mobile-only">
             {filtered.map(b => (
-              <BookingCard key={b.id} booking={b} onNotes={setNotesBooking} />
+              <BookingCard key={b.id} booking={b} onView={setDetailBooking} />
             ))}
           </div>
 
@@ -738,17 +783,12 @@ export default function BookingsPage() {
                     <SortHeader label="Amount" sortKey="amount" activeKey={sortKey} dir={sortDir} onSort={handleSort} align="num" />
                     <SortHeader label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={handleSort} />
                     <SortHeader label="Booked" sortKey="booked" activeKey={sortKey} dir={sortDir} onSort={handleSort} />
-                    <th className="bookings-th--center bookings-th--notes">
-                      <span className="bookings-th-inner bookings-th-inner--static">
-                        <NotesHeaderIcon />
-                        <span className="bookings-th-label">Notes</span>
-                      </span>
-                    </th>
+                    <th className="bookings-th--center">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.map(b => (
-                    <BookingTableRow key={b.id} booking={b} onNotes={setNotesBooking} />
+                    <BookingTableRow key={b.id} booking={b} onView={setDetailBooking} />
                   ))}
                 </tbody>
               </table>
