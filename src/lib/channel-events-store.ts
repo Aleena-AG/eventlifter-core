@@ -31,6 +31,7 @@ export interface StoredChannelBooking {
   ticket_count: number | null
   registered_at: string
   synced_at: string
+  payload?: Record<string, unknown>
 }
 
 export async function listStoredEvents(channel: ChannelName): Promise<StoredChannelEvent[]> {

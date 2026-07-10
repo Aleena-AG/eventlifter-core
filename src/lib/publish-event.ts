@@ -1229,6 +1229,11 @@ export async function publishToAllChannels(
           channel: ch,
           ref: { eventId: ref.eventId, ticketId: ref.ticketId, url: ref.url },
         }),
+      }).then(async (res) => {
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({})) as { error?: string }
+          throw new Error(d.error || `Registry link failed for ${ch}`)
+        }
       })
       await persistPublishedEvent(ch, ev, { eventId: ref.eventId, url: ref.url })
       results[ch] = { status: 'synced', url: ref.url, eventId: ref.eventId }

@@ -3,7 +3,7 @@
 import { authHeader } from '@/lib/auth'
 import type { AttendeeRecord, MasterEventRecord } from '@/lib/event-registry'
 import { getStoredEvent, listAllStoredBookings, listStoredEvents, syncStoredBookings } from '@/lib/channel-events-store'
-import { fetchLumaGuestsForEvent } from '@/lib/bookings'
+import { fetchLumaGuestsForEvent, mapStoredBookingToListItem, type BookingListItem } from '@/lib/bookings'
 import type { ChannelKey } from '@/lib/types'
 import { CHANNEL_KEYS } from '@/lib/channels'
 
@@ -24,6 +24,8 @@ export interface EventDashboardData {
   title: string
   capacity: number
   attendees: AttendeeRecord[]
+  /** Full booking rows for attendee detail modals. */
+  bookings: BookingListItem[]
   channels: ChannelKey[]
   /** Per-channel event ids for every published platform. */
   channelIds: Partial<Record<ChannelKey, string>>
@@ -435,11 +437,77 @@ type EventBookingRow = {
   event_title?: string
 }
 
+function storedRowToBooking(b: Awaited<ReturnType<typeof listAllStoredBookings>>[number]): BookingListItem {
+  return mapStoredBookingToListItem({
+    external_id: b.external_id,
+    channel: b.channel,
+    event_title: b.event_title,
+    event_external_id: b.event_external_id,
+    guest_name: b.guest_name,
+    guest_email: b.guest_email,
+    registered_at: b.registered_at,
+    status: b.status,
+    ticket_count: b.ticket_count,
+    payload: b.payload,
+  })
+}
+
+function bookingsForAttendees(
+  attendees: AttendeeRecord[],
+  allBookings: Awaited<ReturnType<typeof listAllStoredBookings>>,
+  title: string,
+): BookingListItem[] {
+  return attendees.map((a) => {
+    const email = a.email.toLowerCase().trim()
+    const stored = allBookings.find(
+      (b) => b.guest_email.toLowerCase().trim() === email && b.channel === a.source,
+    )
+    if (stored) return storedRowToBooking(stored)
+    return {
+      id: `${a.source}-${email}`,
+      name: a.name,
+      email: a.email,
+      channel: a.source,
+      eventTitle: title,
+      registeredAt: a.registeredAt,
+      source: 'api' as const,
+    }
+  })
+}
+
+function bookingsFromEventRows(
+  rows: EventBookingRow[],
+  allBookings: Awaited<ReturnType<typeof listAllStoredBookings>>,
+): BookingListItem[] {
+  return rows.map((row) => {
+    const email = row.guest_email.toLowerCase().trim()
+    const stored = allBookings.find(
+      (b) =>
+        b.guest_email.toLowerCase().trim() === email
+        && b.channel === row.channel
+        && (b.registered_at === row.registered_at || !row.registered_at),
+    )
+    if (stored) return storedRowToBooking(stored)
+    return mapStoredBookingToListItem({
+      external_id: `${row.channel}-${email}`,
+      channel: row.channel,
+      event_title: row.event_title || '',
+      event_external_id: row.event_external_id,
+      guest_name: row.guest_name,
+      guest_email: row.guest_email,
+      registered_at: row.registered_at,
+      status: null,
+      ticket_count: row.ticket_count ?? null,
+    })
+  })
+}
+
 function filterStoredBookings(
   allBookings: Awaited<ReturnType<typeof listAllStoredBookings>>,
   channel: ChannelKey,
   eventId: string,
   title: string,
+): EventBookingRow[] {
 ): EventBookingRow[] {
   const normTitle = title.trim().toLowerCase()
   return allBookings.filter((b) => {
@@ -527,6 +595,7 @@ export async function loadEventDashboardData(
       title,
       capacity,
       attendees: masterAttendees,
+      bookings: bookingsForAttendees(masterAttendees, allBookings, title),
       channels: published.channels,
       channelIds: published.channelIds,
       channelCounts,
@@ -605,6 +674,7 @@ export async function loadEventDashboardData(
     title,
     capacity,
     attendees,
+    bookings: bookingsFromEventRows(eventBookings, allBookings),
     channels: published.channels,
     channelIds: published.channelIds,
     channelCounts,

@@ -888,6 +888,29 @@
 .ew-tagm { font-size: 10.5px; font-weight: 700; color: var(--luma); background: color-mix(in srgb, var(--luma) 12%, transparent); padding: 2px 7px; border-radius: 999px; }
 .ew-srcs { display: flex; gap: 5px; margin-top: 3px; }
 .ew-srcs span { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); }
+.ew-att-actions { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.ew-att-view-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--canvas);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+.ew-att-view-btn:hover {
+  background: #ffffff;
+  border-color: color-mix(in srgb, var(--honey) 40%, var(--line));
+  color: var(--honey-d);
+}
 
 @media (max-width: 900px) {
   .ew-root.ew-in-modal .ew-bar {

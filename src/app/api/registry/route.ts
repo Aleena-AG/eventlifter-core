@@ -50,17 +50,21 @@ export async function POST(req: NextRequest) {
       title?: string
       capacity?: number
       channel?: ChannelKey
+      channels?: Partial<Record<ChannelKey, { eventId: string; ticketId?: string; url?: string }>>
       ref?: { eventId: string; ticketId?: string; url?: string }
       attendee?: { email: string; name: string; source: ChannelKey; registeredAt?: string }
     }
 
     if (body.action === 'create') {
       const session = await requireSession(req)
-      const userId = !isErrorResponse(session) ? session.user.id : null
+      if (isErrorResponse(session)) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      }
       const master = await createMasterEvent({
         title: body.title || 'Untitled',
         capacity: body.capacity || 150,
-        userId,
+        userId: session.user.id,
+        channels: body.channels,
       })
       return NextResponse.json(master)
     }

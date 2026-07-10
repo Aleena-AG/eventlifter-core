@@ -110,6 +110,24 @@ function registryHeaders(): Record<string, string> {
   }
 }
 
+async function linkRegistryChannels(
+  masterId: string,
+  channelRefs: Partial<Record<ChannelKey, { eventId: string; url?: string; ticketId?: string }>>,
+): Promise<void> {
+  for (const [ch, ref] of Object.entries(channelRefs) as [ChannelKey, { eventId: string; url?: string; ticketId?: string }][]) {
+    if (!ref?.eventId) continue
+    const res = await fetch('/api/registry', {
+      method: 'POST',
+      headers: registryHeaders(),
+      body: JSON.stringify({ action: 'link', masterId, channel: ch, ref }),
+    })
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({})) as { error?: string }
+      throw new Error(d.error || `Registry link failed for ${ch} (HTTP ${res.status})`)
+    }
+  }
+}
+
 function parseApiError(data: Record<string, unknown>, fallback: string): string {
   const msg = data.message || data.error || data.error_description
   if (typeof msg === 'string' && msg.trim()) return msg.trim()
@@ -317,6 +335,7 @@ export function SyncModal({ open, event, onClose }: Props) {
   })
   const [connectionsLoading, setConnectionsLoading] = useState(false)
   const [existingLinks, setExistingLinks] = useState<Partial<Record<ChannelKey, { eventId: string; url?: string }>>>({})
+  const [registryWarning, setRegistryWarning] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -354,6 +373,7 @@ export function SyncModal({ open, event, onClose }: Props) {
   const handleClose = () => {
     setSelected({ hightribe: false, luma: false, eventbrite: false })
     setResults({})
+    setRegistryWarning(null)
     setPublishing(false)
     setDone(false)
     onClose()
@@ -366,6 +386,7 @@ export function SyncModal({ open, event, onClose }: Props) {
 
     setPublishing(true)
     setResults({})
+    setRegistryWarning(null)
 
     // Fetch full event from source
     let norm: NormEvent
@@ -627,30 +648,27 @@ export function SyncModal({ open, event, onClose }: Props) {
             channels: channelRefs,
           }),
         })
-        if (created.ok) {
-          const d = await created.json() as { id?: string }
-          masterId = d.id
+        const d = await created.json() as { id?: string; error?: string }
+        if (!created.ok || !d.id) {
+          throw new Error(d.error || `Registry create failed (HTTP ${created.status})`)
         }
-      } else {
-        for (const [ch, ref] of Object.entries(channelRefs) as [ChannelKey, { eventId: string; url?: string }][]) {
-          if (!ref?.eventId) continue
-          await fetch('/api/registry', {
-            method: 'POST',
-            headers: registryHeaders(),
-            body: JSON.stringify({ action: 'link', masterId, channel: ch, ref }),
-          })
-        }
+        masterId = d.id
       }
 
-      // Pull newly created channel copies into the local store so Events shows
-      // all badges immediately (avoid a full sync+prune that can drop drafts).
+      if (masterId) {
+        await linkRegistryChannels(masterId, channelRefs)
+      }
+
       const refreshTargets: Partial<Record<ChannelKey, string>> = {}
       for (const [ch, ref] of Object.entries(channelRefs) as [ChannelKey, { eventId: string }][]) {
         if (ref?.eventId) refreshTargets[ch] = ref.eventId
       }
       await refreshStoredEventsForChannels(refreshTargets).catch(() => {})
       markEventsListStale()
-    } catch { /* registry link is best-effort */ }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setRegistryWarning(`Published on channel(s) but registry link failed: ${msg}. Sign in and try sync again.`)
+    }
 
     setResults(newResults)
     setPublishing(false)
@@ -792,6 +810,20 @@ export function SyncModal({ open, event, onClose }: Props) {
               </div>
             )
           })}
+          {registryWarning && (
+            <div style={{
+              marginTop: '4px',
+              padding: '10px 12px',
+              borderRadius: '8px',
+              background: 'rgba(248,81,73,0.08)',
+              border: '1px solid rgba(248,81,73,0.25)',
+              fontSize: '12px',
+              color: '#C2502E',
+              lineHeight: 1.5,
+            }}>
+              {registryWarning}
+            </div>
+          )}
         </div>
 
         {/* Footer */}
