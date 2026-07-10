@@ -1,10 +1,13 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { BookingDetailModal, bookingForAttendee } from '@/components/bookings/BookingDetailModal'
 import { ChannelLogo } from '@/components/ChannelLogo'
 import { InlineLoader } from '@/components/Loader'
 import { CH_META } from '@/components/ewentcast/config'
 import type { AttendeeRecord } from '@/lib/event-registry'
+import type { BookingListItem } from '@/lib/bookings'
 import type { EventTicketType } from '@/lib/event-dashboard-data'
 import type { ChannelKey } from '@/lib/types'
 import '@/app/create/ewentcast.css'
@@ -47,6 +50,7 @@ interface EventLiveDashboardProps {
   title: string
   capacity: number
   attendees: AttendeeRecord[]
+  bookings?: BookingListItem[]
   channels: ChannelKey[]
   channelCounts: Partial<Record<ChannelKey, number>>
   channelRevenue?: Partial<Record<ChannelKey, number>>
@@ -73,6 +77,7 @@ export function EventLiveDashboard({
   title,
   capacity,
   attendees,
+  bookings = [],
   channels,
   channelCounts,
   channelRevenue = {},
@@ -94,6 +99,17 @@ export function EventLiveDashboard({
   loading,
   onRefresh,
 }: EventLiveDashboardProps) {
+  const [detailBooking, setDetailBooking] = useState<BookingListItem | null>(null)
+
+  useEffect(() => {
+    if (!detailBooking) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDetailBooking(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [detailBooking])
+
   const soldPct =
     ticketsSoldPct != null
       ? ticketsSoldPct
@@ -123,6 +139,9 @@ export function EventLiveDashboard({
 
   return (
     <div className="ew-root ew-embedded">
+      {detailBooking && (
+        <BookingDetailModal booking={detailBooking} onClose={() => setDetailBooking(null)} />
+      )}
       <div className="ew-wrap">
         <div className="ew-view">
           <div className="ew-live-layout">
@@ -234,7 +253,7 @@ export function EventLiveDashboard({
                     </p>
                   ) : (
                     attendees.map(a => (
-                      <div key={a.email} className="ew-att">
+                      <div key={`${a.email}-${a.source}`} className="ew-att">
                         <div className="who">
                           <span className="ava">
                             {a.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
@@ -249,7 +268,16 @@ export function EventLiveDashboard({
                             </div>
                           </div>
                         </div>
-                        <span className="ew-text-success" style={{ fontSize: 12 }}>✓ Registered</span>
+                        <div className="ew-att-actions">
+                          <button
+                            type="button"
+                            className="ew-att-view-btn"
+                            onClick={() => setDetailBooking(bookingForAttendee(a, bookings, title))}
+                          >
+                            View booking
+                          </button>
+                          <span className="ew-text-success" style={{ fontSize: 12 }}>✓ Registered</span>
+                        </div>
                       </div>
                     ))
                   )}

@@ -46,6 +46,7 @@ registryRouter.post('/', async (req, res) => {
       title?: string
       capacity?: number
       channel?: ChannelKey
+      channels?: Partial<Record<ChannelKey, { eventId: string; ticketId?: string; url?: string }>>
       ref?: { eventId: string; ticketId?: string; url?: string }
     }
 
@@ -53,6 +54,7 @@ registryRouter.post('/', async (req, res) => {
       const master = await createMasterEvent({
         title: body.title || 'Untitled',
         capacity: body.capacity || 150,
+        channels: body.channels,
       })
       return res.json(master)
     }

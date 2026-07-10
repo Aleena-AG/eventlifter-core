@@ -66,6 +66,7 @@ export async function createMasterEvent(input: {
       action: 'create',
       title: input.title,
       capacity: input.capacity,
+      channels: input.channels,
     }),
   })
 }
