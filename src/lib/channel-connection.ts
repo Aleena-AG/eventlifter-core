@@ -4,23 +4,24 @@ import { getEwentcastAccount, getHtLinkToken } from '@/lib/ewentcast-session'
 import { readHightribeBrowserToken } from '@/lib/hightribe-sso'
 import type { ChannelKey } from '@/lib/types'
 
+/** Public settings view — connection is exclusively `configured === true`. */
 export interface ChannelSettingsView {
-  luma?: { configured?: boolean }
+  luma?: { configured?: boolean; calendarId?: string; apiKey?: string }
   eventbrite?: { configured?: boolean; hasPrivateToken?: boolean }
   hightribe?: { configured?: boolean }
 }
 
 export function isLumaConnected(settings: ChannelSettingsView): boolean {
-  return !!settings.luma?.configured
+  return settings.luma?.configured === true
 }
 
 export function isEventbriteConnected(settings: ChannelSettingsView): boolean {
-  return !!(settings.eventbrite?.hasPrivateToken || settings.eventbrite?.configured)
+  return settings.eventbrite?.configured === true
 }
 
-/** Hightribe connected via PUT /api/v1/settings (apiKey), or native HT login. */
+/** Hightribe connected via PUT /api/v1/settings, or native HT login session. */
 export function isHightribeConnected(settings: ChannelSettingsView): boolean {
-  if (settings.hightribe?.configured) return true
+  if (settings.hightribe?.configured === true) return true
   const account = getEwentcastAccount()
   if (account?.auth_source === 'hightribe_native') return !!getUser()
   return false

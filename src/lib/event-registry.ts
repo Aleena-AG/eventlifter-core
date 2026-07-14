@@ -19,24 +19,29 @@ async function registryJson<T>(path: string, init?: RequestInit): Promise<T> {
     },
     cache: 'no-store',
   })
-  const data = await res.json() as T & { error?: string }
+  const raw = await res.json() as { error?: string; message?: string }
   if (!res.ok) {
-    throw new Error(typeof data.error === 'string' ? data.error : `Registry error ${res.status}`)
+    throw new Error(
+      typeof raw.message === 'string'
+        ? raw.message
+        : typeof raw.error === 'string'
+          ? raw.error
+          : `Registry error ${res.status}`,
+    )
   }
-  return data
+  const { unwrapApiData } = await import('@/lib/api-response')
+  return unwrapApiData(raw) as T
 }
 
 export async function listMasterEvents(): Promise<MasterEventRecord[]> {
-  const data = await registryJson<{ events: MasterEventRecord[] }>('/api/registry')
-  return data.events
+  const data = await registryJson<{ events?: MasterEventRecord[] } | MasterEventRecord[]>('/api/registry')
+  if (Array.isArray(data)) return data
+  return data.events || []
 }
 
 export async function getMasterEvent(id: string): Promise<MasterEventRecord | null> {
   try {
-    return await registryJson<MasterEventRecord>('/api/registry', {
-      method: 'POST',
-      body: JSON.stringify({ masterId: id }),
-    })
+    return await registryJson<MasterEventRecord>(`/api/registry/${encodeURIComponent(id)}`)
   } catch {
     return null
   }
@@ -60,15 +65,38 @@ export async function createMasterEvent(input: {
   capacity: number
   channels?: Partial<Record<ChannelKey, ChannelRef>>
 }): Promise<MasterEventRecord> {
-  return registryJson<MasterEventRecord>('/api/registry', {
-    method: 'POST',
-    body: JSON.stringify({
-      action: 'create',
+  const { createRegistryWithChannelRefs } = await import('@/lib/registry-api')
+  const channelRefs = Object.entries(input.channels || {})
+    .filter((entry): entry is [ChannelKey, ChannelRef] => {
+      const ref = entry[1]
+      return !!ref?.eventId
+    })
+    .map(([channel, ref]) => ({
+      channel,
+      eventId: ref.eventId,
+      ...(ref.ticketId ? { ticketId: ref.ticketId } : {}),
+      ...(ref.url ? { url: ref.url } : {}),
+    }))
+
+  const id = await createRegistryWithChannelRefs({
+    title: input.title,
+    capacity: input.capacity,
+    channelRefs,
+  })
+  const master = await getMasterEvent(id)
+  if (!master) {
+    return {
+      id,
       title: input.title,
       capacity: input.capacity,
-      channels: input.channels,
-    }),
-  })
+      sold: 0,
+      channels: input.channels || {},
+      attendees: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+  }
+  return master
 }
 
 export async function registerAttendee(
@@ -95,20 +123,40 @@ export async function linkChannelEvent(
   ref: ChannelRef,
 ): Promise<MasterEventRecord | null> {
   try {
-    return await registryJson<MasterEventRecord>('/api/registry', {
-      method: 'POST',
-      body: JSON.stringify({ action: 'link', masterId, channel, ref }),
+    const { updateRegistryChannelRefs } = await import('@/lib/registry-api')
+    const master = await getMasterEvent(masterId)
+    await updateRegistryChannelRefs(masterId, {
+      title: master?.title,
+      capacity: master?.capacity,
+      channelRefs: [{
+        channel,
+        eventId: ref.eventId,
+        ...(ref.ticketId ? { ticketId: ref.ticketId } : {}),
+        ...(ref.url ? { url: ref.url } : {}),
+      }],
     })
+    return getMasterEvent(masterId)
   } catch {
     return null
   }
 }
 
 export async function deleteMasterEvent(id: string): Promise<boolean> {
-  await registryJson('/api/registry', {
-    method: 'POST',
-    body: JSON.stringify({ action: 'delete', masterId: id }),
+  const res = await fetch(registryUrl(`/api/registry/${encodeURIComponent(id)}`), {
+    method: 'DELETE',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    cache: 'no-store',
   })
+  if (!res.ok) {
+    // Legacy action-based delete
+    await registryJson('/api/registry', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'delete', masterId: id }),
+    })
+  }
   return true
 }
 

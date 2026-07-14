@@ -1,7 +1,6 @@
 'use client'
 
 import { channelFetch } from '@/lib/channel-fetch'
-import { authHeader } from '@/lib/auth'
 import { syncStoredEvents } from '@/lib/channel-events-store'
 import type { ChannelKey } from '@/lib/types'
 import { buildEbTicketClass, ebTicketQuantity } from '@/lib/eventbrite-ticket'
@@ -381,8 +380,10 @@ function buildHightribeTicketsFromForm(ev: EventFormData): {
     currency,
     price: Number.isFinite(price) ? price : 0,
     quantity: cap,
-    show_ticket: true,
     booking_type: 'instant',
+    // Hightribe MySQL columns are tinyint — send 0/1, not true/false
+    show_ticket: 1,
+    show_ticket_quantity: 1,
   }
   if (ticketId) ticket.id = ticketId
 
@@ -1188,58 +1189,65 @@ export async function publishToAllChannels(
   files?: EventCoverFiles,
   existingMasterId?: string,
 ): Promise<{ masterId: string; results: PublishResults }> {
-  let masterId = existingMasterId || ''
-  if (!masterId) {
-    const masterRes = await fetch('/api/registry', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: authHeader(),
-      },
-      body: JSON.stringify({
-        action: 'create',
-        title: String(ev.title),
-        capacity: parseInt(String(ev.capacity || '150')) || 150,
-      }),
-    })
-    const master = await masterRes.json() as { id?: string; error?: string }
-    if (!masterRes.ok || !master.id) {
-      throw new Error(master.error || `Could not create master event (HTTP ${masterRes.status})`)
-    }
-    masterId = master.id
-  }
-
   const results: PublishResults = {}
+  const channelRefs: Array<{
+    channel: ChannelKey
+    eventId: string
+    ticketId?: string
+    url?: string
+  }> = []
 
+  // 1) Create on each connected channel first
   for (const ch of targets) {
     try {
       const ref = await publishToChannel(ch, ev, files)
       if (!ref.eventId) {
         throw new Error(`${ch} did not return an event id`)
       }
-      await fetch('/api/registry', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: authHeader(),
-        },
-        body: JSON.stringify({
-          action: 'link',
-          masterId,
-          channel: ch,
-          ref: { eventId: ref.eventId, ticketId: ref.ticketId, url: ref.url },
-        }),
-      }).then(async (res) => {
-        if (!res.ok) {
-          const d = await res.json().catch(() => ({})) as { error?: string }
-          throw new Error(d.error || `Registry link failed for ${ch}`)
-        }
+      channelRefs.push({
+        channel: ch,
+        eventId: ref.eventId,
+        ...(ref.ticketId ? { ticketId: ref.ticketId } : {}),
+        ...(ref.url ? { url: ref.url } : {}),
       })
       await persistPublishedEvent(ch, ev, { eventId: ref.eventId, url: ref.url })
       results[ch] = { status: 'synced', url: ref.url, eventId: ref.eventId }
     } catch (e) {
       results[ch] = { status: 'error', message: e instanceof Error ? e.message : String(e) }
     }
+  }
+
+  // 2) Register master + channel refs in one shot (remote API has no action:link)
+  const { createRegistryWithChannelRefs, updateRegistryChannelRefs } = await import('@/lib/registry-api')
+  const title = String(ev.title || 'Untitled')
+  const capacity = parseInt(String(ev.capacity || '150'), 10) || 150
+  let masterId = existingMasterId || ''
+
+  if (channelRefs.length > 0) {
+    try {
+      if (masterId) {
+        await updateRegistryChannelRefs(masterId, { title, capacity, channelRefs })
+      } else {
+        masterId = await createRegistryWithChannelRefs({ title, capacity, channelRefs })
+      }
+    } catch (regErr) {
+      // Channel publishes succeeded — surface registry failure without wiping synced lanes
+      const msg = regErr instanceof Error ? regErr.message : String(regErr)
+      for (const ch of targets) {
+        if (results[ch]?.status === 'synced') {
+          results[ch] = {
+            ...results[ch]!,
+            message: `Published on ${ch}, but registry save failed: ${msg}`,
+          }
+        }
+      }
+      if (!masterId) {
+        throw new Error(msg)
+      }
+    }
+  } else if (!masterId) {
+    // Nothing published — still create empty master so wizard has an id
+    masterId = await createRegistryWithChannelRefs({ title, capacity, channelRefs: [] })
   }
 
   try { await fetch('/api/webhooks/setup', { method: 'POST' }) } catch { /* non-fatal */ }

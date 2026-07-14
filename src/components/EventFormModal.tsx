@@ -287,7 +287,10 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
       body.tickets = ht.tickets.map(t => ({
         name: t.name, currency: 'USD',
         price: parseFloat(t.price) || 0, quantity: parseInt(t.quantity) || 0,
-        booking_type: t.bookingType || undefined, show_ticket: t.showTicket,
+        booking_type: t.bookingType || undefined,
+        // Hightribe MySQL columns are tinyint — send 0/1, not true/false
+        show_ticket: t.showTicket ? 1 : 0,
+        show_ticket_quantity: 1,
         start_date: t.startDate || undefined, end_date: t.endDate || undefined,
       }))
       body.ticketSetting = {
@@ -296,7 +299,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
         salesEndTime: ht.salesEndTime ? parseInt(ht.salesEndTime) : undefined,
         salesEndUnit: ht.salesEndTime ? ht.salesEndUnit : undefined,
       }
-      body.allow_refunds = ht.allowRefunds
+      body.allow_refunds = ht.allowRefunds ? 1 : 0
     }
 
     // Use with-tickets endpoint when creating with tickets, else standard

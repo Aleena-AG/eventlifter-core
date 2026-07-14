@@ -98,12 +98,8 @@ export async function loadDashboardStats(settings: {
   eventbrite?: { configured?: boolean; hasPrivateToken?: boolean; oauthConfigured?: boolean }
   hightribe?: { configured?: boolean }
 }): Promise<DashboardStats> {
-  const lumaConfigured = !!(settings.luma?.configured)
-  const ebConfigured = !!(
-    settings.eventbrite?.configured
-    || settings.eventbrite?.hasPrivateToken
-    || settings.eventbrite?.oauthConfigured
-  )
+  const lumaConfigured = settings.luma?.configured === true
+  const ebConfigured = settings.eventbrite?.configured === true
   const htConfigured = isHightribeConnected(settings)
 
   const res = await fetch('/api/dashboard/stats', {

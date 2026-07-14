@@ -63,8 +63,16 @@ async function del<T = unknown>(path: string): Promise<T> {
 
 export const api = {
   // Settings
-  getSettings: () => get('/api/settings'),
-  updateSettings: (patch: object) => put('/api/settings', patch),
+  getSettings: async () => {
+    const { unwrapSettingsResponse } = await import('@/lib/settings-response')
+    const raw = await get<unknown>('/api/settings')
+    return unwrapSettingsResponse(raw)
+  },
+  updateSettings: async (patch: object) => {
+    const { unwrapSettingsResponse } = await import('@/lib/settings-response')
+    const raw = await put<unknown>('/api/settings', patch)
+    return unwrapSettingsResponse(raw)
+  },
 
   // Luma
   getLumaConfig: () => get('/api/luma/users/self'),
@@ -100,11 +108,15 @@ import type { AppSettings, ConnectionsResponse, EventsResponse, EventStatusRespo
 import { channelConnectionMap } from './channel-connection'
 
 export async function getSettings(): Promise<AppSettings> {
-  return get<AppSettings>('/api/settings')
+  const { unwrapSettingsResponse } = await import('@/lib/settings-response')
+  const raw = await get<unknown>('/api/settings')
+  return unwrapSettingsResponse(raw) as unknown as AppSettings
 }
 
 export async function updateSettings(patch: Partial<AppSettings>): Promise<AppSettings> {
-  return put<AppSettings>('/api/settings', patch)
+  const { unwrapSettingsResponse } = await import('@/lib/settings-response')
+  const raw = await put<unknown>('/api/settings', patch)
+  return unwrapSettingsResponse(raw) as unknown as AppSettings
 }
 
 export async function getLumaConfig(): Promise<unknown> {

@@ -111,21 +111,26 @@ function registryHeaders(): Record<string, string> {
 }
 
 async function linkRegistryChannels(
-  masterId: string,
+  masterId: string | undefined,
+  title: string,
+  capacity: number,
   channelRefs: Partial<Record<ChannelKey, { eventId: string; url?: string; ticketId?: string }>>,
-): Promise<void> {
-  for (const [ch, ref] of Object.entries(channelRefs) as [ChannelKey, { eventId: string; url?: string; ticketId?: string }][]) {
-    if (!ref?.eventId) continue
-    const res = await fetch('/api/registry', {
-      method: 'POST',
-      headers: registryHeaders(),
-      body: JSON.stringify({ action: 'link', masterId, channel: ch, ref }),
-    })
-    if (!res.ok) {
-      const d = await res.json().catch(() => ({})) as { error?: string }
-      throw new Error(d.error || `Registry link failed for ${ch} (HTTP ${res.status})`)
-    }
+): Promise<string> {
+  const { createRegistryWithChannelRefs, updateRegistryChannelRefs } = await import('@/lib/registry-api')
+  const refs = (Object.entries(channelRefs) as [ChannelKey, { eventId: string; url?: string; ticketId?: string }][])
+    .filter(([, ref]) => !!ref?.eventId)
+    .map(([channel, ref]) => ({
+      channel,
+      eventId: ref.eventId,
+      ...(ref.ticketId ? { ticketId: ref.ticketId } : {}),
+      ...(ref.url ? { url: ref.url } : {}),
+    }))
+
+  if (masterId) {
+    await updateRegistryChannelRefs(masterId, { title, capacity, channelRefs: refs })
+    return masterId
   }
+  return createRegistryWithChannelRefs({ title, capacity, channelRefs: refs })
 }
 
 function parseApiError(data: Record<string, unknown>, fallback: string): string {
@@ -629,35 +634,23 @@ export function SyncModal({ open, event, onClose }: Props) {
     try {
       channelRefs[source] = { eventId: String(event.id) }
       let masterId: string | undefined
+      const { extractRegistryMasterId, unwrapApiData } = await import('@/lib/api-response')
       const lookup = await fetch(
         `/api/registry?channel=${source}&eventId=${encodeURIComponent(String(event.id))}`,
         { headers: registryHeaders() },
       )
       if (lookup.ok) {
-        const d = await lookup.json() as { master?: { id: string } }
-        masterId = d.master?.id
-      }
-      if (!masterId) {
-        const created = await fetch('/api/registry', {
-          method: 'POST',
-          headers: registryHeaders(),
-          body: JSON.stringify({
-            action: 'create',
-            title: publishTitle,
-            capacity: ebTicketQuantity(norm.capacity),
-            channels: channelRefs,
-          }),
-        })
-        const d = await created.json() as { id?: string; error?: string }
-        if (!created.ok || !d.id) {
-          throw new Error(d.error || `Registry create failed (HTTP ${created.status})`)
-        }
-        masterId = d.id
+        const raw = await lookup.json()
+        const d = unwrapApiData<{ master?: { id: string } }>(raw)
+        masterId = d.master?.id || extractRegistryMasterId(raw) || undefined
       }
 
-      if (masterId) {
-        await linkRegistryChannels(masterId, channelRefs)
-      }
+      masterId = await linkRegistryChannels(
+        masterId,
+        publishTitle,
+        ebTicketQuantity(norm.capacity),
+        channelRefs,
+      )
 
       const refreshTargets: Partial<Record<ChannelKey, string>> = {}
       for (const [ch, ref] of Object.entries(channelRefs) as [ChannelKey, { eventId: string }][]) {

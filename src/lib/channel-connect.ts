@@ -1,5 +1,6 @@
 import { authHeader, clearAuth, isAuthErrorMessage } from '@/lib/auth'
 import type { ChannelKey } from '@/lib/types'
+import { unwrapSettingsResponse } from '@/lib/settings-response'
 
 export type LumaConnectBody = {
   apiKey: string
@@ -22,7 +23,7 @@ export type HightribeConnectBody = {
   webhookSecret?: string
 }
 
-async function putSettings(patch: Record<string, unknown>): Promise<unknown> {
+async function putSettings(patch: Record<string, unknown>): Promise<ReturnType<typeof unwrapSettingsResponse>> {
   const res = await fetch('/api/settings', {
     method: 'PUT',
     headers: {
@@ -44,7 +45,7 @@ async function putSettings(patch: Record<string, unknown>): Promise<unknown> {
   if (!res.ok) {
     throw new Error(data.message || data.error || `HTTP ${res.status}`)
   }
-  return data
+  return unwrapSettingsResponse(data)
 }
 
 async function deleteChannelSettings(channel: ChannelKey): Promise<void> {

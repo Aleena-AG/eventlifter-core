@@ -16,7 +16,7 @@ import './channels.css'
 
 type SafeSettings = {
   luma?: { configured?: boolean }
-  eventbrite?: { hasPrivateToken?: boolean; configured?: boolean }
+  eventbrite?: { configured?: boolean }
   hightribe?: { configured?: boolean }
 }
 

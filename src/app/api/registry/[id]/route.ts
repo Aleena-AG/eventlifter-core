@@ -5,7 +5,23 @@ export const runtime = 'nodejs'
 
 type RouteContext = { params: Promise<{ id: string }> }
 
-export async function GET(req: NextRequest, ctx: RouteContext) {
+async function forward(req: NextRequest, ctx: RouteContext) {
   const { id } = await ctx.params
   return proxyToBackend(req, `registry/${encodeURIComponent(id)}`)
+}
+
+export async function GET(req: NextRequest, ctx: RouteContext) {
+  return forward(req, ctx)
+}
+
+export async function PUT(req: NextRequest, ctx: RouteContext) {
+  return forward(req, ctx)
+}
+
+export async function PATCH(req: NextRequest, ctx: RouteContext) {
+  return forward(req, ctx)
+}
+
+export async function DELETE(req: NextRequest, ctx: RouteContext) {
+  return forward(req, ctx)
 }

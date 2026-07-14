@@ -6,12 +6,14 @@ import { useSearchParams } from 'next/navigation'
 import { api } from '@/lib/api'
 import { Toast, useToast } from '@/components/Toast'
 import { InlineLoader, PageLoader } from '@/components/Loader'
-import { getUser, getToken, authHeader } from '@/lib/auth'
+import { getUser, getToken } from '@/lib/auth'
 import type { HtUser } from '@/lib/auth'
 import { ChannelLogo } from '@/components/ChannelLogo'
 import { HIGHTRIBE_COLOR, LUMA_COLOR, EVENTBRITE_COLOR } from '@/lib/brand'
 import { ConnectHightribeSection } from '@/components/ConnectHightribeSection'
+import { ConnectLumaSection } from '@/components/ConnectLumaSection'
 import { disconnectChannelIntegration } from '@/lib/channel-disconnect'
+import { connectLuma, syncChannelFromApi } from '@/lib/channel-connect'
 import { effectiveEventbriteRedirectUri } from '@/lib/app-url'
 import { useAppUrl, useEventbriteRedirectUri } from '@/lib/use-app-url'
 import { useRouter } from 'next/navigation'
@@ -53,10 +55,11 @@ const BTN_DISCONNECT: React.CSSProperties = {
 
 // ─── SectionCard ──────────────────────────────────────────────────────────────
 
-function SectionCard({ title, icon, channel, children }: {
+function SectionCard({ title, icon, channel, connected, children }: {
   title: string
   icon?: string
   channel?: ChannelKey
+  connected?: boolean
   children: React.ReactNode
 }) {
   return (
@@ -72,7 +75,16 @@ function SectionCard({ title, icon, channel, children }: {
         {channel
           ? <ChannelLogo channel={channel} size={26} />
           : <span style={{ fontSize: '17px' }}>{icon}</span>}
-        <span style={{ fontSize: '14px', fontWeight: 600, color: '#211B16' }}>{title}</span>
+        <span style={{ fontSize: '14px', fontWeight: 600, color: '#211B16', flex: 1 }}>{title}</span>
+        {connected && (
+          <span style={{
+            fontSize: '11px', padding: '3px 10px', borderRadius: '20px',
+            background: 'rgba(63,185,80,0.1)', border: '1px solid rgba(63,185,80,0.3)',
+            color: '#4E7A4B', fontWeight: 600, whiteSpace: 'nowrap',
+          }}>
+            ✓ Connected
+          </span>
+        )}
       </div>
       <div style={{ padding: '20px' }}>{children}</div>
     </div>
@@ -483,34 +495,49 @@ type LumaSettingsView = {
   apiKey?: string
   calendarId?: string
   configured?: boolean
+  hasApiKey?: boolean
   apiBaseUrl?: string
   discoverBaseUrl?: string
 }
 
 type SettingsShape = {
-  eventbrite?: Record<string, string>
+  eventbrite?: Record<string, string | boolean | undefined>
   luma?: LumaSettingsView
-  hightribe?: Record<string, string>
+  hightribe?: Record<string, string | boolean | undefined>
+}
+
+function pickStr(...vals: unknown[]): string {
+  for (const v of vals) {
+    if (typeof v === 'string' && v.trim()) return v.trim()
+  }
+  return ''
 }
 
 function sanitizeLoadedSettings(data: SettingsShape): SettingsShape {
-  const luma = data.luma || {}
-  const apiKey = luma.apiKey || ''
+  const raw = (data.luma || {}) as Record<string, unknown>
+  const apiKeyRaw = pickStr(raw.apiKey, raw.api_key)
+  const calendarId = pickStr(raw.calendarId, raw.calendar_id)
+  // API contract: connected iff configured === true (do not invent it from other fields).
+  const configured = raw.configured === true
   return {
     ...data,
     luma: {
-      ...luma,
-      apiKey: apiKey.includes('*') ? '' : apiKey,
+      apiBaseUrl: pickStr(raw.apiBaseUrl, raw.api_base_url) || undefined,
+      discoverBaseUrl: pickStr(raw.discoverBaseUrl, raw.discover_base_url) || undefined,
+      calendarId,
+      // Never show masked secrets in the input.
+      apiKey: apiKeyRaw.includes('*') ? '' : apiKeyRaw,
+      configured,
+    },
+    eventbrite: {
+      ...(data.eventbrite || {}),
+      configured: data.eventbrite?.configured === true,
+    },
+    hightribe: {
+      ...(data.hightribe || {}),
+      configured: data.hightribe?.configured === true,
     },
   }
-}
-
-function extractLumaCalendarId(data?: { calendar?: Record<string, unknown> }): string {
-  const cal = data?.calendar
-  if (!cal) return ''
-  const inner = (cal as { calendar?: { api_id?: string } }).calendar
-  if (inner?.api_id) return inner.api_id
-  return (cal as { api_id?: string }).api_id || ''
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -556,69 +583,68 @@ export default function SettingsPage() {
 
   useEffect(() => { loadSettings() }, [loadSettings])
 
-  const updateSection = (section: keyof SettingsShape, key: string, value: string) => {
+  const updateSection = (section: 'eventbrite' | 'hightribe', key: string, value: string) => {
     setSettings((prev) => ({ ...prev, [section]: { ...(prev[section] || {}), [key]: value } }))
   }
 
-  const saveSection = async (section: keyof SettingsShape) => {
+  const saveLumaConnection = async (apiKey: string, calendarId: string) => {
+    if (!getToken()) {
+      toast.error('Sign in to Ewentcast first')
+      throw new Error('Sign in to Ewentcast first')
+    }
+    setSaving('luma')
+    try {
+      const saved = await connectLuma({
+        apiKey,
+        calendarId: calendarId || undefined,
+        apiBaseUrl: settings.luma?.apiBaseUrl || 'https://public-api.luma.com',
+        discoverBaseUrl: settings.luma?.discoverBaseUrl || 'https://api.lu.ma',
+      })
+      const savedLuma = (saved as { luma?: LumaSettingsView })?.luma
+      setSettings((prev) => sanitizeLoadedSettings({
+        ...prev,
+        luma: {
+          ...(prev.luma || {}),
+          ...(savedLuma || {}),
+          apiKey: '',
+          calendarId: savedLuma?.calendarId || calendarId,
+          configured: true,
+        },
+      }))
+      toast.success('Luma connected')
+      try {
+        await syncChannelFromApi('luma')
+      } catch {
+        // connect succeeded; sync is best-effort
+      }
+      await loadSettings()
+    } catch (err) {
+      toast.error(`Save failed: ${err instanceof Error ? err.message : String(err)}`)
+      throw err
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  const saveSection = async (section: 'eventbrite' | 'hightribe') => {
     if (!getToken()) {
       toast.error('Sign in to Ewentcast first')
       return
     }
     setSaving(section)
     try {
-      if (section === 'luma') {
-        const key = settings.luma?.apiKey?.trim() || ''
-        const configured = !!settings.luma?.configured
-        if (!key && !configured) {
-          toast.error('Paste your Luma API key first')
-          return
-        }
-        let calendarId = settings.luma?.calendarId || ''
-        if (key) {
-          const res = await fetch('/api/luma/verify-key', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: authHeader(),
-            },
-            body: JSON.stringify({ apiKey: key }),
-          })
-          const json = await res.json() as {
-            status: string
-            message?: string
-            data?: { calendar?: Record<string, unknown> }
-          }
-          if (!res.ok || json.status === 'error') {
-            throw new Error(json.message || 'Invalid Luma API key')
-          }
-          calendarId = extractLumaCalendarId(json.data) || calendarId
-        }
-        await api.updateSettings({
-          luma: {
-            ...(key ? { apiKey: key } : {}),
-            calendarId,
-            apiBaseUrl: settings.luma?.apiBaseUrl || 'https://public-api.luma.com',
-            discoverBaseUrl: settings.luma?.discoverBaseUrl || 'https://api.lu.ma',
-          },
-        })
-        toast.success('luma settings saved')
-        await loadSettings()
-        return
-      }
-
       const patch =
         section === 'eventbrite'
             ? {
                 eventbrite: {
-                  clientId: settings.eventbrite?.clientId || '',
-                  clientSecret: settings.eventbrite?.clientSecret || '',
+                  clientId: String(settings.eventbrite?.clientId || ''),
+                  clientSecret: String(settings.eventbrite?.clientSecret || ''),
                   redirectUri: effectiveEventbriteRedirectUri(
-                    settings.eventbrite?.redirectUri,
+                    String(settings.eventbrite?.redirectUri || ''),
                     eventbriteRedirect,
                   ),
-                  privateToken: settings.eventbrite?.privateToken || '',
-                  publicToken: settings.eventbrite?.publicToken || '',
+                  privateToken: String(settings.eventbrite?.privateToken || ''),
+                  publicToken: String(settings.eventbrite?.publicToken || ''),
                 },
               }
             : { hightribe: settings.hightribe || {} }
@@ -665,44 +691,16 @@ export default function SettingsPage() {
     }
   }
 
-  const testLuma = async () => {
-    if (!getToken()) {
-      toast.error('Sign in to Ewentcast first')
-      return
-    }
-    const key = settings.luma?.apiKey?.trim() || ''
-    const configured = !!settings.luma?.configured
-    if (!key && !configured) {
-      toast.error('Enter your Luma API key first')
-      return
-    }
-    setTesting('luma')
-    try {
-      const res = await fetch('/api/luma/verify-key', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: authHeader(),
-        },
-        body: JSON.stringify(key ? { apiKey: key } : {}),
-      })
-      const json = await res.json() as { status: string; message?: string }
-      if (!res.ok || json.status === 'error') throw new Error(json.message || 'Invalid API key')
-      toast.success('Luma connection OK')
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      toast.error(msg.startsWith('Test failed:') ? msg : `Test failed: ${msg}`)
-    } finally {
-      setTesting(null)
-    }
-  }
-
   const DEFAULT_REDIRECT = eventbriteRedirect
   const eb = settings.eventbrite || {}
-  const ebRedirectDisplay = effectiveEventbriteRedirectUri(eb.redirectUri, eventbriteRedirect)
+  const ebRedirectDisplay = effectiveEventbriteRedirectUri(
+    String(eb.redirectUri || ''),
+    eventbriteRedirect,
+  )
   const lu = settings.luma || {}
-  const ebConnected = !!eb.privateToken
-  const luConnected = !!lu.configured || !!lu.apiKey
+  const ebConnected = settings.eventbrite?.configured === true
+  const luConnected = lu.configured === true
+  const htConnected = settings.hightribe?.configured === true || !!htUser
 
   const showEventbrite = !focusChannel || focusChannel === 'eventbrite'
   const showLuma = !focusChannel || focusChannel === 'luma'
@@ -759,7 +757,7 @@ export default function SettingsPage() {
       {loading ? <PageLoader label="Loading settings…" /> : (
         <>
           {showEventbrite && (
-          <SectionCard title="Eventbrite" channel="eventbrite">
+          <SectionCard title="Eventbrite" channel="eventbrite" connected={ebConnected}>
             <div className="settings-channel-layout">
               <div className="settings-channel-layout__guide">
                 <StepGuide steps={EVENTBRITE_STEPS} color={EVENTBRITE_COLOR} title="How to connect Eventbrite" />
@@ -772,13 +770,13 @@ export default function SettingsPage() {
                 <div>
                   <label style={LABEL}>Client ID</label>
                   <input style={INPUT} type="text" placeholder="Client ID"
-                    value={eb.clientId || ''}
+                    value={String(eb.clientId || '')}
                     onChange={(e) => updateSection('eventbrite', 'clientId', e.target.value)} />
                 </div>
                 <div>
                   <label style={LABEL}>Client Secret</label>
                   <input style={INPUT} type="password" placeholder="Client Secret"
-                    value={eb.clientSecret || ''}
+                    value={String(eb.clientSecret || '')}
                     onChange={(e) => updateSection('eventbrite', 'clientSecret', e.target.value)} />
                 </div>
               </div>
@@ -795,13 +793,13 @@ export default function SettingsPage() {
                 <div>
                   <label style={LABEL}>Private Token</label>
                   <input style={INPUT} type="password" placeholder="Private Token"
-                    value={eb.privateToken || ''}
+                    value={String(eb.privateToken || '')}
                     onChange={(e) => updateSection('eventbrite', 'privateToken', e.target.value)} />
                 </div>
                 <div>
                   <label style={LABEL}>Public Token</label>
                   <input style={INPUT} type="text" placeholder="Public Token"
-                    value={eb.publicToken || ''}
+                    value={String(eb.publicToken || '')}
                     onChange={(e) => updateSection('eventbrite', 'publicToken', e.target.value)} />
                 </div>
               </div>
@@ -831,48 +829,39 @@ export default function SettingsPage() {
           )}
 
           {showLuma && (
-          <SectionCard title="Luma" channel="luma">
+          <SectionCard title="Luma" channel="luma" connected={luConnected}>
             <div className="settings-channel-layout">
               <div className="settings-channel-layout__guide">
                 <StepGuide steps={LUMA_STEPS} color={LUMA_COLOR} title="How to connect Luma" />
               </div>
               <div className="settings-channel-layout__form">
-                <p className="settings-form-heading">Paste your credentials here</p>
+                <p className="settings-form-heading">
+                  {luConnected ? 'Your Luma account' : 'Enter API key and Calendar ID'}
+                </p>
                 <div className="settings-form-fields">
-              <div className="settings-grid-2">
-                <div>
-                  <label style={LABEL}>API Key</label>
-                  <input style={INPUT} type="password"
-                    placeholder={luConnected && !lu.apiKey ? '•••••••••••• (saved — paste to replace)' : 'Luma Plus API Key'}
-                    value={lu.apiKey || ''}
-                    onChange={(e) => updateSection('luma', 'apiKey', e.target.value)} />
-                </div>
-                <div>
-                  <label style={LABEL}>Calendar ID</label>
-                  <input style={INPUT} type="text" placeholder="cal-xxxxx"
-                    value={lu.calendarId || ''}
-                    onChange={(e) => updateSection('luma', 'calendarId', e.target.value)} />
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                <button onClick={() => saveSection('luma')} disabled={saving === 'luma'}
-                  style={{ ...BTN_PRIMARY, opacity: saving === 'luma' ? 0.6 : 1 }}>
-                  {saving === 'luma' ? <InlineLoader label="Saving" /> : 'Save'}
-                </button>
-                <button onClick={testLuma} disabled={testing === 'luma'}
-                  style={{ ...BTN_GHOST, opacity: testing === 'luma' ? 0.6 : 1 }}>
-                  {testing === 'luma' ? 'Testing…' : 'Test Connection'}
-                </button>
-                {luConnected && (
-                  <button
-                    onClick={() => disconnectSection('luma')}
-                    disabled={disconnecting === 'luma'}
-                    style={{ ...BTN_DISCONNECT, opacity: disconnecting === 'luma' ? 0.6 : 1 }}
-                  >
-                    {disconnecting === 'luma' ? <InlineLoader label="…" /> : 'Disconnect'}
-                  </button>
-                )}
-              </div>
+                  <ConnectLumaSection
+                    apiKey={lu.apiKey || ''}
+                    calendarId={lu.calendarId || ''}
+                    configured={luConnected}
+                    saving={saving === 'luma' || disconnecting === 'luma'}
+                    onSave={saveLumaConnection}
+                    onDisconnect={async () => {
+                      if (!window.confirm('Disconnect Luma?')) return
+                      setDisconnecting('luma')
+                      try {
+                        const result = await disconnectChannelIntegration('luma')
+                        if (result === 'session') {
+                          toast.success('Signed out')
+                          router.replace('/login')
+                          return
+                        }
+                        toast.success('Luma disconnected')
+                        await loadSettings()
+                      } finally {
+                        setDisconnecting(null)
+                      }
+                    }}
+                  />
                 </div>
               </div>
             </div>
@@ -880,7 +869,7 @@ export default function SettingsPage() {
           )}
 
           {showHightribe && (
-          <SectionCard title="Hightribe" channel="hightribe">
+          <SectionCard title="Hightribe" channel="hightribe" connected={htConnected}>
             {htUser && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: 12 }}>
                 <div style={{

@@ -1,11 +1,13 @@
 import { backendJson } from '@/lib/backend-client'
 import {
-  applyEnvOverrides,
   isMaskedSecret,
-  loadFromEnv,
   loadSettings,
   type AppSettings,
 } from '@/lib/settings-store'
+import {
+  settingsPayloadToAppPartial,
+  unwrapSettingsResponse,
+} from '@/lib/settings-response'
 
 export class SessionRequiredError extends Error {
   constructor(message = 'Session expired. Sign in again.') {
@@ -14,8 +16,13 @@ export class SessionRequiredError extends Error {
   }
 }
 
-function withEnvOverrides(settings: AppSettings): AppSettings {
-  return applyEnvOverrides(settings, loadFromEnv())
+function mergeFullSettings(payload: ReturnType<typeof settingsPayloadToAppPartial>): AppSettings {
+  const fallback = loadSettings()
+  return {
+    eventbrite: { ...fallback.eventbrite, ...(payload.eventbrite || {}) },
+    luma: { ...fallback.luma, ...(payload.luma || {}) },
+    hightribe: { ...fallback.hightribe, ...(payload.hightribe || {}) },
+  }
 }
 
 function sanitizeSecrets(settings: AppSettings): AppSettings {
@@ -25,25 +32,27 @@ function sanitizeSecrets(settings: AppSettings): AppSettings {
     hightribe: { ...settings.hightribe },
   }
   if (isMaskedSecret(out.luma.apiKey)) out.luma.apiKey = ''
+  if (isMaskedSecret(out.eventbrite.privateToken)) out.eventbrite.privateToken = ''
+  if (isMaskedSecret(out.eventbrite.clientSecret)) out.eventbrite.clientSecret = ''
+  if (isMaskedSecret(out.hightribe.apiKey)) out.hightribe.apiKey = ''
   return out
 }
 
 /** Resolve channel keys for API proxies — per-user settings from remote API when authenticated. */
 export async function resolveAppSettings(authorization?: string | null): Promise<AppSettings> {
-  const fallback = loadSettings()
   const auth = authorization?.trim()
-  if (!auth) return fallback
+  if (!auth) {
+    // No session: local/dev file settings only (never shared across users).
+    return loadSettings()
+  }
 
   try {
-    const settings = await backendJson<AppSettings>('settings?full=1', {
+    const raw = await backendJson<unknown>('settings?full=1', {
       headers: { Authorization: auth },
     })
-    const userSettings = withEnvOverrides(sanitizeSecrets(settings))
-    if (!userSettings.luma.apiKey?.trim() && fallback.luma.apiKey?.trim()) {
-      userSettings.luma.apiKey = fallback.luma.apiKey
-      if (!userSettings.luma.calendarId) userSettings.luma.calendarId = fallback.luma.calendarId
-    }
-    return userSettings
+    const payload = unwrapSettingsResponse(raw)
+    // Authenticated users only use their own stored keys — no env / settings.json fallback.
+    return sanitizeSecrets(mergeFullSettings(settingsPayloadToAppPartial(payload)))
   } catch (e) {
     console.warn('[resolveAppSettings] remote settings load failed:', e instanceof Error ? e.message : e)
     throw new SessionRequiredError()
