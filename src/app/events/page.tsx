@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { channelFetch } from '@/lib/channel-fetch'
+import { authHeader } from '@/lib/auth'
 import { getEwentcastAccount, isEwentcastSignupUser } from '@/lib/ewentcast-session'
 import { fetchChannelConnectionMap } from '@/lib/channel-connection'
 import { deleteStoredEvent, listStoredEvents } from '@/lib/channel-events-store'
@@ -1071,14 +1072,21 @@ export default function EventsPage() {
     try {
       const res = await fetch(
         `/api/registry?channel=${channel}&eventId=${encodeURIComponent(String(id))}`,
+        { headers: { Authorization: authHeader(), Accept: 'application/json' } },
       )
       if (res.ok) {
-        const data = await res.json() as { master?: { id: string } }
-        if (data.master?.id) {
-          await fetch('/api/registry', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'delete', masterId: data.master.id }),
+        const { unwrapApiData, extractRegistryMasterId } = await import('@/lib/api-response')
+        const raw = await res.json()
+        const data = unwrapApiData<{ master?: { id: string } }>(raw)
+        const masterId = data.master?.id || extractRegistryMasterId(raw)
+        if (masterId) {
+          // DELETE /api/v1/registry/:id
+          await fetch(`/api/registry/${encodeURIComponent(masterId)}`, {
+            method: 'DELETE',
+            headers: {
+              Authorization: authHeader(),
+              Accept: 'application/json',
+            },
           })
         }
       }
@@ -1153,14 +1161,20 @@ export default function EventsPage() {
       try {
         const res = await fetch(
           `/api/registry?channel=${evt.channel}&eventId=${encodeURIComponent(String(evt.id))}`,
+          { headers: { Authorization: authHeader(), Accept: 'application/json' } },
         )
         if (res.ok) {
-          const data = await res.json() as { master?: { id: string } }
-          if (data.master?.id) {
-            await fetch('/api/registry', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'delete', masterId: data.master.id }),
+          const { unwrapApiData, extractRegistryMasterId } = await import('@/lib/api-response')
+          const raw = await res.json()
+          const data = unwrapApiData<{ master?: { id: string } }>(raw)
+          const masterId = data.master?.id || extractRegistryMasterId(raw)
+          if (masterId) {
+            await fetch(`/api/registry/${encodeURIComponent(masterId)}`, {
+              method: 'DELETE',
+              headers: {
+                Authorization: authHeader(),
+                Accept: 'application/json',
+              },
             })
           }
         }

@@ -1,5 +1,6 @@
 import type { ChannelKey } from '@/lib/types'
 import { getAppUrl } from '@/lib/app-url'
+import { authHeader } from '@/lib/auth'
 import type { AttendeeRecord, ChannelRef, MasterEventRecord } from '@/lib/event-registry-types'
 
 export type { AttendeeRecord, ChannelRef, MasterEventRecord } from '@/lib/event-registry-types'
@@ -9,14 +10,20 @@ function registryUrl(path: string): string {
   return `${getAppUrl()}${path}`
 }
 
+function withAuthHeaders(init?: RequestInit): HeadersInit {
+  const auth = typeof window !== 'undefined' ? authHeader() : ''
+  return {
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+    ...(auth ? { Authorization: auth } : {}),
+    ...(init?.headers as Record<string, string> | undefined),
+  }
+}
+
 async function registryJson<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(registryUrl(path), {
     ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      ...(init?.headers as Record<string, string> | undefined),
-    },
+    headers: withAuthHeaders(init),
     cache: 'no-store',
   })
   const raw = await res.json() as { error?: string; message?: string }
@@ -39,6 +46,7 @@ export async function listMasterEvents(): Promise<MasterEventRecord[]> {
   return data.events || []
 }
 
+/** GET /api/v1/registry/:id */
 export async function getMasterEvent(id: string): Promise<MasterEventRecord | null> {
   try {
     return await registryJson<MasterEventRecord>(`/api/registry/${encodeURIComponent(id)}`)
@@ -99,41 +107,18 @@ export async function createMasterEvent(input: {
   return master
 }
 
+/** POST /api/v1/registry/:id/attendees */
 export async function registerAttendee(
   masterId: string,
   attendee: Omit<AttendeeRecord, 'registeredAt'> & { registeredAt?: string },
 ): Promise<MasterEventRecord | null> {
-  return registryJson<MasterEventRecord>('/api/registry', {
-    method: 'POST',
-    body: JSON.stringify({
-      action: 'register_attendee',
-      masterId,
-      attendee: {
-        ...attendee,
-        email: attendee.email.toLowerCase().trim(),
-        registeredAt: attendee.registeredAt || new Date().toISOString(),
-      },
-    }),
-  }).catch(() => null)
-}
-
-export async function linkChannelEvent(
-  masterId: string,
-  channel: ChannelKey,
-  ref: ChannelRef,
-): Promise<MasterEventRecord | null> {
   try {
-    const { updateRegistryChannelRefs } = await import('@/lib/registry-api')
-    const master = await getMasterEvent(masterId)
-    await updateRegistryChannelRefs(masterId, {
-      title: master?.title,
-      capacity: master?.capacity,
-      channelRefs: [{
-        channel,
-        eventId: ref.eventId,
-        ...(ref.ticketId ? { ticketId: ref.ticketId } : {}),
-        ...(ref.url ? { url: ref.url } : {}),
-      }],
+    const { registerRegistryAttendee } = await import('@/lib/registry-api')
+    await registerRegistryAttendee(masterId, {
+      email: attendee.email,
+      name: attendee.name,
+      source: attendee.source,
+      registeredAt: attendee.registeredAt,
     })
     return getMasterEvent(masterId)
   } catch {
@@ -141,32 +126,43 @@ export async function linkChannelEvent(
   }
 }
 
-export async function deleteMasterEvent(id: string): Promise<boolean> {
-  const res = await fetch(registryUrl(`/api/registry/${encodeURIComponent(id)}`), {
-    method: 'DELETE',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    },
-    cache: 'no-store',
-  })
-  if (!res.ok) {
-    // Legacy action-based delete
-    await registryJson('/api/registry', {
-      method: 'POST',
-      body: JSON.stringify({ action: 'delete', masterId: id }),
+/** POST /api/v1/registry/:id/channels */
+export async function linkChannelEvent(
+  masterId: string,
+  channel: ChannelKey,
+  ref: ChannelRef,
+): Promise<MasterEventRecord | null> {
+  try {
+    const { linkRegistryChannel } = await import('@/lib/registry-api')
+    await linkRegistryChannel(masterId, {
+      channel,
+      eventId: ref.eventId,
+      ...(ref.ticketId ? { ticketId: ref.ticketId } : {}),
+      ...(ref.url ? { url: ref.url } : {}),
     })
+    return getMasterEvent(masterId)
+  } catch {
+    return null
   }
+}
+
+/** DELETE /api/v1/registry/:id */
+export async function deleteMasterEvent(id: string): Promise<boolean> {
+  const { deleteRegistryById } = await import('@/lib/registry-api')
+  await deleteRegistryById(id)
   return true
 }
 
+/** DELETE /api/v1/registry/:id/channels/:channel */
 export async function removeChannelFromMaster(
   masterId: string,
   channel: ChannelKey,
 ): Promise<MasterEventRecord | null> {
-  const data = await registryJson<{ ok: boolean; master: MasterEventRecord | null }>('/api/registry', {
-    method: 'POST',
-    body: JSON.stringify({ action: 'unlink', masterId, channel }),
-  })
-  return data.master
+  try {
+    const { unlinkRegistryChannel } = await import('@/lib/registry-api')
+    await unlinkRegistryChannel(masterId, channel)
+    return getMasterEvent(masterId)
+  } catch {
+    return null
+  }
 }

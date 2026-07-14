@@ -5,7 +5,17 @@ export const runtime = 'nodejs'
 
 type RouteContext = { params: Promise<{ id: string }> }
 
-export async function GET(req: NextRequest, ctx: RouteContext) {
+async function forward(req: NextRequest, ctx: RouteContext) {
   const { id } = await ctx.params
   return proxyToBackend(req, `registry/${encodeURIComponent(id)}/attendees`)
+}
+
+/** GET /api/v1/registry/:id/attendees */
+export async function GET(req: NextRequest, ctx: RouteContext) {
+  return forward(req, ctx)
+}
+
+/** POST /api/v1/registry/:id/attendees — { email, name, source } */
+export async function POST(req: NextRequest, ctx: RouteContext) {
+  return forward(req, ctx)
 }

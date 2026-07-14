@@ -61,7 +61,7 @@ export async function syncCapacityAcrossChannels(
 }
 
 /**
- * Persist booking via remote API registry action, then sync capacity across channels.
+ * Persist booking via POST /api/v1/registry/attendees/by-channel, then sync capacity.
  */
 export async function handleBookingWebhook(
   sourceChannel: ChannelKey,
@@ -73,21 +73,23 @@ export async function handleBookingWebhook(
   bookingSaved?: boolean
 }> {
   try {
-    const master = await backendJson<MasterEventRecord>('registry', {
+    const raw = await backendJson<MasterEventRecord | { master?: MasterEventRecord }>('registry/attendees/by-channel', {
       method: 'POST',
       body: JSON.stringify({
-        action: 'register_attendee_by_channel',
         channel: sourceChannel,
         eventId: channelEventId,
-        attendee: {
-          email: attendee.email,
-          name: attendee.name,
-          source: sourceChannel,
-          registeredAt: attendee.registeredAt || new Date().toISOString(),
-          externalId: attendee.externalId,
-        },
+        email: attendee.email,
+        name: attendee.name,
+        registeredAt: attendee.registeredAt || new Date().toISOString(),
+        ...(attendee.externalId ? { externalId: attendee.externalId } : {}),
       }),
     })
+
+    const { unwrapApiData } = await import('@/lib/api-response')
+    const data = unwrapApiData<MasterEventRecord & { master?: MasterEventRecord }>(raw)
+    const master = (data.master && typeof data.master === 'object'
+      ? data.master
+      : data) as MasterEventRecord
 
     if (!master?.id) {
       return { master: null, synced: [], bookingSaved: false }

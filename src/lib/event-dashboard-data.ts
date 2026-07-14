@@ -65,20 +65,22 @@ async function fetchMasterEvent(channel: ChannelKey, eventId: string): Promise<M
   )
   if (!lookupRes.ok) return null
 
-  const lookup = await lookupRes.json() as { master?: { id: string } | null }
-  if (!lookup.master?.id) return null
+  const { unwrapApiData, extractRegistryMasterId } = await import('@/lib/api-response')
+  const lookupRaw = await lookupRes.json()
+  const lookup = unwrapApiData<{ master?: { id: string } | null }>(lookupRaw)
+  const masterId = lookup.master?.id || extractRegistryMasterId(lookupRaw)
+  if (!masterId) return null
 
-  const res = await fetch('/api/registry', {
-    method: 'POST',
+  // GET /api/v1/registry/:id
+  const res = await fetch(`/api/registry/${encodeURIComponent(masterId)}`, {
     headers: {
       Authorization: authHeader(),
-      'Content-Type': 'application/json',
       Accept: 'application/json',
     },
-    body: JSON.stringify({ masterId: lookup.master.id }),
   })
   if (!res.ok) return null
-  return res.json() as Promise<MasterEventRecord>
+  const raw = await res.json()
+  return unwrapApiData(raw) as MasterEventRecord
 }
 
 function bookingsToAttendees(

@@ -1,24 +1,28 @@
 /**
- * Remote registry responses may be wrapped:
- *   { success: true, data: { id, ... } }
+ * Remote API responses may be wrapped:
+ *   { success: true, data: { ... } }
+ *   { success: true, data: [ ... ] }
  * or flat:
- *   { id, ... }
+ *   { id, ... } / { bookings: [...] }
  */
 
-export function unwrapApiData<T extends Record<string, unknown> = Record<string, unknown>>(
-  raw: unknown,
-): T {
-  if (!raw || typeof raw !== 'object') return {} as T
-  const root = raw as Record<string, unknown>
-  if (root.data && typeof root.data === 'object' && !Array.isArray(root.data)) {
-    return root.data as T
+export function unwrapApiData<T = Record<string, unknown>>(raw: unknown): T {
+  if (!raw || typeof raw !== 'object') {
+    return (Array.isArray(raw) ? [] : {}) as T
   }
-  return root as T
+  const root = raw as Record<string, unknown>
+  if ('data' in root) {
+    const inner = root.data
+    if (inner != null && (typeof inner === 'object' || Array.isArray(inner))) {
+      return inner as T
+    }
+  }
+  return raw as T
 }
 
 /** Master event id from create / get / link registry responses. */
 export function extractRegistryMasterId(raw: unknown): string {
-  const data = unwrapApiData(raw)
+  const data = unwrapApiData<Record<string, unknown>>(raw)
   const nested = data.master
   if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
     const mid = String((nested as { id?: unknown }).id || '').trim()

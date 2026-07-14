@@ -426,11 +426,17 @@ export async function loadAllBookings(): Promise<BookingListItem[]> {
     headers: { Authorization: authHeader(), Accept: 'application/json' },
   })
   if (!res.ok) return []
-  const data = await res.json() as {
+  const raw = await res.json().catch(() => ({}))
+  const { unwrapApiData } = await import('@/lib/api-response')
+  const data = unwrapApiData<{
     bookings?: Array<StoredBookingRow & { payload?: Record<string, unknown> }>
-  }
+  } | Array<StoredBookingRow & { payload?: Record<string, unknown> }>>(raw)
 
-  const list = (data.bookings || []).map((b) => mapStoredBookingToListItem({
+  const rows = Array.isArray(data)
+    ? data
+    : (data.bookings || [])
+
+  const list = rows.map((b) => mapStoredBookingToListItem({
     external_id: b.external_id,
     channel: b.channel,
     event_title: b.event_title,
