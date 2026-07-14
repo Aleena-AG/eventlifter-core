@@ -1190,64 +1190,56 @@ export async function publishToAllChannels(
   existingMasterId?: string,
 ): Promise<{ masterId: string; results: PublishResults }> {
   const results: PublishResults = {}
-  const channelRefs: Array<{
-    channel: ChannelKey
-    eventId: string
-    ticketId?: string
-    url?: string
-  }> = []
+  const {
+    createRegistryMaster,
+    updateRegistryMaster,
+    linkRegistryChannel,
+    buildRegistryMasterWriteFromForm,
+  } = await import('@/lib/registry-api')
+  const masterWrite = buildRegistryMasterWriteFromForm(ev)
+  const title = masterWrite.title || String(ev.title || 'Untitled')
+  const capacity = masterWrite.capacity ?? (parseInt(String(ev.capacity || '150'), 10) || 150)
 
-  // 1) Create on each connected channel first
+  // 1) Master first (full payload: category, timezone, location, WHEN, ticket sales)
+  let masterId = existingMasterId || ''
+  if (!masterId) {
+    masterId = await createRegistryMaster({
+      ...masterWrite,
+      title,
+      capacity,
+    })
+  } else {
+    await updateRegistryMaster(masterId, masterWrite).catch(() => {})
+  }
+
+  // 2) Create on each connected channel
+  // 3) Link each successful create onto the master
   for (const ch of targets) {
     try {
       const ref = await publishToChannel(ch, ev, files)
       if (!ref.eventId) {
         throw new Error(`${ch} did not return an event id`)
       }
-      channelRefs.push({
-        channel: ch,
-        eventId: ref.eventId,
-        ...(ref.ticketId ? { ticketId: ref.ticketId } : {}),
-        ...(ref.url ? { url: ref.url } : {}),
-      })
       await persistPublishedEvent(ch, ev, { eventId: ref.eventId, url: ref.url })
       results[ch] = { status: 'synced', url: ref.url, eventId: ref.eventId }
+
+      try {
+        await linkRegistryChannel(masterId, {
+          channel: ch,
+          eventId: ref.eventId,
+          ...(ref.ticketId ? { ticketId: ref.ticketId } : {}),
+          ...(ref.url ? { url: ref.url } : {}),
+        })
+      } catch (linkErr) {
+        const msg = linkErr instanceof Error ? linkErr.message : String(linkErr)
+        results[ch] = {
+          ...results[ch]!,
+          message: `Published on ${ch}, but registry link failed: ${msg}`,
+        }
+      }
     } catch (e) {
       results[ch] = { status: 'error', message: e instanceof Error ? e.message : String(e) }
     }
-  }
-
-  // 2) Register master + channel refs in one shot (remote API has no action:link)
-  const { createRegistryWithChannelRefs, updateRegistryChannelRefs } = await import('@/lib/registry-api')
-  const title = String(ev.title || 'Untitled')
-  const capacity = parseInt(String(ev.capacity || '150'), 10) || 150
-  let masterId = existingMasterId || ''
-
-  if (channelRefs.length > 0) {
-    try {
-      if (masterId) {
-        await updateRegistryChannelRefs(masterId, { title, capacity, channelRefs })
-      } else {
-        masterId = await createRegistryWithChannelRefs({ title, capacity, channelRefs })
-      }
-    } catch (regErr) {
-      // Channel publishes succeeded — surface registry failure without wiping synced lanes
-      const msg = regErr instanceof Error ? regErr.message : String(regErr)
-      for (const ch of targets) {
-        if (results[ch]?.status === 'synced') {
-          results[ch] = {
-            ...results[ch]!,
-            message: `Published on ${ch}, but registry save failed: ${msg}`,
-          }
-        }
-      }
-      if (!masterId) {
-        throw new Error(msg)
-      }
-    }
-  } else if (!masterId) {
-    // Nothing published — still create empty master so wizard has an id
-    masterId = await createRegistryWithChannelRefs({ title, capacity, channelRefs: [] })
   }
 
   try { await fetch('/api/webhooks/setup', { method: 'POST' }) } catch { /* non-fatal */ }

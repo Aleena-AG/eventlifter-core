@@ -79,6 +79,45 @@ export function normalizeMasterEvent(raw: unknown): MasterEventRecord | null {
     }
   }
 
+  const locRaw = row.location ?? row.locationJson ?? row.location_json
+  let location: MasterEventRecord['location']
+  if (locRaw && typeof locRaw === 'object' && !Array.isArray(locRaw)) {
+    const loc = locRaw as Record<string, unknown>
+    location = {
+      venue_name: typeof loc.venue_name === 'string' ? loc.venue_name : undefined,
+      city: typeof loc.city === 'string' ? loc.city : undefined,
+      country: typeof loc.country === 'string' ? loc.country : undefined,
+      address: typeof loc.address === 'string' ? loc.address : undefined,
+      region: typeof loc.region === 'string' ? loc.region : undefined,
+      postal_code: typeof loc.postal_code === 'string'
+        ? loc.postal_code
+        : typeof loc.postal === 'string' ? loc.postal : undefined,
+      latitude: typeof loc.latitude === 'number' ? loc.latitude : loc.latitude == null ? null : undefined,
+      longitude: typeof loc.longitude === 'number' ? loc.longitude : loc.longitude == null ? null : undefined,
+    }
+  }
+
+  // Backend Prisma field is detailsJson; older proxies may send details.
+  const detailsRaw = row.details ?? row.detailsJson ?? row.details_json
+  let details: MasterEventRecord['details']
+  if (detailsRaw && typeof detailsRaw === 'object' && !Array.isArray(detailsRaw)) {
+    const ticketsRaw = (detailsRaw as { tickets?: unknown }).tickets
+    if (Array.isArray(ticketsRaw)) {
+      details = {
+        tickets: ticketsRaw
+          .filter((t): t is Record<string, unknown> => !!t && typeof t === 'object')
+          .map((t) => ({
+            name: typeof t.name === 'string' ? t.name : undefined,
+            start_date: typeof t.start_date === 'string' ? t.start_date : undefined,
+            end_date: typeof t.end_date === 'string' ? t.end_date : undefined,
+            price: typeof t.price === 'number' ? t.price : undefined,
+            currency: typeof t.currency === 'string' ? t.currency : undefined,
+            quantity: typeof t.quantity === 'number' ? t.quantity : undefined,
+          })),
+      }
+    }
+  }
+
   return {
     id,
     title: String(row.title || 'Untitled'),
@@ -88,6 +127,21 @@ export function normalizeMasterEvent(raw: unknown): MasterEventRecord | null {
     attendees: Array.isArray(row.attendees) ? (row.attendees as AttendeeRecord[]) : [],
     createdAt: String(row.createdAt || row.created_at || new Date().toISOString()),
     updatedAt: String(row.updatedAt || row.updated_at || new Date().toISOString()),
+    ...(typeof row.category === 'string' && row.category ? { category: row.category } : {}),
+    ...(typeof row.timezone === 'string' && row.timezone ? { timezone: row.timezone } : {}),
+    ...(typeof row.format === 'string' && row.format ? { format: row.format } : {}),
+    ...(typeof row.startAt === 'string' && row.startAt
+      ? { startAt: row.startAt }
+      : typeof row.start_at === 'string' && row.start_at
+        ? { startAt: row.start_at }
+        : {}),
+    ...(typeof row.endAt === 'string' && row.endAt
+      ? { endAt: row.endAt }
+      : typeof row.end_at === 'string' && row.end_at
+        ? { endAt: row.end_at }
+        : {}),
+    ...(location ? { location } : {}),
+    ...(details ? { details } : {}),
   }
 }
 
@@ -135,17 +189,76 @@ export async function getMasterEvent(id: string): Promise<MasterEventRecord | nu
   }
 }
 
+/**
+ * PATCH /api/v1/registry/:id — edit Ewentcast master only.
+ * Pass channelRefs to replace the full channel link list.
+ */
+export async function updateMasterEvent(
+  id: string,
+  input: {
+    title?: string
+    capacity?: number
+    channels?: Partial<Record<ChannelKey, ChannelRef>>
+  },
+): Promise<MasterEventRecord | null> {
+  try {
+    const { updateRegistryMaster } = await import('@/lib/registry-api')
+    const payload: {
+      title?: string
+      capacity?: number
+      channelRefs?: Array<{
+        channel: ChannelKey
+        eventId: string
+        ticketId?: string
+        url?: string
+      }>
+    } = {}
+    if (typeof input.title === 'string') payload.title = input.title
+    if (typeof input.capacity === 'number') payload.capacity = input.capacity
+    if (input.channels) {
+      payload.channelRefs = Object.entries(input.channels)
+        .filter((entry): entry is [ChannelKey, ChannelRef] => {
+          const ref = entry[1]
+          return !!ref?.eventId
+        })
+        .map(([channel, ref]) => ({
+          channel,
+          eventId: ref.eventId,
+          ...(ref.ticketId ? { ticketId: ref.ticketId } : {}),
+          ...(ref.url ? { url: ref.url } : {}),
+        }))
+    }
+    await updateRegistryMaster(id, payload)
+    return getMasterEvent(id)
+  } catch {
+    return null
+  }
+}
+
 export async function findMasterByChannelEvent(
   channel: ChannelKey,
   eventId: string,
 ): Promise<MasterEventRecord | null> {
-  const data = await registryJson<{
-    master: { id: string; title: string } | null
-    links: Partial<Record<ChannelKey, { eventId: string; url?: string }>>
-  }>(`/api/registry?channel=${encodeURIComponent(channel)}&eventId=${encodeURIComponent(eventId)}`)
+  try {
+    const data = await registryJson<{
+      master: { id: string; title: string } | null
+      links: Partial<Record<ChannelKey, { eventId: string; url?: string }>>
+    }>(`/api/registry?channel=${encodeURIComponent(channel)}&eventId=${encodeURIComponent(eventId)}`)
 
-  if (!data.master?.id) return null
-  return getMasterEvent(data.master.id)
+    if (data?.master?.id) return getMasterEvent(data.master.id)
+  } catch {
+    // Fall through — scan list if query endpoint unavailable
+  }
+
+  // Fallback: list masters and match channelRefs locally
+  try {
+    const list = await listMasterEvents()
+    const eid = String(eventId)
+    const hit = list.find((m) => m.channels?.[channel]?.eventId === eid)
+    return hit || null
+  } catch {
+    return null
+  }
 }
 
 export async function createMasterEvent(input: {
@@ -153,7 +266,7 @@ export async function createMasterEvent(input: {
   capacity: number
   channels?: Partial<Record<ChannelKey, ChannelRef>>
 }): Promise<MasterEventRecord> {
-  const { createRegistryWithChannelRefs } = await import('@/lib/registry-api')
+  const { createRegistryMaster } = await import('@/lib/registry-api')
   const channelRefs = Object.entries(input.channels || {})
     .filter((entry): entry is [ChannelKey, ChannelRef] => {
       const ref = entry[1]
@@ -166,7 +279,7 @@ export async function createMasterEvent(input: {
       ...(ref.url ? { url: ref.url } : {}),
     }))
 
-  const id = await createRegistryWithChannelRefs({
+  const id = await createRegistryMaster({
     title: input.title,
     capacity: input.capacity,
     channelRefs,
@@ -193,7 +306,7 @@ export async function registerAttendee(
   attendee: Omit<AttendeeRecord, 'registeredAt'> & { registeredAt?: string },
 ): Promise<MasterEventRecord | null> {
   try {
-    const { registerRegistryAttendee } = await import('@/lib/registry-api')
+    const { registerAttendee: registerRegistryAttendee } = await import('@/lib/registry-api')
     await registerRegistryAttendee(masterId, {
       email: attendee.email,
       name: attendee.name,
@@ -228,8 +341,8 @@ export async function linkChannelEvent(
 
 /** DELETE /api/v1/registry/:id */
 export async function deleteMasterEvent(id: string): Promise<boolean> {
-  const { deleteRegistryById } = await import('@/lib/registry-api')
-  await deleteRegistryById(id)
+  const { deleteRegistryMaster } = await import('@/lib/registry-api')
+  await deleteRegistryMaster(id)
   return true
 }
 

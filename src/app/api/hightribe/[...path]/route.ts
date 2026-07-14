@@ -29,7 +29,6 @@ async function handler(
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     try {
       if (isMultipart) {
-        // Forward raw bytes so the multipart boundary stays intact.
         const buf = await req.arrayBuffer()
         if (buf.byteLength) init.body = buf
       } else {

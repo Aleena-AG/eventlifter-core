@@ -276,6 +276,7 @@ interface NormEvent {
   summary?: string
   description: string
   tags?: string[]
+  category?: string
   startUtc: string
   endUtc: string
   timezone: string
@@ -300,8 +301,12 @@ interface NormEvent {
   faq?: string
   ticketType?: string
   ticketPrice?: number
+  /** Ticket sales window only — never copy from event start/end. */
   salesStartUtc?: string
   salesEndUtc?: string
+  /** Date-only sales window from registry details.tickets (YYYY-MM-DD). */
+  salesStartDate?: string
+  salesEndDate?: string
   minPerOrder?: number
   maxPerOrder?: number
   htTicketId?: string
@@ -401,8 +406,22 @@ function normToForm(n: NormEvent): EventFormData {
     if (!sameAsVenue && !venueContains) city = inferred.city
   }
 
-  const salesStart = n.salesStartUtc ? utcParts(n.salesStartUtc, tz).date : ''
-  const salesEnd = n.salesEndUtc ? utcParts(n.salesEndUtc, tz).date : ''
+  // Ticket sales window is stored separately from event WHEN, but UI only allows
+  // sales on event days — default blank sales to the event day range.
+  const salesStartRaw =
+    n.salesStartDate
+    || (n.salesStartUtc ? utcParts(n.salesStartUtc, tz).date : '')
+  const salesEndRaw =
+    n.salesEndDate
+    || (n.salesEndUtc ? utcParts(n.salesEndUtc, tz).date : '')
+  const clampSales = (d: string) => {
+    if (!d) return d
+    if (d < start.date) return start.date
+    if (end.date && d > end.date) return end.date
+    return d
+  }
+  const salesStart = clampSales(salesStartRaw) || start.date
+  const salesEnd = clampSales(salesEndRaw) || end.date
 
   return {
     title: n.title,
@@ -410,7 +429,7 @@ function normToForm(n: NormEvent): EventFormData {
     // Never show Luma's ONLY_MD / ONLY_HTML sentinel in the Description field
     description: scrubFormText(n.description),
     coverUrl: n.coverImage || '',
-    category: 'Music',
+    category: n.category || 'Music',
     tags: formatTagsInput(n.tags),
     date: start.date,
     time: start.time,
@@ -433,9 +452,8 @@ function normToForm(n: NormEvent): EventFormData {
     capacity: n.capacity != null ? String(n.capacity) : '150',
     minPerOrder: n.minPerOrder != null ? String(n.minPerOrder) : '1',
     maxPerOrder: n.maxPerOrder != null ? String(n.maxPerOrder) : '8',
-    // Fall back to the event day range so edit isn't blank when channels omit sales window.
-    salesStart: salesStart || start.date,
-    salesEnd: salesEnd || end.date,
+    salesStart,
+    salesEnd,
     waitlist: false,
     status: n.status || 'Draft',
     visibility: n.visibility || 'Public',
@@ -1194,6 +1212,69 @@ async function loadNormForChannel(
   return null
 }
 
+function apiFormatToForm(fmt: string): string {
+  const s = String(fmt || '').toLowerCase()
+  if (s === 'hybrid') return 'Hybrid'
+  if (s === 'online') return 'Online'
+  if (s === 'in_person' || s === 'in-person' || s === 'in person') return 'In person'
+  return ''
+}
+
+/** Prefer registry master for category / WHEN / location / ticket sales window. */
+function applyMasterOverlayToForm(
+  form: EventFormData,
+  master: import('@/lib/event-registry-types').MasterEventRecord,
+): EventFormData {
+  const next = { ...form }
+  if (master.category) next.category = master.category
+  if (master.capacity) next.capacity = String(master.capacity)
+  if (master.title) next.title = master.title
+
+  const tz = normalizeTimeZone(master.timezone || String(next.timezone || 'UTC'))
+  if (master.timezone) next.timezone = tz
+
+  const fmt = apiFormatToForm(master.format || '')
+  if (fmt) next.format = fmt
+
+  if (master.startAt) {
+    const start = utcParts(master.startAt, tz)
+    next.date = start.date
+    next.time = start.time
+  }
+  if (master.endAt) {
+    const end = utcParts(master.endAt, tz)
+    next.endDate = end.date
+    next.endTime = end.time
+  }
+
+  const loc = master.location
+  if (loc) {
+    if (loc.venue_name) next.venue = loc.venue_name
+    if (loc.city) next.city = loc.city
+    if (loc.country) next.country = canonicalizeCountry(loc.country) || loc.country
+    if (loc.address) next.address = loc.address
+    if (loc.region) next.region = loc.region
+    if (loc.postal_code) next.postal = loc.postal_code
+    if (loc.latitude != null) next.lat = String(loc.latitude)
+    if (loc.longitude != null) next.lng = String(loc.longitude)
+  }
+
+  const ticket = master.details?.tickets?.[0]
+  if (ticket) {
+    // Ticket sales window only — never overwrite event WHEN, and do not clamp
+    // ticket dates to event dates (they are independent sales days).
+    if (ticket.start_date) next.salesStart = ticket.start_date
+    if (ticket.end_date) next.salesEnd = ticket.end_date
+    if (ticket.name) next.htTicketName = ticket.name
+    if (typeof ticket.price === 'number' && Number.isFinite(ticket.price)) {
+      next.price = String(ticket.price)
+      next.ticketType = ticket.price > 0 ? 'Paid' : 'Free'
+    }
+  }
+
+  return next
+}
+
 export async function loadEventFormData(
   channel: ChannelKey,
   eventId: string | number,
@@ -1230,8 +1311,17 @@ export async function loadEventFormData(
     if (extra) mergeNormTextFields(norm, extra)
   }
 
-  const form = normToForm(norm)
+  let form = normToForm(norm)
   await enrichPublishStatusFromLinked(form, siblings, channel)
+
+  try {
+    const { findMasterByChannelEvent } = await import('@/lib/event-registry')
+    const master = await findMasterByChannelEvent(channel, String(eventId))
+    if (master) form = applyMasterOverlayToForm(form, master)
+  } catch {
+    // Registry optional — keep channel-derived form.
+  }
+
   return form
 }
 

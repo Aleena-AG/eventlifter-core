@@ -197,7 +197,7 @@ function loadGoogleMaps(): Promise<GoogleMapsApi> {
     script.dataset.ewGoogleMaps = '1'
     script.async = true
     script.defer = true
-    // v=weekly + places library: supports AutocompleteSuggestion (new) and legacy fallback
+    // Legacy Places library (AutocompleteService / PlacesService) — does not require Places API (New).
     script.src =
       `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(GOOGLE_MAPS_KEY)}` +
       '&v=weekly&libraries=places&loading=async&callback=__ewGoogleMapsCb'
@@ -924,6 +924,9 @@ export function LocationSection({ ev, setField }: Props) {
       })
     }
 
+    // Use legacy Places Details + Geocoding only.
+    // Places API (New) / place.fetchFields requires places.googleapis.com enabled
+    // (often disabled on older Google Cloud keys) and would block selection.
     const finishFromLegacyPlaces = () => {
       if (!places) {
         finishFromGeocode()
@@ -958,41 +961,7 @@ export function LocationSection({ ev, setField }: Props) {
       )
     }
 
-    const finishFromNewPlace = async () => {
-      try {
-        let PlaceCtor = g.maps.places.Place
-        if (!PlaceCtor && g.maps.importLibrary) {
-          const lib = await g.maps.importLibrary('places') as {
-            Place?: GoogleMapsApi['maps']['places']['Place']
-          }
-          PlaceCtor = lib.Place || g.maps.places.Place
-        }
-        if (!PlaceCtor) {
-          finishFromLegacyPlaces()
-          return
-        }
-
-        const place = new PlaceCtor({ id: h.placeId })
-        await place.fetchFields({
-          fields: ['displayName', 'formattedAddress', 'location', 'addressComponents', 'types', 'id'],
-        })
-        const ll = placeLatLng(place.location)
-        if (!ll) {
-          finishFromLegacyPlaces()
-          return
-        }
-        setResolving(false)
-        placeMarker(ll.lat, ll.lng, 15, false)
-        applyGeocodeResult(placeToGeocodeResult(place), {
-          venueName: (place.displayName || venueHint).trim(),
-          keepQuery: h.description,
-        })
-      } catch {
-        finishFromLegacyPlaces()
-      }
-    }
-
-    void finishFromNewPlace()
+    finishFromLegacyPlaces()
   }
 
   return (

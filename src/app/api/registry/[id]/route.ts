@@ -10,18 +10,22 @@ async function forward(req: NextRequest, ctx: RouteContext) {
   return proxyToBackend(req, `registry/${encodeURIComponent(id)}`)
 }
 
+/** GET /api/v1/registry/:id */
 export async function GET(req: NextRequest, ctx: RouteContext) {
   return forward(req, ctx)
 }
 
+/** PUT /api/v1/registry/:id — same as PATCH (edit master) */
 export async function PUT(req: NextRequest, ctx: RouteContext) {
   return forward(req, ctx)
 }
 
+/** PATCH /api/v1/registry/:id — { title?, capacity?, channelRefs? } */
 export async function PATCH(req: NextRequest, ctx: RouteContext) {
   return forward(req, ctx)
 }
 
+/** DELETE /api/v1/registry/:id */
 export async function DELETE(req: NextRequest, ctx: RouteContext) {
   return forward(req, ctx)
 }

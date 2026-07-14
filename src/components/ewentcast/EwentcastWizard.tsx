@@ -162,8 +162,7 @@ export function EwentcastWizard({
     return () => { cancelled = true }
   }, [ev.country])
 
-  // Keep the ticket sales window inside the event's day range: pull any sales
-  // date that lands before the start day or after the end day back into range.
+  // Ticket sales may only run on event days — clamp any out-of-range window.
   useEffect(() => {
     const eventStart = String(ev.date || '')
     if (!eventStart) return
@@ -251,6 +250,26 @@ export function EwentcastWizard({
           .map((r) => `${CH_META[r.ch].name}: ${r.message || 'Update failed'}`)
           .join(' · ')
         throw new Error(msg || 'Save failed')
+      }
+
+      // Persist full master fields (category, timezone, location, WHEN, ticket sales).
+      try {
+        const { findMasterByChannelEvent } = await import('@/lib/event-registry')
+        const {
+          updateRegistryMaster,
+          buildRegistryMasterWriteFromForm,
+        } = await import('@/lib/registry-api')
+        let mid = masterId
+        if (!mid && editChannel && editEventId != null) {
+          const master = await findMasterByChannelEvent(editChannel, String(editEventId))
+          mid = master?.id || null
+          if (mid) setMasterId(mid)
+        }
+        if (mid) {
+          await updateRegistryMaster(mid, buildRegistryMasterWriteFromForm(ev))
+        }
+      } catch {
+        // Channel save already succeeded — registry patch is best-effort.
       }
 
       // Close immediately — refresh the local store in the background so a slow
@@ -352,9 +371,8 @@ export function EwentcastWizard({
 
   const sec = SECTIONS[section]
 
-  // Tickets can only be sold on the days the event runs: any day before the
-  // event's start day or after its end day is disabled.
-  function dateBounds(k: string): { min?: string; max?: string } {
+  // Tickets can only be sold on event days (not before start, not after end).
+  function salesDateBounds(k: string): { min?: string; max?: string } {
     const eventStart = String(ev.date || '') || undefined
     const eventEnd = String(ev.endDate || '') || eventStart
     if (k === 'salesStart') {
@@ -370,8 +388,8 @@ export function EwentcastWizard({
     return {}
   }
 
-  function setDateField(k: string, value: string) {
-    const { min, max } = dateBounds(k)
+  function setSalesDateField(k: string, value: string) {
+    const { min, max } = salesDateBounds(k)
     let next = value
     if (next && max && next > max) next = max
     if (next && min && next < min) next = min
@@ -452,7 +470,7 @@ export function EwentcastWizard({
       )
     } else if (f.type === 'date' || f.type === 'time') {
       const isSalesDate = f.k === 'salesStart' || f.k === 'salesEnd'
-      const sales = isSalesDate ? dateBounds(f.k) : {}
+      const sales = isSalesDate ? salesDateBounds(f.k) : {}
       const min =
         sales.min ??
         (f.k === 'endDate'
@@ -466,7 +484,7 @@ export function EwentcastWizard({
           min={min}
           max={sales.max}
           value={String(v ?? '')}
-          onChange={e => (isSalesDate ? setDateField(f.k, e.target.value) : setField(f.k, e.target.value))}
+          onChange={e => (isSalesDate ? setSalesDateField(f.k, e.target.value) : setField(f.k, e.target.value))}
         />
       )
     } else if (f.type === 'toggle') {

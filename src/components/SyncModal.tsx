@@ -116,7 +116,7 @@ async function linkRegistryChannels(
   capacity: number,
   channelRefs: Partial<Record<ChannelKey, { eventId: string; url?: string; ticketId?: string }>>,
 ): Promise<string> {
-  const { createRegistryWithChannelRefs, updateRegistryChannelRefs } = await import('@/lib/registry-api')
+  const { createRegistryMaster, updateRegistryChannelRefs } = await import('@/lib/registry-api')
   const refs = (Object.entries(channelRefs) as [ChannelKey, { eventId: string; url?: string; ticketId?: string }][])
     .filter(([, ref]) => !!ref?.eventId)
     .map(([channel, ref]) => ({
@@ -130,7 +130,7 @@ async function linkRegistryChannels(
     await updateRegistryChannelRefs(masterId, { title, capacity, channelRefs: refs })
     return masterId
   }
-  return createRegistryWithChannelRefs({ title, capacity, channelRefs: refs })
+  return createRegistryMaster({ title, capacity, channelRefs: refs })
 }
 
 function parseApiError(data: Record<string, unknown>, fallback: string): string {

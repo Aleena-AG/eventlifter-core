@@ -80,21 +80,29 @@ export async function proxyToBackend(
     headers['WEBHOOK_LOG_TOKEN'] = envLogToken
   }
 
-  let body: string | undefined
+  let body: BodyInit | undefined
   if (init?.body !== undefined) {
     body = init.body ?? undefined
   } else if (method !== 'GET' && method !== 'HEAD') {
-    body = await req.text()
+    // Multipart must keep raw bytes + boundary Content-Type intact.
+    const isMultipart = !!contentType && contentType.includes('multipart/form-data')
+    if (isMultipart) {
+      const buf = await req.arrayBuffer()
+      if (buf.byteLength) body = buf
+    } else {
+      const text = await req.text()
+      if (text) body = text
+    }
   }
 
-  if (body !== undefined && body !== '' && !headers['Content-Type']) {
+  if (typeof body === 'string' && body.length > 0 && !headers['Content-Type']) {
     headers['Content-Type'] = 'application/json'
   }
 
   const res = await fetch(target, {
     method,
     headers,
-    body: body && body.length > 0 ? body : undefined,
+    body,
     cache: 'no-store',
   })
 
