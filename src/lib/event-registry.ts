@@ -20,6 +20,86 @@ function withAuthHeaders(init?: RequestInit): HeadersInit {
   }
 }
 
+function asChannelKey(raw: unknown): ChannelKey | null {
+  const s = String(raw || '')
+  if (s === 'hightribe' || s === 'luma' || s === 'eventbrite') return s
+  return null
+}
+
+/**
+ * Remote registry may return channels as:
+ *   - channels/links object map
+ *   - channelRefs / channel_refs array
+ * Missing channels would crash dashboard merge — always normalize to a map.
+ */
+export function normalizeMasterEvent(raw: unknown): MasterEventRecord | null {
+  if (!raw || typeof raw !== 'object') return null
+  const row = raw as Record<string, unknown>
+  const id = String(row.id || '').trim()
+  if (!id) return null
+
+  const channels: Partial<Record<ChannelKey, ChannelRef>> = {}
+
+  const absorbMap = (map: unknown) => {
+    if (!map || typeof map !== 'object' || Array.isArray(map)) return
+    for (const [chRaw, refRaw] of Object.entries(map as Record<string, unknown>)) {
+      const ch = asChannelKey(chRaw)
+      if (!ch || !refRaw || typeof refRaw !== 'object') continue
+      const ref = refRaw as Record<string, unknown>
+      const eventId = String(ref.eventId || ref.event_id || '').trim()
+      if (!eventId) continue
+      channels[ch] = {
+        eventId,
+        ...(ref.ticketId || ref.ticket_id
+          ? { ticketId: String(ref.ticketId || ref.ticket_id) }
+          : {}),
+        ...(ref.url ? { url: String(ref.url) } : {}),
+      }
+    }
+  }
+
+  absorbMap(row.channels)
+  absorbMap(row.links)
+
+  const refs = row.channelRefs || row.channel_refs
+  if (Array.isArray(refs)) {
+    for (const item of refs) {
+      if (!item || typeof item !== 'object') continue
+      const ref = item as Record<string, unknown>
+      const ch = asChannelKey(ref.channel)
+      const eventId = String(ref.eventId || ref.event_id || '').trim()
+      if (!ch || !eventId) continue
+      channels[ch] = {
+        eventId,
+        ...(ref.ticketId || ref.ticket_id
+          ? { ticketId: String(ref.ticketId || ref.ticket_id) }
+          : {}),
+        ...(ref.url ? { url: String(ref.url) } : {}),
+      }
+    }
+  }
+
+  return {
+    id,
+    title: String(row.title || 'Untitled'),
+    capacity: Number(row.capacity) || 0,
+    sold: Number(row.sold) || 0,
+    channels,
+    attendees: Array.isArray(row.attendees) ? (row.attendees as AttendeeRecord[]) : [],
+    createdAt: String(row.createdAt || row.created_at || new Date().toISOString()),
+    updatedAt: String(row.updatedAt || row.updated_at || new Date().toISOString()),
+  }
+}
+
+function normalizeMasterList(raw: unknown): MasterEventRecord[] {
+  const list = Array.isArray(raw)
+    ? raw
+    : raw && typeof raw === 'object' && Array.isArray((raw as { events?: unknown }).events)
+      ? (raw as { events: unknown[] }).events
+      : []
+  return list.map(normalizeMasterEvent).filter((m): m is MasterEventRecord => !!m)
+}
+
 async function registryJson<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(registryUrl(path), {
     ...init,
@@ -41,15 +121,15 @@ async function registryJson<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export async function listMasterEvents(): Promise<MasterEventRecord[]> {
-  const data = await registryJson<{ events?: MasterEventRecord[] } | MasterEventRecord[]>('/api/registry')
-  if (Array.isArray(data)) return data
-  return data.events || []
+  const data = await registryJson<unknown>('/api/registry')
+  return normalizeMasterList(data)
 }
 
 /** GET /api/v1/registry/:id */
 export async function getMasterEvent(id: string): Promise<MasterEventRecord | null> {
   try {
-    return await registryJson<MasterEventRecord>(`/api/registry/${encodeURIComponent(id)}`)
+    const data = await registryJson<unknown>(`/api/registry/${encodeURIComponent(id)}`)
+    return normalizeMasterEvent(data)
   } catch {
     return null
   }

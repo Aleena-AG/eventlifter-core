@@ -188,8 +188,9 @@ function titlesMatch(a: string, b: string): boolean {
 }
 
 function publishedChannelsFromMaster(master: MasterEventRecord): ChannelKey[] {
+  const channels = master.channels || {}
   return CHANNEL_KEYS.filter((ch) => {
-    const ref = master.channels[ch]
+    const ref = channels[ch]
     if (!ref) return false
     const eventId = String(ref.eventId || '').trim()
     const url = String(ref.url || '').trim()
@@ -229,10 +230,11 @@ function mergeEventsWithChannels(
   for (const master of masters) {
     const published = publishedChannelsFromMaster(master)
     if (!published.length) continue
-    const titleKey = normalizeEventTitle(master.title)
+    const titleKey = normalizeEventTitle(master.title || '')
     if (titleKey) masterTitleChannels.push({ title: titleKey, channels: published })
+    const channelMap = master.channels || {}
     for (const ch of CHANNEL_KEYS) {
-      const ref = master.channels[ch]
+      const ref = channelMap[ch]
       const eventId = String(ref?.eventId || '').trim()
       if (!eventId) continue
       byRef.set(`${ch}:${eventId}`, published)
@@ -270,7 +272,7 @@ function mergeEventsWithChannels(
 }
 
 function DashboardEventCard({ evt, phase }: { evt: DashboardEventCardItem; phase: EventPhase }) {
-  const primaryMeta = CH_META[evt.channel]
+  const primaryMeta = CH_META[evt.channel] || CH_META.hightribe
   const href = `/events/e/${encodeEventRef(evt.channel, evt.id)}`
 
   return (
@@ -390,31 +392,35 @@ export default function DashboardPage() {
   const anyConfigured = lumaConfigured || ebConfigured || htConfigured
 
   const { ongoing, upcoming, nextUp, weekEvents } = useMemo(() => {
-    const now = Date.now()
-    const weekEnd = now + 7 * 24 * 60 * 60 * 1000
-    const all = mergeEventsWithChannels(stats?.recent ?? [], masters)
-    const ongoingList: DashboardEventCardItem[] = []
-    const upcomingList: DashboardEventCardItem[] = []
-    let weekCount = 0
+    try {
+      const now = Date.now()
+      const weekEnd = now + 7 * 24 * 60 * 60 * 1000
+      const all = mergeEventsWithChannels(stats?.recent ?? [], masters)
+      const ongoingList: DashboardEventCardItem[] = []
+      const upcomingList: DashboardEventCardItem[] = []
+      let weekCount = 0
 
-    for (const evt of all) {
-      const phase = getEventPhase(evt, now)
-      const start = parseMs(evt.startUtc)
-      if (phase === 'ongoing') ongoingList.push(evt)
-      else if (phase === 'upcoming') {
-        upcomingList.push(evt)
-        if (start > now && start <= weekEnd) weekCount += 1
+      for (const evt of all) {
+        const phase = getEventPhase(evt, now)
+        const start = parseMs(evt.startUtc)
+        if (phase === 'ongoing') ongoingList.push(evt)
+        else if (phase === 'upcoming') {
+          upcomingList.push(evt)
+          if (start > now && start <= weekEnd) weekCount += 1
+        }
       }
-    }
 
-    ongoingList.sort((a, b) => parseMs(a.startUtc) - parseMs(b.startUtc))
-    upcomingList.sort((a, b) => parseMs(a.startUtc) - parseMs(b.startUtc))
+      ongoingList.sort((a, b) => parseMs(a.startUtc) - parseMs(b.startUtc))
+      upcomingList.sort((a, b) => parseMs(a.startUtc) - parseMs(b.startUtc))
 
-    return {
-      ongoing: ongoingList.slice(0, 6),
-      upcoming: upcomingList.slice(0, 6),
-      nextUp: ongoingList[0] || upcomingList[0] || null,
-      weekEvents: weekCount + ongoingList.length,
+      return {
+        ongoing: ongoingList.slice(0, 6),
+        upcoming: upcomingList.slice(0, 6),
+        nextUp: ongoingList[0] || upcomingList[0] || null,
+        weekEvents: weekCount + ongoingList.length,
+      }
+    } catch {
+      return { ongoing: [], upcoming: [], nextUp: null, weekEvents: 0 }
     }
   }, [stats?.recent, masters])
 
@@ -772,7 +778,7 @@ export default function DashboardPage() {
                 <>
                   <div className="dash-orders-list">
                     {recentOrders.map((b, i) => {
-                      const meta = CH_META[b.channel]
+                      const meta = CH_META[b.channel] || CH_META.hightribe
                       return (
                         <Link
                           key={`${b.email}-${b.registeredAt}-${i}`}

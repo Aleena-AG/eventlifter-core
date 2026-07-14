@@ -18,6 +18,7 @@ import { CreateEventWizardModal } from '@/components/ewentcast/CreateEventWizard
 import { ChannelLogo } from '@/components/ChannelLogo'
 import { CHANNEL_META } from '@/lib/channels'
 import { encodeEventRef } from '@/lib/event-ref'
+import { listMasterEvents } from '@/lib/event-registry'
 import type { ChannelKey } from '@/lib/types'
 import './events.css'
 
@@ -335,8 +336,9 @@ function groupUnifiedEvents(
   // 1) Registry-linked publishes → one card with all channel tags
   for (const master of registry) {
     const members: UnifiedEvent[] = []
+    const channelMap = master.channels || {}
     for (const ch of CHANNEL_ORDER) {
-      const ref = master.channels[ch]
+      const ref = channelMap[ch]
       if (!ref?.eventId) continue
       const key = `${ch}-${ref.eventId}`
       const evt = byKey.get(key)
@@ -368,7 +370,7 @@ function groupUnifiedEvents(
       if (aStored !== bStored) return aStored - bStored
       return (b.sortMs || 0) - (a.sortMs || 0)
     })
-    result.push(mergeMembers(ordered, master.channels))
+    result.push(mergeMembers(ordered, channelMap))
   }
 
   // 2) Remaining events → group by title + start day (cross-channel publish without registry)
@@ -786,13 +788,14 @@ export default function EventsPage() {
 
   const loadRegistry = useCallback(async () => {
     try {
-      const res = await fetch('/api/registry', { headers: { Accept: 'application/json' } })
-      if (!res.ok) {
-        setRegistryMasters([])
-        return
-      }
-      const data = await res.json() as { events?: RegistryMaster[] }
-      setRegistryMasters(data.events || [])
+      const masters = await listMasterEvents()
+      setRegistryMasters(
+        masters.map((m) => ({
+          id: m.id,
+          title: m.title,
+          channels: m.channels || {},
+        })),
+      )
     } catch {
       setRegistryMasters([])
     }
