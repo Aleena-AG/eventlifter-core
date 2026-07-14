@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAccountView } from '../../../../../backend/src/services/auth'
-import { confirmCheckoutSession, isStripeConfigured } from '@/lib/server/stripe-billing'
-import { isErrorResponse, requireSession, assertEwentcastBillingAccess } from '@/lib/server/session'
+import { proxyToBackend } from '@/lib/backend-client'
+import {
+  assertEwentcastBillingAccess,
+  isErrorResponse,
+  requireSession,
+} from '@/lib/server/session'
 
 export const runtime = 'nodejs'
 
@@ -11,37 +14,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ status: false, message: 'Unauthorized' }, { status: 401 })
   }
 
-  const billingDenied = await assertEwentcastBillingAccess(session.user.id)
+  const billingDenied = await assertEwentcastBillingAccess(
+    session.user.id,
+    req.headers.get('authorization'),
+  )
   if (billingDenied) return billingDenied
 
-  if (!isStripeConfigured()) {
-    return NextResponse.json(
-      { status: false, message: 'Stripe billing is not configured.' },
-      { status: 503 },
-    )
-  }
-
-  const body = await req.json().catch(() => ({})) as { session_id?: string }
-  const sessionId = String(body.session_id || '').trim()
-  if (!sessionId) {
-    return NextResponse.json({ status: false, message: 'session_id is required' }, { status: 422 })
-  }
-
-  try {
-    const activated = await confirmCheckoutSession(session.user.id, sessionId)
-    const account = await getAccountView(session.user.id)
-    return NextResponse.json({
-      status: true,
-      activated,
-      ewentcast: account,
-    })
-  } catch (err) {
-    return NextResponse.json(
-      {
-        status: false,
-        message: err instanceof Error ? err.message : 'Could not confirm payment',
-      },
-      { status: 500 },
-    )
-  }
+  const res = await proxyToBackend(req, 'billing/confirm')
+  if (res.status !== 404) return res
+  return NextResponse.json(
+    { status: false, message: 'Billing is not available on the remote API yet.' },
+    { status: 503 },
+  )
 }

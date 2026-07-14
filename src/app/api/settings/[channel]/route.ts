@@ -1,27 +1,21 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { clearChannelSettings, toPublicSettingsView } from '../../../../../backend/src/services/user-settings'
-import { isErrorResponse, requireSubscribedSession } from '@/lib/server/session'
+import { NextRequest } from 'next/server'
+import { proxyToBackend } from '@/lib/backend-client'
+import { assertEwentcastSubscription, isErrorResponse, requireSession } from '@/lib/server/session'
 
 export const runtime = 'nodejs'
 
 type RouteContext = { params: Promise<{ channel: string }> }
 
 export async function DELETE(req: NextRequest, ctx: RouteContext) {
-  const session = await requireSubscribedSession(req)
+  const session = await requireSession(req)
   if (isErrorResponse(session)) return session
 
-  const { channel } = await ctx.params
-  if (channel !== 'luma' && channel !== 'eventbrite' && channel !== 'hightribe') {
-    return NextResponse.json({ error: 'invalid channel' }, { status: 400 })
-  }
+  const denied = await assertEwentcastSubscription(
+    session.user.id,
+    req.headers.get('authorization'),
+  )
+  if (denied) return denied
 
-  try {
-    const updated = await clearChannelSettings(session.user.id, channel)
-    return NextResponse.json({ ok: true, settings: toPublicSettingsView(updated) })
-  } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'clear failed' },
-      { status: 500 },
-    )
-  }
+  const { channel } = await ctx.params
+  return proxyToBackend(req, `settings/${encodeURIComponent(channel)}`)
 }

@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { channelFetch } from '@/lib/channel-fetch'
 import { getEwentcastAccount, isEwentcastSignupUser } from '@/lib/ewentcast-session'
+import { fetchChannelConnectionMap } from '@/lib/channel-connection'
 import { deleteStoredEvent, listStoredEvents } from '@/lib/channel-events-store'
 import { syncChannelDataToDb, formatEventSyncMessage, consumeEventsListRefresh } from '@/lib/channel-data-sync'
 import { storedToEbEvent, storedToHtEvent, storedToLumaEvent } from '@/lib/channel-db-mappers'
@@ -769,8 +770,18 @@ export default function EventsPage() {
 
   // Registry links — used to merge publish copies into one card
   const [registryMasters, setRegistryMasters] = useState<RegistryMaster[]>([])
+  const [htAvailable, setHtAvailable] = useState(true)
 
-  const htAvailable = !isEwentcastSignupUser() || !!getEwentcastAccount()?.ht_connected
+  useEffect(() => {
+    void (async () => {
+      try {
+        const map = await fetchChannelConnectionMap()
+        setHtAvailable(map.hightribe)
+      } catch {
+        setHtAvailable(!isEwentcastSignupUser() || !!getEwentcastAccount()?.ht_connected)
+      }
+    })()
+  }, [])
 
   const loadRegistry = useCallback(async () => {
     try {
@@ -1322,11 +1333,11 @@ export default function EventsPage() {
         </div>
       </div>
 
-      {isEwentcastSignupUser() && !getEwentcastAccount()?.ht_connected && (
+      {isEwentcastSignupUser() && !htAvailable && (
         <div className="events-connect-banner" style={{ marginBottom: 12 }}>
           <h3>Connect Hightribe to include your hosted events</h3>
-          <p>Luma and Eventbrite events still appear below.</p>
-          <a href="/settings">Go to Settings → Connect Hightribe</a>
+          <p>Add your Hightribe API key in Settings (same connect flow as Luma / Eventbrite).</p>
+          <a href="/settings?channel=hightribe">Go to Settings → Connect Hightribe</a>
         </div>
       )}
 

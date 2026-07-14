@@ -1,11 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
-import {
-  getChannelEvent,
-  listChannelEvents,
-} from '../../../../../backend/src/services/events'
-import { purgeChannelData } from '../../../../../backend/src/services/channel-data'
-import { parseChannel } from '@/lib/server/channels'
-import { maybeSyncChannelEvents } from '@/lib/server/channel-events-sync'
+import { NextRequest } from 'next/server'
+import { proxyToBackend } from '@/lib/backend-client'
 import { isErrorResponse, requireSubscribedSession } from '@/lib/server/session'
 
 export const runtime = 'nodejs'
@@ -16,57 +10,14 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
   const session = await requireSubscribedSession(req)
   if (isErrorResponse(session)) return session
 
-  const { channel: raw } = await ctx.params
-  const channel = parseChannel(raw)
-  if (!channel) return NextResponse.json({ error: 'invalid channel' }, { status: 400 })
-
-  try {
-    const externalId = req.nextUrl.searchParams.get('external_id')
-    if (externalId) {
-      const event = await getChannelEvent(channel, session.user.id, externalId)
-      return NextResponse.json({ event })
-    }
-
-    const forceSync = req.nextUrl.searchParams.get('refresh') === '1'
-      || req.nextUrl.searchParams.get('sync') === '1'
-    let events = await listChannelEvents(channel, session.user.id)
-
-    if (channel === 'luma' && (forceSync || events.length === 0)) {
-      try {
-        await maybeSyncChannelEvents(channel, session.user.id, req.headers.get('authorization') || '', {
-          force: forceSync,
-          existingCount: events.length,
-        })
-        events = await listChannelEvents(channel, session.user.id)
-      } catch (err) {
-        console.warn('[GET /api/events/luma] auto-sync failed:', err instanceof Error ? err.message : err)
-      }
-    }
-
-    return NextResponse.json({ events })
-  } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'list failed' },
-      { status: 500 },
-    )
-  }
+  const { channel } = await ctx.params
+  return proxyToBackend(req, `events/${encodeURIComponent(channel)}`)
 }
 
 export async function DELETE(req: NextRequest, ctx: RouteContext) {
   const session = await requireSubscribedSession(req)
   if (isErrorResponse(session)) return session
 
-  const { channel: raw } = await ctx.params
-  const channel = parseChannel(raw)
-  if (!channel) return NextResponse.json({ error: 'invalid channel' }, { status: 400 })
-
-  try {
-    const result = await purgeChannelData(session.user.id, channel)
-    return NextResponse.json({ ok: true, ...result })
-  } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'purge failed' },
-      { status: 500 },
-    )
-  }
+  const { channel } = await ctx.params
+  return proxyToBackend(req, `events/${encodeURIComponent(channel)}`)
 }

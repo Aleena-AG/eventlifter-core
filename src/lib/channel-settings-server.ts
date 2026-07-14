@@ -1,5 +1,11 @@
-import { getUserSettings } from '../../backend/src/services/user-settings'
-import { applyEnvOverrides, isMaskedSecret, loadFromEnv, loadSettings, type AppSettings } from '@/lib/settings-store'
+import { backendJson } from '@/lib/backend-client'
+import {
+  applyEnvOverrides,
+  isMaskedSecret,
+  loadFromEnv,
+  loadSettings,
+  type AppSettings,
+} from '@/lib/settings-store'
 
 export class SessionRequiredError extends Error {
   constructor(message = 'Session expired. Sign in again.') {
@@ -22,26 +28,24 @@ function sanitizeSecrets(settings: AppSettings): AppSettings {
   return out
 }
 
-/** Resolve channel keys for API proxies — per-user MySQL when authenticated. */
+/** Resolve channel keys for API proxies — per-user settings from remote API when authenticated. */
 export async function resolveAppSettings(authorization?: string | null): Promise<AppSettings> {
   const fallback = loadSettings()
   const auth = authorization?.trim()
   if (!auth) return fallback
 
   try {
-    const { resolveSession } = await import('../../backend/src/services/auth')
-    const user = await resolveSession(auth)
-    if (!user) throw new SessionRequiredError()
-
-    const userSettings = withEnvOverrides(sanitizeSecrets(await getUserSettings(user.id)))
+    const settings = await backendJson<AppSettings>('settings?full=1', {
+      headers: { Authorization: auth },
+    })
+    const userSettings = withEnvOverrides(sanitizeSecrets(settings))
     if (!userSettings.luma.apiKey?.trim() && fallback.luma.apiKey?.trim()) {
       userSettings.luma.apiKey = fallback.luma.apiKey
       if (!userSettings.luma.calendarId) userSettings.luma.calendarId = fallback.luma.calendarId
     }
     return userSettings
   } catch (e) {
-    if (e instanceof SessionRequiredError) throw e
-    console.warn('[resolveAppSettings] user settings load failed:', e instanceof Error ? e.message : e)
+    console.warn('[resolveAppSettings] remote settings load failed:', e instanceof Error ? e.message : e)
     throw new SessionRequiredError()
   }
 }

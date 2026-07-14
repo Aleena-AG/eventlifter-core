@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { upsertChannelEvents } from '@/lib/server/channel-events'
+import { proxyToBackend } from '@/lib/backend-client'
 import { parseChannel } from '@/lib/server/channels'
 import { isErrorResponse, requireSubscribedSession } from '@/lib/server/session'
 
@@ -17,23 +17,5 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   const channel = parseChannel(raw)
   if (!channel) return NextResponse.json({ error: 'invalid channel' }, { status: 400 })
 
-  const body = await req.json().catch(() => ({})) as {
-    events?: Array<Record<string, unknown>>
-    prune?: boolean
-  }
-  if (!Array.isArray(body.events)) {
-    return NextResponse.json({ error: 'events array required' }, { status: 400 })
-  }
-
-  try {
-    const result = await upsertChannelEvents(channel, session.user.id, body.events, {
-      prune: body.prune !== false,
-    })
-    return NextResponse.json(result)
-  } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'sync failed' },
-      { status: 500 },
-    )
-  }
+  return proxyToBackend(req, `events/${channel}/sync`)
 }

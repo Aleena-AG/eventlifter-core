@@ -1,7 +1,7 @@
 'use client'
 
 import { authHeader } from '@/lib/auth'
-import { isHightribeChannelConnected } from '@/lib/channel-connection'
+import { isHightribeConnected } from '@/lib/channel-connection'
 import { listStoredEvents } from '@/lib/channel-events-store'
 import type { ChannelKey } from '@/lib/types'
 
@@ -96,6 +96,7 @@ function normalizeTrend(
 export async function loadDashboardStats(settings: {
   luma?: { configured?: boolean }
   eventbrite?: { configured?: boolean; hasPrivateToken?: boolean; oauthConfigured?: boolean }
+  hightribe?: { configured?: boolean }
 }): Promise<DashboardStats> {
   const lumaConfigured = !!(settings.luma?.configured)
   const ebConfigured = !!(
@@ -103,6 +104,7 @@ export async function loadDashboardStats(settings: {
     || settings.eventbrite?.hasPrivateToken
     || settings.eventbrite?.oauthConfigured
   )
+  const htConfigured = isHightribeConnected(settings)
 
   const res = await fetch('/api/dashboard/stats', {
     headers: { Authorization: authHeader(), Accept: 'application/json' },
@@ -138,7 +140,7 @@ export async function loadDashboardStats(settings: {
 
     return {
       channels: {
-        hightribe: withChannelDefaults('hightribe', isHightribeChannelConnected()),
+        hightribe: withChannelDefaults('hightribe', htConfigured),
         luma: withChannelDefaults('luma', lumaConfigured),
         eventbrite: withChannelDefaults('eventbrite', ebConfigured),
       },
@@ -156,7 +158,7 @@ export async function loadDashboardStats(settings: {
 
   // Fallback: same event sources as the Events page so counts stay in sync.
   const [htRows, lumaRows, ebRows] = await Promise.all([
-    isHightribeChannelConnected() ? listStoredEvents('hightribe') : Promise.resolve([]),
+    htConfigured ? listStoredEvents('hightribe') : Promise.resolve([]),
     listStoredEvents('luma'),
     listStoredEvents('eventbrite'),
   ])
@@ -168,7 +170,7 @@ export async function loadDashboardStats(settings: {
       bookings: 0,
       revenue: 0,
       currency: 'USD',
-      configured: isHightribeChannelConnected(),
+      configured: htConfigured,
     },
     luma: {
       events: lumaRows.length,

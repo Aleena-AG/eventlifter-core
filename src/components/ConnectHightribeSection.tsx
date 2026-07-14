@@ -1,13 +1,19 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
-  connectHightribe,
+  connectHightribeWithPassword,
+  disconnectChannelSettings,
+  syncChannelFromApi,
+} from '@/lib/channel-connect'
+import { getSettings } from '@/lib/api'
+import {
   getEwentcastAccount,
-  isEwentcastSignupUser,
+  setEwentcastAccount,
+  setHtLinkToken,
 } from '@/lib/ewentcast-session'
-import { disconnectChannelIntegration } from '@/lib/channel-disconnect'
 import { InlineLoader } from '@/components/Loader'
+import { purgeChannelDataFromDb } from '@/lib/channel-data-sync'
 
 const INPUT_STYLE: React.CSSProperties = {
   width: '100%', background: '#FBF7F0', border: '1px solid #E8DFD0',
@@ -26,23 +32,52 @@ const BTN_SECONDARY: React.CSSProperties = {
   color: '#211B16', padding: '7px 16px', fontSize: '13px', cursor: 'pointer',
 }
 
+type HtSettingsView = {
+  configured?: boolean
+}
+
 export function ConnectHightribeSection({ onChange }: { onChange?: () => void }) {
-  const [htConnected, setHtConnected] = useState(() => !!getEwentcastAccount()?.ht_connected)
+  const [htConnected, setHtConnected] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
-  if (!isEwentcastSignupUser()) return null
+  useEffect(() => {
+    void (async () => {
+      try {
+        const s = await getSettings() as { hightribe?: HtSettingsView }
+        setHtConnected(!!s.hightribe?.configured || !!getEwentcastAccount()?.ht_connected)
+      } catch {
+        setHtConnected(!!getEwentcastAccount()?.ht_connected)
+      }
+    })()
+  }, [])
 
   const handleConnect = async () => {
     setLoading(true)
     setError('')
     setSuccess('')
     try {
-      await connectHightribe(email, password)
-      setSuccess('Hightribe connected. Use Events → Sync to pull your events.')
+      // 1) Login to Hightribe with email/password
+      // 2) PUT /api/v1/settings { hightribe: { serviceUrl, apiKey: <token> } }
+      const { htToken } = await connectHightribeWithPassword({ email, password })
+      setHtLinkToken(htToken)
+      const account = getEwentcastAccount()
+      if (account) {
+        setEwentcastAccount({
+          ...account,
+          ht_connected: true,
+          ht_connected_at: new Date().toISOString(),
+        })
+      }
+      try {
+        await syncChannelFromApi('hightribe')
+      } catch {
+        // connect succeeded; sync is best-effort
+      }
+      setSuccess('Hightribe connected. Events will sync when available.')
       setPassword('')
       setHtConnected(true)
       onChange?.()
@@ -59,7 +94,18 @@ export function ConnectHightribeSection({ onChange }: { onChange?: () => void })
     setError('')
     setSuccess('')
     try {
-      await disconnectChannelIntegration('hightribe')
+      await disconnectChannelSettings('hightribe')
+      setHtLinkToken(null)
+      const account = getEwentcastAccount()
+      if (account) {
+        setEwentcastAccount({
+          ...account,
+          ht_connected: false,
+          linked_ht_user_id: null,
+          ht_connected_at: null,
+        })
+      }
+      void purgeChannelDataFromDb('hightribe')
       setHtConnected(false)
       setSuccess('Hightribe disconnected.')
       onChange?.()
@@ -73,11 +119,9 @@ export function ConnectHightribeSection({ onChange }: { onChange?: () => void })
   return (
     <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #E8DFD0' }}>
       <div style={{ fontSize: '13px', fontWeight: 600, color: '#211B16', marginBottom: '6px' }}>
-        Connect Hightribe (optional)
+        Connect Hightribe
       </div>
-      <p style={{ fontSize: '12px', color: '#8C7F6D', margin: '0 0 12px', lineHeight: 1.5 }}>
-        Link your existing Hightribe account to pull HT events into Ewentcast. Luma & Eventbrite work without this.
-      </p>
+
 
       {htConnected ? (
         <div>
@@ -90,9 +134,28 @@ export function ConnectHightribeSection({ onChange }: { onChange?: () => void })
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          <input type="email" style={INPUT_STYLE} placeholder="Hightribe email" value={email} onChange={(e) => setEmail(e.target.value)} />
-          <input type="password" style={INPUT_STYLE} placeholder="Hightribe password" value={password} onChange={(e) => setPassword(e.target.value)} />
-          <button onClick={handleConnect} disabled={loading || !email || !password} style={{ ...BTN_PRIMARY, alignSelf: 'flex-start', opacity: loading ? 0.6 : 1 }}>
+          <input
+            type="email"
+            style={INPUT_STYLE}
+            placeholder="Hightribe email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="username"
+          />
+          <input
+            type="password"
+            style={INPUT_STYLE}
+            placeholder="Hightribe password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+            onKeyDown={(e) => { if (e.key === 'Enter') void handleConnect() }}
+          />
+          <button
+            onClick={handleConnect}
+            disabled={loading || !email.trim() || !password}
+            style={{ ...BTN_PRIMARY, alignSelf: 'flex-start', opacity: loading || !email.trim() || !password ? 0.6 : 1 }}
+          >
             {loading ? <InlineLoader label="Connecting" /> : 'Connect Hightribe'}
           </button>
         </div>

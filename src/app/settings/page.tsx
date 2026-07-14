@@ -11,7 +11,6 @@ import type { HtUser } from '@/lib/auth'
 import { ChannelLogo } from '@/components/ChannelLogo'
 import { HIGHTRIBE_COLOR, LUMA_COLOR, EVENTBRITE_COLOR } from '@/lib/brand'
 import { ConnectHightribeSection } from '@/components/ConnectHightribeSection'
-import { getEwentcastAccount, isEwentcastSignupUser } from '@/lib/ewentcast-session'
 import { disconnectChannelIntegration } from '@/lib/channel-disconnect'
 import { effectiveEventbriteRedirectUri } from '@/lib/app-url'
 import { useAppUrl, useEventbriteRedirectUri } from '@/lib/use-app-url'
@@ -882,8 +881,8 @@ export default function SettingsPage() {
 
           {showHightribe && (
           <SectionCard title="Hightribe" channel="hightribe">
-            {htUser ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {htUser && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: 12 }}>
                 <div style={{
                   width: '40px', height: '40px', borderRadius: '50%', flexShrink: 0,
                   background: `linear-gradient(135deg, ${HIGHTRIBE_COLOR}, #D98A2B)`,
@@ -903,7 +902,7 @@ export default function SettingsPage() {
                       fontSize: '11px', padding: '2px 8px', borderRadius: '20px',
                       background: 'rgba(63,185,80,0.1)', border: '1px solid rgba(63,185,80,0.3)', color: '#4E7A4B',
                     }}>
-                      ✓ {isEwentcastSignupUser() ? 'Ewentcast account' : 'Connected'}
+                      ✓ Signed in
                     </span>
                     {htUser.has_business_profile && (
                       <span style={{
@@ -914,18 +913,9 @@ export default function SettingsPage() {
                   </div>
                 </div>
               </div>
-            ) : (
-              <div style={{ fontSize: '13px', color: '#8C7F6D' }}>
-                Hightribe connects automatically when you sign in.{' '}
-                <a href="/login" style={{ color: HIGHTRIBE_COLOR, textDecoration: 'none', fontWeight: 500 }}>Sign in →</a>
-              </div>
             )}
-            {isEwentcastSignupUser() && getEwentcastAccount()?.ht_connected && (
-              <p style={{ fontSize: '12px', color: '#8C7F6D', margin: '12px 0 0' }}>
-                Hightribe events and bookings are available through your linked account.
-              </p>
-            )}
-            <ConnectHightribeSection />
+         
+            <ConnectHightribeSection onChange={() => void loadSettings()} />
           </SectionCard>
           )}
 

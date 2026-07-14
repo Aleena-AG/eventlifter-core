@@ -8,13 +8,19 @@ export interface EwentcastAccount {
   subscription_plan: string
   subscription_status: string
   subscription_active: boolean
-  subscription_amount_usd: number
+  subscription_amount_usd?: number
   trial_ends_at?: string | null
   trial_days_remaining?: number | null
   current_period_end?: string | null
   ht_connected: boolean
   linked_ht_user_id?: number | null
   ht_connected_at?: string | null
+  email_verified?: boolean
+}
+
+/** Remote API uses `success`; older local API used `status`. */
+function apiOk(data: { success?: boolean; status?: boolean }): boolean {
+  return data.success === true || data.status === true
 }
 
 const EWENTCAST_KEY = 'ewentcast_account'
@@ -136,8 +142,8 @@ export function getTrialDaysRemaining(): number | null {
 }
 
 export function needsHtConnect(): boolean {
-  const account = getEwentcastAccount()
-  return account?.auth_source === 'ewentcast_signup' && account.subscription_active && !account.ht_connected
+  // Channel connect is settings-based (PUT /api/v1/settings), not auth/connect-hightribe.
+  return false
 }
 
 export async function fetchAuthMe(): Promise<{
@@ -195,13 +201,14 @@ export async function registerLocal(body: {
     body: JSON.stringify(body),
   })
   const data = await res.json() as {
+    success?: boolean
     status?: boolean
     message?: string
     token?: string
     user?: HtUser
     ewentcast?: EwentcastAccount
   }
-  if (!res.ok || !data.status || !data.token || !data.user || !data.ewentcast) {
+  if (!res.ok || !apiOk(data) || !data.token || !data.user || !data.ewentcast) {
     throw new Error(data.message || 'Registration failed')
   }
   setToken(data.token)
@@ -220,13 +227,14 @@ export async function loginLocal(email: string, password: string): Promise<void>
     body: JSON.stringify({ email, password }),
   })
   const data = await res.json() as {
+    success?: boolean
     status?: boolean
     message?: string
     token?: string
     user?: HtUser
     ewentcast?: EwentcastAccount
   }
-  if (!res.ok || !data.status || !data.token || !data.user || !data.ewentcast) {
+  if (!res.ok || !apiOk(data) || !data.token || !data.user || !data.ewentcast) {
     throw new Error(data.message || 'Login failed')
   }
   setToken(data.token)
@@ -256,13 +264,14 @@ export async function requestPasswordReset(email: string): Promise<{
     body: JSON.stringify({ email }),
   })
   const data = await res.json() as {
+    success?: boolean
     status?: boolean
     message?: string
     emailed?: boolean
     resetToken?: string
     resetUrl?: string
   }
-  if (!res.ok || !data.status) throw new Error(data.message || 'Request failed')
+  if (!res.ok || !apiOk(data)) throw new Error(data.message || 'Request failed')
   return { emailed: data.emailed, resetToken: data.resetToken, resetUrl: data.resetUrl }
 }
 
@@ -272,8 +281,8 @@ export async function resetPassword(token: string, password: string): Promise<vo
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ token, password }),
   })
-  const data = await res.json() as { status?: boolean; message?: string }
-  if (!res.ok || !data.status) throw new Error(data.message || 'Reset failed')
+  const data = await res.json() as { success?: boolean; status?: boolean; message?: string }
+  if (!res.ok || !apiOk(data)) throw new Error(data.message || 'Reset failed')
 }
 
 export async function loginWithHightribe(email: string, password: string): Promise<void> {
@@ -283,6 +292,7 @@ export async function loginWithHightribe(email: string, password: string): Promi
     body: JSON.stringify({ email, password }),
   })
   const data = await res.json() as {
+    success?: boolean
     status?: boolean
     message?: string
     token?: string
@@ -290,7 +300,7 @@ export async function loginWithHightribe(email: string, password: string): Promi
     ewentcast?: EwentcastAccount
     ht_link_token?: string
   }
-  if (!res.ok || !data.status || !data.token || !data.user || !data.ewentcast) {
+  if (!res.ok || !apiOk(data) || !data.token || !data.user || !data.ewentcast) {
     throw new Error(data.message || 'HighTribe login failed')
   }
   setToken(data.token)
@@ -312,6 +322,7 @@ export async function loginWithHightribeToken(htToken?: string): Promise<void> {
     body: JSON.stringify({ ht_token: token }),
   })
   const data = await res.json() as {
+    success?: boolean
     status?: boolean
     message?: string
     token?: string
@@ -319,7 +330,7 @@ export async function loginWithHightribeToken(htToken?: string): Promise<void> {
     ewentcast?: EwentcastAccount
     ht_link_token?: string
   }
-  if (!res.ok || !data.status || !data.token || !data.user || !data.ewentcast) {
+  if (!res.ok || !apiOk(data) || !data.token || !data.user || !data.ewentcast) {
     throw new Error(data.message || 'HighTribe sign-in failed')
   }
   setToken(data.token)
@@ -345,13 +356,18 @@ export async function startSubscriptionCheckout(): Promise<string> {
       cancel_url: `${origin}/subscribe?canceled=1`,
     }),
   })
-  const data = await res.json() as { checkout_url?: string; message?: string; status?: boolean }
+  const data = await res.json() as {
+    checkout_url?: string
+    message?: string
+    success?: boolean
+    status?: boolean
+  }
   if (res.status === 401) {
     clearAuth()
     throw new Error('SESSION_EXPIRED')
   }
   if (data.checkout_url) return data.checkout_url
-  if (data.status && data.message?.includes('already active')) {
+  if (apiOk(data) && data.message?.includes('already active')) {
     await fetchAuthMe()
     throw new Error('ALREADY_ACTIVE')
   }
@@ -378,11 +394,12 @@ export async function confirmSubscriptionPayment(sessionId: string): Promise<Ewe
     throw new Error('SESSION_EXPIRED')
   }
   const data = await res.json() as {
+    success?: boolean
     status?: boolean
     ewentcast?: EwentcastAccount
     message?: string
   }
-  if (!res.ok || !data.status || !data.ewentcast) {
+  if (!res.ok || !apiOk(data) || !data.ewentcast) {
     throw new Error(data.message || 'Could not confirm payment')
   }
   setEwentcastAccount(data.ewentcast)
@@ -435,12 +452,13 @@ export async function requestMoneyBackRefund(): Promise<{
     throw new Error('SESSION_EXPIRED')
   }
   const data = await res.json() as {
+    success?: boolean
     status?: boolean
     message?: string
     ewentcast?: EwentcastAccount
     result?: { refunded_amount: number; currency: string }
   }
-  if (!res.ok || !data.status || !data.ewentcast) {
+  if (!res.ok || !apiOk(data) || !data.ewentcast) {
     throw new Error(data.message || 'Refund request failed')
   }
   setEwentcastAccount(data.ewentcast)
@@ -563,27 +581,22 @@ export async function openStripeBillingPortal(): Promise<string> {
   throw new Error(message)
 }
 
+/**
+ * Connect Hightribe with email + password from the frontend.
+ * Logs into Hightribe, then PUTs the token as settings.apiKey (no auth/connect-hightribe).
+ */
 export async function connectHightribe(email: string, password: string): Promise<void> {
-  const res = await fetch('/api/auth/connect-hightribe', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      Authorization: authHeader(),
-    },
-    body: JSON.stringify({ email, password }),
-  })
-  const data = await res.json() as {
-    status?: boolean
-    message?: string
-    ewentcast?: EwentcastAccount
-    ht_link_token?: string
+  const { connectHightribeWithPassword } = await import('@/lib/channel-connect')
+  const { htToken } = await connectHightribeWithPassword({ email, password })
+  setHtLinkToken(htToken)
+  const account = getEwentcastAccount()
+  if (account) {
+    setEwentcastAccount({
+      ...account,
+      ht_connected: true,
+      ht_connected_at: new Date().toISOString(),
+    })
   }
-  if (!res.ok || !data.status) {
-    throw new Error(data.message || 'Connect failed')
-  }
-  if (data.ewentcast) setEwentcastAccount(data.ewentcast)
-  if (data.ht_link_token) setHtLinkToken(data.ht_link_token)
 }
 
 function applyLocalHightribeDisconnect(): void {
@@ -599,28 +612,15 @@ function applyLocalHightribeDisconnect(): void {
   setHtLinkToken(null)
 }
 
-/** @returns true when the server confirmed disconnect */
+/** Disconnect Hightribe channel settings (DELETE /api/v1/settings/hightribe). */
 export async function disconnectHightribe(): Promise<boolean> {
   try {
-    const res = await fetch('/api/auth/disconnect-hightribe', {
-      method: 'POST',
-      headers: { Authorization: authHeader(), Accept: 'application/json' },
-    })
-    const data = await res.json().catch(() => ({})) as {
-      status?: boolean
-      ewentcast?: EwentcastAccount
-      message?: string
-    }
-    if (res.ok && data.status) {
-      if (data.ewentcast) setEwentcastAccount(data.ewentcast)
-      else applyLocalHightribeDisconnect()
-      setHtLinkToken(null)
-      return true
-    }
+    const { disconnectChannelSettings } = await import('@/lib/channel-connect')
+    await disconnectChannelSettings('hightribe')
+    applyLocalHightribeDisconnect()
+    return true
   } catch {
-    // server unreachable — fall back to local disconnect below
+    applyLocalHightribeDisconnect()
+    return false
   }
-
-  applyLocalHightribeDisconnect()
-  return false
 }

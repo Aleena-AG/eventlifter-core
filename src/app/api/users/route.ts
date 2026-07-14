@@ -4,9 +4,5 @@ import { proxyToBackend } from '@/lib/backend-client'
 export const runtime = 'nodejs'
 
 export async function GET(req: NextRequest) {
-  return proxyToBackend(req, 'registry')
-}
-
-export async function POST(req: NextRequest) {
-  return proxyToBackend(req, 'registry')
+  return proxyToBackend(req, 'users')
 }

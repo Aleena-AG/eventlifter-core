@@ -182,7 +182,7 @@ export default function LoginPage() {
             <span className="auth-badge">Welcome back</span>
             <h1 className="auth-title">Sign in to your studio</h1>
             <p className="auth-subtitle">
-              Sign in with your Ewentcast account to manage events across every channel.
+              Manage events across HighTribe, Luma, and Eventbrite.
             </p>
           </header>
 
@@ -338,8 +338,8 @@ export default function LoginPage() {
               )}
 
               {!showHtForm && (
-                <p className="auth-footer-note" style={{ marginTop: 8, marginBottom: 0, textAlign: 'center' }}>
-                  Uses your HighTribe session from this browser when available. Otherwise sign in with your HighTribe credentials — no Ewentcast billing or trial required.
+                <p className="auth-footer-note" style={{ marginTop: 4, marginBottom: 0, textAlign: 'center' }}>
+                  Uses your HighTribe browser session when available.
                 </p>
               )}
             </form>

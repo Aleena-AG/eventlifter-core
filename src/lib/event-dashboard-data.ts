@@ -508,7 +508,6 @@ function filterStoredBookings(
   eventId: string,
   title: string,
 ): EventBookingRow[] {
-): EventBookingRow[] {
   const normTitle = title.trim().toLowerCase()
   return allBookings.filter((b) => {
     if (b.channel !== channel) return false

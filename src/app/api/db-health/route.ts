@@ -1,27 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { config } from '../../../../backend/src/config'
-import { runDbHealthCheck } from '@/lib/server/db-health'
+import { getBackendUrl, backendFetch } from '@/lib/backend-client'
 
 export const runtime = 'nodejs'
 
 export async function GET(req: NextRequest) {
-  const token = process.env.DB_HEALTH_TOKEN
-  if (!token) {
-    return NextResponse.json(
-      { ok: false, error: 'DB_HEALTH_TOKEN is not set on the server' },
-      { status: 503 },
-    )
-  }
-
-  const provided = req.nextUrl.searchParams.get('token')
-  if (!provided || provided !== token) {
+  const token = req.nextUrl.searchParams.get('token')
+  const expected = process.env.DB_HEALTH_TOKEN
+  if (expected && token !== expected) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   }
 
-  if (!config.healthToken && token) {
-    // allow when only env token matches query
+  try {
+    const res = await backendFetch('health')
+    const data = await res.json().catch(() => ({}))
+    return NextResponse.json({
+      ok: res.ok,
+      backendUrl: getBackendUrl(),
+      note: 'Database health is owned by the remote API',
+      ...(typeof data === 'object' && data ? data : {}),
+    }, { status: res.ok ? 200 : 503 })
+  } catch (err) {
+    return NextResponse.json({
+      ok: false,
+      backendUrl: getBackendUrl(),
+      error: err instanceof Error ? err.message : 'unreachable',
+    }, { status: 503 })
   }
-
-  const result = await runDbHealthCheck()
-  return NextResponse.json(result, { status: result.ok ? 200 : 503 })
 }

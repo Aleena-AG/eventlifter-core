@@ -1,5 +1,5 @@
-import { loadSettings } from '@/app/api/settings/route'
-import { handleWebhookBooking } from '../../backend/src/services/webhook-booking'
+import { loadSettings } from '@/lib/settings-store'
+import { backendJson } from '@/lib/backend-client'
 import type { MasterEventRecord } from '@/lib/event-registry'
 import type { ChannelKey } from '@/lib/types'
 import { proxyLumaPath } from '@/lib/luma-api'
@@ -49,8 +49,6 @@ export async function syncCapacityAcrossChannels(
           max_capacity: remaining + master.sold,
         }, loadSettings())
         results.push({ channel: ch, ok: true })
-      } else if (ch === 'hightribe') {
-        results.push({ channel: ch, ok: true })
       } else {
         results.push({ channel: ch, ok: true })
       }
@@ -62,20 +60,9 @@ export async function syncCapacityAcrossChannels(
   return results
 }
 
-function toMasterRecord(master: Awaited<ReturnType<typeof handleWebhookBooking>>['master']): MasterEventRecord | null {
-  if (!master) return null
-  return {
-    id: master.id,
-    title: master.title,
-    capacity: master.capacity,
-    sold: master.sold,
-    channels: master.channels,
-    attendees: master.attendees,
-    createdAt: master.createdAt,
-    updatedAt: master.updatedAt,
-  }
-}
-
+/**
+ * Persist booking via remote API registry action, then sync capacity across channels.
+ */
 export async function handleBookingWebhook(
   sourceChannel: ChannelKey,
   channelEventId: string,
@@ -85,18 +72,30 @@ export async function handleBookingWebhook(
   synced: { channel: ChannelKey; ok: boolean; error?: string }[]
   bookingSaved?: boolean
 }> {
-  const { master, bookingSaved } = await handleWebhookBooking({
-    sourceChannel,
-    channelEventId,
-    email: attendee.email,
-    name: attendee.name,
-    registeredAt: attendee.registeredAt,
-    externalId: attendee.externalId,
-  })
+  try {
+    const master = await backendJson<MasterEventRecord>('registry', {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'register_attendee_by_channel',
+        channel: sourceChannel,
+        eventId: channelEventId,
+        attendee: {
+          email: attendee.email,
+          name: attendee.name,
+          source: sourceChannel,
+          registeredAt: attendee.registeredAt || new Date().toISOString(),
+          externalId: attendee.externalId,
+        },
+      }),
+    })
 
-  const record = toMasterRecord(master)
-  if (!record) return { master: null, synced: [], bookingSaved: false }
+    if (!master?.id) {
+      return { master: null, synced: [], bookingSaved: false }
+    }
 
-  const synced = await syncCapacityAcrossChannels(record, sourceChannel)
-  return { master: record, synced, bookingSaved }
+    const synced = await syncCapacityAcrossChannels(master, sourceChannel)
+    return { master, synced, bookingSaved: true }
+  } catch {
+    return { master: null, synced: [], bookingSaved: false }
+  }
 }

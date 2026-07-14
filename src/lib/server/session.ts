@@ -1,10 +1,41 @@
 import { NextResponse } from 'next/server'
-import { getAccountView, resolveSession, type UserRow } from '../../../backend/src/services/auth'
+import { backendJson } from '@/lib/backend-client'
 
-export type SessionContext = { user: UserRow; token: string }
+export type UserRow = {
+  id: number
+  name: string
+  email: string
+  auth_source?: string
+  [key: string]: unknown
+}
+
+export type EwentcastAccount = {
+  auth_source?: string
+  subscription_active?: boolean
+  [key: string]: unknown
+}
+
+export type SessionContext = { user: UserRow; token: string; account?: EwentcastAccount }
+
+type MeResponse = {
+  status?: boolean
+  user?: UserRow
+  ewentcast?: EwentcastAccount
+  message?: string
+}
 
 export function isErrorResponse(value: unknown): value is NextResponse {
   return value instanceof NextResponse
+}
+
+async function fetchMe(authorization: string): Promise<MeResponse | null> {
+  try {
+    return await backendJson<MeResponse>('auth/me', {
+      headers: { Authorization: authorization },
+    })
+  } catch {
+    return null
+  }
 }
 
 export async function requireSession(req: Request): Promise<SessionContext | NextResponse> {
@@ -14,13 +45,13 @@ export async function requireSession(req: Request): Promise<SessionContext | Nex
   }
 
   try {
-    const user = await resolveSession(header)
-    if (!user) {
+    const me = await fetchMe(header)
+    if (!me?.user) {
       return NextResponse.json({ status: false, message: 'Session expired' }, { status: 401 })
     }
 
     const token = header.startsWith('Bearer ') ? header.slice(7).trim() : header.trim()
-    return { user, token }
+    return { user: me.user, token, account: me.ewentcast }
   } catch (err) {
     console.error('[requireSession]', err instanceof Error ? err.message : err)
     return NextResponse.json(
@@ -30,8 +61,19 @@ export async function requireSession(req: Request): Promise<SessionContext | Nex
   }
 }
 
-export async function assertEwentcastBillingAccess(userId: number): Promise<NextResponse | null> {
-  const account = await getAccountView(userId)
+export async function getAccountView(userId: number, authorization?: string | null): Promise<EwentcastAccount> {
+  if (authorization?.trim()) {
+    const me = await fetchMe(authorization)
+    if (me?.ewentcast) return me.ewentcast
+  }
+  return { auth_source: 'ewentcast_signup', subscription_active: true }
+}
+
+export async function assertEwentcastBillingAccess(
+  userId: number,
+  authorization?: string | null,
+): Promise<NextResponse | null> {
+  const account = await getAccountView(userId, authorization)
   if (account.auth_source !== 'ewentcast_signup') {
     return NextResponse.json(
       {
@@ -45,9 +87,12 @@ export async function assertEwentcastBillingAccess(userId: number): Promise<Next
   return null
 }
 
-export async function assertEwentcastSubscription(userId: number): Promise<NextResponse | null> {
-  const account = await getAccountView(userId)
-  if (account.auth_source === 'ewentcast_signup' && !account.subscription_active) {
+export async function assertEwentcastSubscription(
+  userId: number,
+  authorization?: string | null,
+): Promise<NextResponse | null> {
+  const account = await getAccountView(userId, authorization)
+  if (account.auth_source === 'ewentcast_signup' && account.subscription_active === false) {
     return NextResponse.json(
       {
         status: false,
@@ -64,7 +109,10 @@ export async function requireSubscribedSession(req: Request): Promise<SessionCon
   const session = await requireSession(req)
   if (isErrorResponse(session)) return session
 
-  const denied = await assertEwentcastSubscription(session.user.id)
+  const denied = await assertEwentcastSubscription(
+    session.user.id,
+    req.headers.get('authorization'),
+  )
   if (denied) return denied
 
   return session

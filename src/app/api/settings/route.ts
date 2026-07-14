@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { proxyToBackend } from '@/lib/backend-client'
 import {
   loadSettings,
   mergeSettingsPatch,
@@ -6,13 +7,6 @@ import {
   toPublicSettingsView,
   type AppSettings,
 } from '@/lib/settings-store'
-import type { AppSettings as DbAppSettings } from '../../../../backend/src/types/settings'
-import {
-  clearChannelSettings,
-  getUserSettings,
-  toPublicSettingsView as toDbPublicSettingsView,
-  updateUserSettings,
-} from '../../../../backend/src/services/user-settings'
 import { assertEwentcastSubscription, isErrorResponse, requireSession } from '@/lib/server/session'
 
 export { loadSettings, saveSettings } from '@/lib/settings-store'
@@ -22,18 +16,12 @@ export const runtime = 'nodejs'
 export async function GET(req: NextRequest) {
   const session = await requireSession(req)
   if (!isErrorResponse(session)) {
-    const denied = await assertEwentcastSubscription(session.user.id)
+    const denied = await assertEwentcastSubscription(
+      session.user.id,
+      req.headers.get('authorization'),
+    )
     if (denied) return denied
-    try {
-      const full = req.nextUrl.searchParams.get('full') === '1'
-      const settings = await getUserSettings(session.user.id)
-      return NextResponse.json(full ? settings : toDbPublicSettingsView(settings))
-    } catch (err) {
-      return NextResponse.json(
-        { error: err instanceof Error ? err.message : 'load failed' },
-        { status: 500 },
-      )
-    }
+    return proxyToBackend(req, 'settings')
   }
 
   try {
@@ -46,24 +34,19 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
-  const patch = await req.json() as Partial<AppSettings>
   const session = await requireSession(req)
 
   if (!isErrorResponse(session)) {
-    const denied = await assertEwentcastSubscription(session.user.id)
+    const denied = await assertEwentcastSubscription(
+      session.user.id,
+      req.headers.get('authorization'),
+    )
     if (denied) return denied
-    try {
-      const updated = await updateUserSettings(session.user.id, patch as Partial<DbAppSettings>)
-      return NextResponse.json(toDbPublicSettingsView(updated))
-    } catch (err) {
-      return NextResponse.json(
-        { error: err instanceof Error ? err.message : 'save failed' },
-        { status: 500 },
-      )
-    }
+    return proxyToBackend(req, 'settings')
   }
 
   try {
+    const patch = await req.json() as Partial<AppSettings>
     const updated = mergeSettingsPatch(loadSettings(), patch)
     saveSettings(updated)
     return NextResponse.json(toPublicSettingsView(updated))

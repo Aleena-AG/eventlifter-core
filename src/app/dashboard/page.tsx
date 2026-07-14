@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import { getSettings } from '@/lib/api'
-import { isHightribeChannelConnected } from '@/lib/channel-connection'
+import { isHightribeConnected } from '@/lib/channel-connection'
 import {
   loadDashboardStats,
   type DashboardRecentEvent,
@@ -319,7 +319,7 @@ function DashboardEventCard({ evt, phase }: { evt: DashboardEventCardItem; phase
 type SafeSettings = {
   luma?: { configured?: boolean }
   eventbrite?: { configured?: boolean; hasPrivateToken?: boolean }
-  Hightribe?: { configured?: boolean }
+  hightribe?: { configured?: boolean }
 }
 
 export default function DashboardPage() {
@@ -384,9 +384,9 @@ export default function DashboardPage() {
     load()
   }, [load])
 
-  const htConfigured = isHightribeChannelConnected()
+  const htConfigured = isHightribeConnected(settings)
   const lumaConfigured = !!settings.luma?.configured
-  const ebConfigured = !!settings.eventbrite?.hasPrivateToken
+  const ebConfigured = !!settings.eventbrite?.hasPrivateToken || !!settings.eventbrite?.configured
   const anyConfigured = lumaConfigured || ebConfigured || htConfigured
 
   const { ongoing, upcoming, nextUp, weekEvents } = useMemo(() => {

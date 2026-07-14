@@ -128,25 +128,47 @@ export async function getConnections(_hostId: string): Promise<ConnectionsRespon
 }
 
 export async function connectChannel(channel: ChannelKey, body?: Record<string, unknown>): Promise<unknown> {
-  if (channel === 'luma' && body?.apiKey) {
-    // Save the API key to settings
-    return put('/api/settings', { luma: { apiKey: body.apiKey } })
+  const {
+    connectLuma,
+    connectEventbrite,
+    connectHightribeChannel,
+  } = await import('@/lib/channel-connect')
+
+  if (channel === 'luma') {
+    return connectLuma({
+      apiKey: String(body?.apiKey || ''),
+      calendarId: body?.calendarId ? String(body.calendarId) : undefined,
+      apiBaseUrl: body?.apiBaseUrl ? String(body.apiBaseUrl) : undefined,
+      discoverBaseUrl: body?.discoverBaseUrl ? String(body.discoverBaseUrl) : undefined,
+    })
   }
   if (channel === 'eventbrite') {
-    // OAuth flow — caller should open the redirect URL
+    if (body?.privateToken) {
+      return connectEventbrite({
+        privateToken: String(body.privateToken),
+        clientId: body.clientId ? String(body.clientId) : undefined,
+        clientSecret: body.clientSecret ? String(body.clientSecret) : undefined,
+        redirectUri: body.redirectUri ? String(body.redirectUri) : undefined,
+        publicToken: body.publicToken ? String(body.publicToken) : undefined,
+      })
+    }
+    // OAuth flow — caller should open the redirect URL when only client credentials exist
     return { oauthRequired: true }
   }
   if (channel === 'hightribe') {
-    return put('/api/settings', { hightribe: { serviceUrl: (body?.serviceUrl as string) || 'https://api.hightribe.com' } })
+    return connectHightribeChannel({
+      apiKey: String(body?.apiKey || ''),
+      serviceUrl: body?.serviceUrl ? String(body.serviceUrl) : undefined,
+      webhookSecret: body?.webhookSecret != null ? String(body.webhookSecret) : undefined,
+    })
   }
   return {}
 }
 
 export async function disconnectChannel(channel: ChannelKey, _hostId: string): Promise<unknown> {
-  if (channel === 'luma') return put('/api/settings', { luma: { apiKey: '' } })
-  if (channel === 'eventbrite') return put('/api/settings', { eventbrite: { privateToken: '', clientId: '', clientSecret: '' } })
-  if (channel === 'hightribe') return put('/api/settings', { hightribe: { serviceUrl: '' } })
-  return {}
+  const { disconnectChannelSettings } = await import('@/lib/channel-connect')
+  await disconnectChannelSettings(channel)
+  return { ok: true }
 }
 
 export async function getEvents(_hostId: string): Promise<EventsResponse> {

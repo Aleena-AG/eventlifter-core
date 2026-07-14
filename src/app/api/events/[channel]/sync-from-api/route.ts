@@ -17,5 +17,5 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   const channel = parseChannel(raw)
   if (!channel) return NextResponse.json({ error: 'invalid channel' }, { status: 400 })
 
-  return proxyToBackend(req, `events/${channel}/sync-bookings`)
+  return proxyToBackend(req, `events/${channel}/sync-from-api`)
 }

@@ -174,9 +174,11 @@ export function toPublicSettingsView(d: AppSettings) {
     },
     hightribe: {
       serviceUrl: d.hightribe.serviceUrl,
+      apiKey: maskSecret(d.hightribe.apiKey),
       webhookSecret: maskSecret(d.hightribe.webhookSecret),
-      configured: !!d.hightribe.serviceUrl,
+      configured: !!d.hightribe.apiKey,
       hasWebhookSecret: !!d.hightribe.webhookSecret,
+      hasApiKey: !!d.hightribe.apiKey,
     },
   }
 }

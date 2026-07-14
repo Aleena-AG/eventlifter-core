@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAccountView } from '../../../../../backend/src/services/auth'
+import { proxyToBackend } from '@/lib/backend-client'
 import {
-  getMoneyBackRefundStatus,
-  isStripeConfigured,
-  processMoneyBackRefund,
-} from '@/lib/server/stripe-billing'
-import { isErrorResponse, requireSession, assertEwentcastBillingAccess } from '@/lib/server/session'
+  assertEwentcastBillingAccess,
+  isErrorResponse,
+  requireSession,
+} from '@/lib/server/session'
 
 export const runtime = 'nodejs'
 
@@ -15,25 +14,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ status: false, message: 'Unauthorized' }, { status: 401 })
   }
 
-  const billingDenied = await assertEwentcastBillingAccess(session.user.id)
+  const billingDenied = await assertEwentcastBillingAccess(
+    session.user.id,
+    req.headers.get('authorization'),
+  )
   if (billingDenied) return billingDenied
 
-  if (!isStripeConfigured()) {
-    return NextResponse.json(
-      { status: false, message: 'Stripe billing is not configured.' },
-      { status: 503 },
-    )
-  }
-
-  try {
-    const refund = await getMoneyBackRefundStatus(session.user.id)
-    return NextResponse.json({ status: true, refund })
-  } catch (err) {
-    return NextResponse.json(
-      { status: false, message: err instanceof Error ? err.message : 'Could not load refund status' },
-      { status: 500 },
-    )
-  }
+  const res = await proxyToBackend(req, 'billing/refund')
+  if (res.status !== 404) return res
+  return NextResponse.json(
+    { status: false, message: 'Billing is not available on the remote API yet.' },
+    { status: 503 },
+  )
 }
 
 export async function POST(req: NextRequest) {
@@ -42,29 +34,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ status: false, message: 'Unauthorized' }, { status: 401 })
   }
 
-  const billingDenied = await assertEwentcastBillingAccess(session.user.id)
+  const billingDenied = await assertEwentcastBillingAccess(
+    session.user.id,
+    req.headers.get('authorization'),
+  )
   if (billingDenied) return billingDenied
 
-  if (!isStripeConfigured()) {
-    return NextResponse.json(
-      { status: false, message: 'Stripe billing is not configured.' },
-      { status: 503 },
-    )
-  }
-
-  try {
-    const result = await processMoneyBackRefund(session.user.id)
-    const account = await getAccountView(session.user.id)
-    return NextResponse.json({
-      status: true,
-      message: 'Refund processed. Your subscription has been canceled.',
-      result,
-      ewentcast: account,
-    })
-  } catch (err) {
-    return NextResponse.json(
-      { status: false, message: err instanceof Error ? err.message : 'Refund failed' },
-      { status: 400 },
-    )
-  }
+  const res = await proxyToBackend(req, 'billing/refund')
+  if (res.status !== 404) return res
+  return NextResponse.json(
+    { status: false, message: 'Billing is not available on the remote API yet.' },
+    { status: 503 },
+  )
 }

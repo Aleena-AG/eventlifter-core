@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
     // ── Luma ────────────────────────────────────────────────────────────────
     if (settings.luma.apiKey) {
       try {
-        const url = `${base}/api/webhooks/luma`
+        const url = `${base}/api/v1/webhooks/luma`
         const { data } = await proxyLumaPath(['webhooks'], 'POST', {}, {
           url,
           events: ['guest.registered', 'guest.updated'],
@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
         const orgId = (orgData.organizations as Array<{ id: string }> | undefined)?.[0]?.id
         if (!orgId) throw new Error('No Eventbrite organization found')
 
-        const webhookUrl = `${base}/api/webhooks/eventbrite`
+        const webhookUrl = `${base}/api/v1/webhooks/eventbrite`
         const whRes = await fetch(`${EB_BASE}/organizations/${orgId}/webhooks/`, {
           method: 'POST',
           headers: {
@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Hightribe ─────────────────────────────────────────────────────────────
-    const htUrl = `${base}/api/webhooks/hightribe`
+    const htUrl = `${base}/api/v1/webhooks/hightribe`
     const htSecret = settings.hightribe.webhookSecret || ''
     results.hightribe = {
       ok: true,
@@ -139,13 +139,13 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       endpoints: {
-        luma: `${base}/api/webhooks/luma`,
-        eventbrite: `${base}/api/webhooks/eventbrite`,
-        hightribe: `${base}/api/webhooks/hightribe`,
+        luma: `${base}/api/v1/webhooks/luma`,
+        eventbrite: `${base}/api/v1/webhooks/eventbrite`,
+        hightribe: `${base}/api/v1/webhooks/hightribe`,
       },
-      setup: 'POST /api/webhooks/setup to register on Luma + Eventbrite. hightribe: set env vars on Laravel backend.',
+      setup: 'POST /api/v1/webhooks/setup (or /api/webhooks/setup) to register on Luma + Eventbrite. hightribe: set env vars on Laravel backend.',
       HightribeLaravelEnv: [
-        `CHANNEL_MANAGER_WEBHOOK_URL=${base}/api/webhooks/hightribe`,
+        `CHANNEL_MANAGER_WEBHOOK_URL=${base}/api/v1/webhooks/hightribe`,
         `CHANNEL_MANAGER_WEBHOOK_SECRET=${htSecret || '<same-as-settings-Hightribe-webhookSecret>'}`,
       ],
     })

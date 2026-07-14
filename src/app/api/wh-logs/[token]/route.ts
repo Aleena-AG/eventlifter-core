@@ -13,6 +13,6 @@ export async function GET(
   }
 
   const limit = Number(req.nextUrl.searchParams.get('limit') || 150)
-  const logs = await listWebhookLogs(limit)
+  const logs = await listWebhookLogs(limit, token)
   return NextResponse.json({ ok: true, logs })
 }
