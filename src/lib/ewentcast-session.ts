@@ -16,6 +16,8 @@ export interface EwentcastAccount {
   ht_connected: boolean
   linked_ht_user_id?: number | null
   ht_connected_at?: string | null
+  /** Hightribe email used for channel connect (UI only; not the Ewentcast login). */
+  ht_connect_email?: string | null
   email_verified?: boolean
 }
 
@@ -612,6 +614,7 @@ export async function connectHightribe(email: string, password: string): Promise
       ...account,
       ht_connected: true,
       ht_connected_at: new Date().toISOString(),
+      ht_connect_email: email.trim(),
     })
   }
 }
@@ -624,6 +627,7 @@ function applyLocalHightribeDisconnect(): void {
       ht_connected: false,
       linked_ht_user_id: null,
       ht_connected_at: null,
+      ht_connect_email: null,
     })
   }
   setHtLinkToken(null)

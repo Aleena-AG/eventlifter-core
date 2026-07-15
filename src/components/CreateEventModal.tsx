@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { channelFetch } from '@/lib/channel-fetch'
 import { buildEbTicketClass } from '@/lib/eventbrite-ticket'
 import { HIGHTRIBE_COLOR, LUMA_COLOR, EVENTBRITE_COLOR } from '@/lib/brand'
+import { hightribeEventPublicUrl } from '@/lib/hightribe-url'
 
 type TargetChannel = 'hightribe' | 'luma' | 'eventbrite'
 
@@ -140,37 +141,30 @@ export function CreateEventModal({ open, onClose, onCreated }: Props) {
     try {
       // ── Hightribe ──────────────────────────────────────────────────────────
       if (target === 'hightribe') {
-        const body = {
+        const id = `ht-${typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Date.now()}`
+        const location = form.isOnline
+          ? 'Online'
+          : [form.venueName, form.address, form.city].filter(Boolean).join(', ')
+        const event = {
+          id,
           title: form.title,
-          description: form.description || undefined,
-          timezone: form.timezone,
-          location: {
-            type: form.isOnline ? 'online' : 'venue',
-            venue_name: form.venueName || undefined,
-            address: form.address || undefined,
-            city: form.city || undefined,
-            country: form.country || undefined,
-            online_url: form.isOnline ? form.onlineUrl : undefined,
-          },
           dates: {
-            start_date: form.startDate,
-            start_time: form.startTime + ':00',
-            end_date: form.endDate,
-            end_time: form.endTime + ':00',
-            timezone: form.timezone,
+            starts_at: startUtc,
+            ends_at: endUtc,
           },
-          capacity: form.capacity ? parseInt(form.capacity) : undefined,
+          timezone: form.timezone,
+          url: hightribeEventPublicUrl({ title: form.title }),
+          ...(location ? { location } : {}),
+          publish_status: 'published',
         }
-        const res = await channelFetch('/api/hightribe/events', {
+        const res = await channelFetch('/api/events/hightribe/sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
+          body: JSON.stringify({ prune: false, events: [event] }),
         })
-        const data = await res.json() as { message?: string; error?: string; errors?: Record<string, string[]> }
+        const data = await res.json() as { message?: string; error?: string }
         if (!res.ok) {
-          const msg = data.message || data.error ||
-            (data.errors ? Object.values(data.errors).flat().join(', ') : `HTTP ${res.status}`)
-          throw new Error(msg)
+          throw new Error(data.message || data.error || `HTTP ${res.status}`)
         }
       }
 
@@ -192,7 +186,7 @@ export function CreateEventModal({ open, onClose, onCreated }: Props) {
           meeting_url: form.isOnline ? (form.onlineUrl || undefined) : undefined,
           capacity: form.capacity ? parseInt(form.capacity) : undefined,
         }
-        const res = await channelFetch('/api/luma/events/create', {
+        const res = await channelFetch('/api/luma/events', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),

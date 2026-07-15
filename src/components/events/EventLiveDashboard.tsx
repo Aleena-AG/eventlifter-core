@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { BookingDetailModal, bookingForAttendee } from '@/components/bookings/BookingDetailModal'
 import { ChannelLogo } from '@/components/ChannelLogo'
 import { InlineLoader } from '@/components/Loader'
-import { CH_META } from '@/components/ewentcast/config'
+import { CH_META, getChannelMeta } from '@/components/ewentcast/config'
 import type { AttendeeRecord } from '@/lib/event-registry'
 import type { BookingListItem } from '@/lib/bookings'
 import type { EventTicketType } from '@/lib/event-dashboard-data'
@@ -245,41 +245,44 @@ export function EventLiveDashboard({
                 <div className="ew-card">
                   <span className="ew-eyebrow">Unified attendee list</span>
                   <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
-                    ↻ deduped by email · capacity syncs across channels
+                    ↻ Hightribe · Luma · Eventbrite · linked channels
                   </div>
                   {attendees.length === 0 ? (
                     <p style={{ color: 'var(--muted)', fontSize: 14, margin: '12px 0' }}>
                       No registrations yet. Bookings on any channel will appear here automatically.
                     </p>
                   ) : (
-                    attendees.map(a => (
-                      <div key={`${a.email}-${a.source}`} className="ew-att">
-                        <div className="who">
-                          <span className="ava">
-                            {a.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                          </span>
-                          <div>
-                            <div className="nm">{a.name}</div>
-                            <div className="ew-srcs">
-                              <span>
-                                <Swatch color={CH_META[a.source].color} size={7} />
-                                {CH_META[a.source].name}
-                              </span>
+                    attendees.map(a => {
+                      const srcMeta = getChannelMeta(a.source)
+                      return (
+                      <div key={`${a.source}-${a.email}-${a.registeredAt}`} className="ew-att">
+                          <div className="who">
+                            <span className="ava">
+                              {a.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                            </span>
+                            <div>
+                              <div className="nm">{a.name}</div>
+                              <div className="ew-srcs">
+                                <span>
+                                  <Swatch color={srcMeta.color} size={7} />
+                                  {srcMeta.name}
+                                </span>
+                              </div>
                             </div>
                           </div>
+                          <div className="ew-att-actions">
+                            <button
+                              type="button"
+                              className="ew-att-view-btn"
+                              onClick={() => setDetailBooking(bookingForAttendee(a, bookings, title))}
+                            >
+                              View booking
+                            </button>
+                            <span className="ew-text-success" style={{ fontSize: 12 }}>✓ Registered</span>
+                          </div>
                         </div>
-                        <div className="ew-att-actions">
-                          <button
-                            type="button"
-                            className="ew-att-view-btn"
-                            onClick={() => setDetailBooking(bookingForAttendee(a, bookings, title))}
-                          >
-                            View booking
-                          </button>
-                          <span className="ew-text-success" style={{ fontSize: 12 }}>✓ Registered</span>
-                        </div>
-                      </div>
-                    ))
+                      )
+                    })
                   )}
                 </div>
               </div>

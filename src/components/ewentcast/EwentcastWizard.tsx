@@ -13,7 +13,7 @@ import { channelFetch } from '@/lib/channel-fetch'
 import type { ChannelKey } from '@/lib/types'
 import {
   ALL_CHANNELS, CH_META, DEFAULT_EVENT, SECTIONS, WIZARD_STEPS,
-  getTimeZones, detectTimeZone,
+  getChannelMeta, getTimeZones, detectTimeZone,
 } from './config'
 import { getFormCompletion } from './form-completion'
 import { fetchCountries, fetchStates } from '@/lib/geo'
@@ -931,18 +931,21 @@ export function EwentcastWizard({
           <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>↻ deduped by email · capacity syncs across channels</div>
           {attendees.length === 0 ? (
             <p style={{ color: 'var(--muted)', fontSize: 14, margin: '12px 0' }}>No registrations yet. Bookings on any channel will appear here automatically.</p>
-          ) : attendees.map(a => (
+          ) : attendees.map(a => {
+            const srcMeta = getChannelMeta(a.source)
+            return (
             <div key={a.email} className="ew-att">
               <div className="who">
                 <span className="ava">{a.name.split(' ').map(n => n[0]).join('').slice(0, 2)}</span>
                 <div>
                   <div className="nm">{a.name}</div>
-                  <div className="ew-srcs"><span><Swatch color={CH_META[a.source].color} size={7} />{CH_META[a.source].name}</span></div>
+                  <div className="ew-srcs"><span><Swatch color={srcMeta.color} size={7} />{srcMeta.name}</span></div>
                 </div>
               </div>
               <span className="ew-text-success" style={{ fontSize: 12 }}>✓ Registered</span>
             </div>
-          ))}
+            )
+          })}
         </div>
         </div>
 

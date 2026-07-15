@@ -45,7 +45,7 @@ export function ConnectLumaSection({
   const [reconnecting, setReconnecting] = useState(false)
   const [inputKey, setInputKey] = useState('')
   const [inputCalId, setInputCalId] = useState('')
-  const [verifying, setVerifying] = useState(false)
+  const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState('')
 
   // Connected only after a successful save (configured), not merely from leftover fields.
@@ -59,19 +59,9 @@ export function ConnectLumaSection({
       setError('Enter both API key and Calendar ID')
       return
     }
-    setVerifying(true)
+    setConnecting(true)
     setError('')
     try {
-      const { channelFetch } = await import('@/lib/channel-fetch')
-      const res = await channelFetch('/api/luma/verify-key', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey: key }),
-      })
-      const json = await res.json() as { status: string; message?: string }
-      if (!res.ok || json.status === 'error') {
-        throw new Error(json.message || 'Invalid Luma API key')
-      }
       await onSave(key, calId)
       setInputKey('')
       setInputCalId('')
@@ -79,7 +69,7 @@ export function ConnectLumaSection({
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Connection failed')
     } finally {
-      setVerifying(false)
+      setConnecting(false)
     }
   }
 
@@ -93,7 +83,7 @@ export function ConnectLumaSection({
     }
   }
 
-  const isWorking = verifying || saving
+  const isWorking = connecting || saving
   const canConnect = !!inputKey.trim() && !!inputCalId.trim() && !isWorking
 
   return (

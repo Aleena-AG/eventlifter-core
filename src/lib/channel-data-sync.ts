@@ -2,52 +2,9 @@
 
 import { channelFetch } from '@/lib/channel-fetch'
 import {
-  fetchEbBookingList,
-  fetchEbEventsForSync,
-  fetchHightribeBookingsList,
-  fetchLumaBookingList,
-  fetchLumaEventsForSync,
-  bookingToStoredPayload,
-  type BookingListItem,
-} from '@/lib/bookings'
-import {
-  purgeChannelDataFromDb,
-  syncStoredBookings,
   syncStoredEvents,
-  type ChannelName,
 } from '@/lib/channel-events-store'
-import { fetchHtEventsPage } from '@/lib/hightribe-events'
-import { lumaHostedEventRef } from '@/lib/luma-event-utils'
 import type { ChannelKey } from '@/lib/types'
-
-function bookingsToPayload(items: BookingListItem[]): Array<Record<string, unknown>> {
-  return items.map(bookingToStoredPayload)
-}
-
-async function fetchHightribeEventRows(): Promise<Array<Record<string, unknown>>> {
-  const all: Array<Record<string, unknown>> = []
-  let page = 1
-  let lastPage = 1
-  while (page <= lastPage && page <= 20) {
-    const { events, lastPage: lp } = await fetchHtEventsPage(page, 50)
-    all.push(...(events as unknown as Array<Record<string, unknown>>))
-    lastPage = lp
-    page++
-  }
-  return all
-}
-
-async function fetchLumaEventRows(): Promise<Array<Record<string, unknown>>> {
-  const res = await channelFetch('/api/luma/events/hosted?upcoming_only=false&fetch_all=true')
-  if (!res.ok) return []
-  const raw = await res.json() as { data?: { entries?: unknown[] }; entries?: unknown[] }
-  return (raw.data?.entries || raw.entries || []) as Array<Record<string, unknown>>
-}
-
-async function fetchEventbriteEventRows(): Promise<Array<Record<string, unknown>>> {
-  const events = await fetchEbEventsForSync()
-  return events as Array<Record<string, unknown>>
-}
 
 export const EVENTS_LIST_REFRESH_KEY = 'ew-events-list-refresh'
 
@@ -115,50 +72,16 @@ export async function refreshStoredEventsForChannels(
   }))
 }
 
-/** Pull events + bookings from channel APIs and persist to MySQL. */
+/** Pull events + bookings via POST /api/v1/events/:channel/sync-from-api (body: {}). */
 export async function syncChannelDataToDb(
   channel: ChannelKey,
 ): Promise<{ events: number; pruned: number; bookings: number }> {
-  const ch = channel as ChannelName
-  let events: Array<Record<string, unknown>> = []
-  let bookings: BookingListItem[] = []
-
-  if (channel === 'hightribe') {
-    events = await fetchHightribeEventRows()
-    bookings = await fetchHightribeBookingsList()
-  } else if (channel === 'luma') {
-    events = await fetchLumaEventRows()
-    const lumaEvents = events.map((entry) => {
-      const ref = lumaHostedEventRef(entry)
-      return { api_id: ref.id, name: ref.name }
-    }).filter((e) => e.api_id)
-    bookings = lumaEvents.length ? await fetchLumaBookingList(lumaEvents) : []
-  } else {
-    events = await fetchEventbriteEventRows()
-    const ebEvents = events.map((e) => ({
-      id: String(e.id || ''),
-      name: (e.name as { text?: string } | undefined)?.text || String(e.name || ''),
-    })).filter((e) => e.id)
-    bookings = ebEvents.length ? await fetchEbBookingList(ebEvents) : []
-  }
-
-  let eventCount = 0
-  let prunedCount = 0
-  let bookingCount = 0
-
-  const eventSync = await syncStoredEvents(ch, events, { prune: true })
-  eventCount = eventSync.upserted
-  prunedCount = eventSync.pruned
-
-  if (bookings.length > 0) {
-    bookingCount = await syncStoredBookings(ch, bookingsToPayload(bookings))
-  }
-
-  return { events: eventCount, pruned: prunedCount, bookings: bookingCount }
+  const { syncChannelFromApi } = await import('@/lib/channel-connect')
+  return syncChannelFromApi(channel)
 }
 
 /** Remove all cached events, bookings, and registry links for a channel. */
-export { purgeChannelDataFromDb }
+export { purgeChannelDataFromDb } from '@/lib/channel-events-store'
 
 export function formatEventSyncMessage(result: {
   events: number

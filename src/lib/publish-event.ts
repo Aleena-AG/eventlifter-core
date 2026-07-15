@@ -15,6 +15,7 @@ import {
   resolveLumaCoverUrl,
   type EventCoverFiles,
 } from '@/lib/cover-image'
+import { hightribeEventPublicUrl } from '@/lib/hightribe-url'
 
 export type EventFormData = Record<string, string | boolean>
 
@@ -202,6 +203,37 @@ function shouldCreateEventbriteVenue(ev: EventFormData, inPerson: boolean): bool
   return !!(ev.venue || ev.address || ev.city)
 }
 
+/** GET /api/eventbrite/organizations — fallback users/me/organizations. */
+async function resolveEventbriteOrgId(): Promise<string | undefined> {
+  const paths = [
+    '/api/eventbrite/organizations',
+    '/api/eventbrite/users/me/organizations',
+  ]
+  let lastErr = ''
+  for (const path of paths) {
+    const orgRes = await channelFetch(path)
+    const orgData = await orgRes.json() as {
+      organizations?: Array<{ id: string }>
+      data?: Array<{ id: string }> | { organizations?: Array<{ id: string }> }
+      error?: string
+      error_description?: string
+      message?: string
+    }
+    if (!orgRes.ok) {
+      lastErr = orgData.error_description || orgData.message || orgData.error || `HTTP ${orgRes.status}`
+      continue
+    }
+    const list =
+      orgData.organizations
+      || (Array.isArray(orgData.data) ? orgData.data : orgData.data?.organizations)
+      || []
+    const id = list[0]?.id
+    if (id) return String(id)
+  }
+  if (lastErr) throw new Error(lastErr)
+  return undefined
+}
+
 function parseHtResponse(raw: Record<string, unknown>, status: number): never {
   const message = typeof raw.message === 'string' ? raw.message : undefined
   const errors = raw.errors as Record<string, string[]> | undefined
@@ -276,8 +308,8 @@ function buildHightribeEventBody(
   const hostName = String(ev.hostName || '').trim()
   const summary = String(ev.summary || '').trim()
   const body: Record<string, unknown> = {
-    title: ev.title,
-    description: String(ev.description || ev.title),
+    title: String(ev.title || '').trim() || 'Untitled Event',
+    description: String(ev.description || ev.title || '').trim() || 'Untitled Event',
     status,
     publish_status: status,
     is_public: htIsPublic(ev) ? 1 : 0,
@@ -337,6 +369,35 @@ function buildHightribeEventBody(
   return body
 }
 
+/**
+ * Backend Hightribe proxies require settings.hightribe.apiKey.
+ * Local ht_link_token alone is not enough — persist it via PUT /api/v1/settings first.
+ */
+async function ensureHightribeSettingsApiKey(): Promise<void> {
+  const { connectHightribeChannel } = await import('@/lib/channel-connect')
+  const { getHtLinkToken, resolveHtApiAuthHeader } = await import('@/lib/ewentcast-session')
+
+  let token = String(getHtLinkToken() || '').trim()
+  if (!token) {
+    const header = await resolveHtApiAuthHeader()
+    token = header.replace(/^Bearer\s+/i, '').trim()
+  }
+  if (!token) {
+    throw new Error(
+      'Hightribe not connected. Open Settings → Connect Hightribe (email + password), then publish again.',
+    )
+  }
+
+  await connectHightribeChannel({
+    apiKey: token,
+    serviceUrl: 'https://api.hightribe.com',
+  })
+}
+
+function isHightribeNotConnectedError(message: string): boolean {
+  return /hightribe not connected|set api token|connect hightribe/i.test(message)
+}
+
 async function publishHightribeChannel(
   ev: EventFormData,
   online: boolean,
@@ -346,15 +407,30 @@ async function publishHightribeChannel(
   endUtc: string,
   cap: number,
   htCoverFile?: File,
-): Promise<{ eventId: string; ticketId?: string }> {
+): Promise<{ eventId: string; ticketId?: string; url?: string }> {
+  await ensureHightribeSettingsApiKey()
+
   const body = buildHightribeEventBody(ev, online, inPerson, tz, startUtc, endUtc)
   const ticketBundle = buildHightribeTicketsFromForm(ev)
+  const withUrl = (
+    eventId: string,
+    ticketId?: string,
+    apiMeta?: { url?: string; slug?: string },
+  ) => ({
+    eventId,
+    ...(ticketId ? { ticketId } : {}),
+    url: hightribeEventPublicUrl({
+      title: String(ev.title || ''),
+      slug: apiMeta?.slug,
+      apiUrl: apiMeta?.url,
+    }),
+  })
 
   if (cap && ticketBundle.tickets) {
     const bundled = { ...body, ...ticketBundle }
     const res = await postHtEvent('/api/hightribe/events/with-tickets', bundled, 'POST', htCoverFile)
     const data = await res.json() as {
-      data?: { id?: unknown; tickets?: Array<{ id?: unknown }> }
+      data?: { id?: unknown; slug?: string; tickets?: Array<{ id?: unknown }>; url?: string; share_url?: string }
       message?: string
       errors?: Record<string, string[]>
     }
@@ -362,13 +438,24 @@ async function publishHightribeChannel(
       const id = String((data.data as Record<string, unknown>)?.id || '')
       if (!id) throw new Error('Hightribe did not return an event id')
       const ticketId = String((data.data as { tickets?: Array<{ id?: unknown }> })?.tickets?.[0]?.id || '')
-      return { eventId: id, ticketId: ticketId || undefined }
+      const apiUrl = String(data.data?.url || data.data?.share_url || '').trim()
+      const slug = String(data.data?.slug || '').trim()
+      return {
+        ...withUrl(id, ticketId || undefined, { url: apiUrl || undefined, slug: slug || undefined }),
+      }
+    }
+
+    const withTicketsMsg = data.message
+      || (data.errors ? Object.values(data.errors).flat().join(', ') : '')
+      || `HTTP ${res.status}`
+    if (isHightribeNotConnectedError(withTicketsMsg)) {
+      throw new Error(withTicketsMsg)
     }
 
     // Some HT API hosts don't support with-tickets yet — create event then sync tickets.
     const eventRes = await postHtEvent('/api/hightribe/events', body, 'POST', htCoverFile)
     const eventData = await eventRes.json() as {
-      data?: { id?: unknown }
+      data?: { id?: unknown; slug?: string; url?: string; share_url?: string }
       message?: string
       errors?: Record<string, string[]>
     }
@@ -377,15 +464,27 @@ async function publishHightribeChannel(
     if (!eventId) throw new Error('Hightribe did not return an event id')
     await syncHightribeTickets(eventId, ev)
     const ids = await fetchHightribeTicketIds(eventId)
-    return { eventId, ticketId: ids[0] || undefined }
+    const apiUrl = String(eventData.data?.url || eventData.data?.share_url || '').trim()
+    const slug = String(eventData.data?.slug || '').trim()
+    return {
+      ...withUrl(eventId, ids[0] || undefined, { url: apiUrl || undefined, slug: slug || undefined }),
+    }
   }
 
   const res = await postHtEvent('/api/hightribe/events', body, 'POST', htCoverFile)
-  const data = await res.json() as { data?: { id?: unknown }; message?: string; errors?: Record<string, string[]> }
+  const data = await res.json() as {
+    data?: { id?: unknown; slug?: string; url?: string; share_url?: string }
+    message?: string
+    errors?: Record<string, string[]>
+  }
   if (!res.ok) parseHtResponse(data, res.status)
   const eventId = String((data.data as Record<string, unknown>)?.id || '')
   if (!eventId) throw new Error('Hightribe did not return an event id')
-  return { eventId }
+  const apiUrl = String(data.data?.url || data.data?.share_url || '').trim()
+  const slug = String(data.data?.slug || '').trim()
+  return {
+    ...withUrl(eventId, undefined, { url: apiUrl || undefined, slug: slug || undefined }),
+  }
 }
 
 function buildHightribeTicketsFromForm(ev: EventFormData): {
@@ -704,21 +803,34 @@ export async function publishToChannel(
     const ticketId = await syncLumaTickets(eventId, ev)
     await syncLumaEventTags(eventId, parseTagsInput(ev.tags))
     const unwrapped = unwrapLumaEvent(raw.data ?? raw)
-    const lumaUrl = String(unwrapped.url || raw.data?.url || '')
-    return { eventId, ticketId, url: lumaUrl || `lu.ma/${eventId}` }
+    let lumaUrl = String(
+      unwrapped.url || raw.data?.url || (raw as { url?: string }).url || '',
+    ).trim()
+    // If create response omitted the public short URL, fetch the event.
+    if (!lumaUrl) {
+      try {
+        const getRes = await channelFetch(
+          `/api/luma/events?api_id=${encodeURIComponent(eventId)}`,
+        )
+        const getRaw = await getRes.json() as Record<string, unknown> & {
+          data?: { url?: string }
+          url?: string
+        }
+        const got = unwrapLumaEvent(getRaw.data ?? getRaw)
+        lumaUrl = String(got.url || getRaw.data?.url || getRaw.url || '').trim()
+      } catch {
+        // keep fallback below
+      }
+    }
+    if (lumaUrl && !/^https?:\/\//i.test(lumaUrl)) {
+      lumaUrl = `https://${lumaUrl.replace(/^\/\//, '')}`
+    }
+    // Never store lu.ma/{api_id} — that is not a valid public page.
+    return { eventId, ticketId, url: lumaUrl || undefined }
   }
 
-  // Eventbrite
-  const orgRes = await channelFetch('/api/eventbrite/users/me/organizations')
-  const orgData = await orgRes.json() as {
-    organizations?: Array<{ id: string }>
-    error?: string
-    error_description?: string
-  }
-  if (!orgRes.ok) {
-    throw new Error(orgData.error || orgData.error_description || `HTTP ${orgRes.status}`)
-  }
-  const orgId = orgData.organizations?.[0]?.id
+  // Eventbrite — resolve org, then create
+  const orgId = await resolveEventbriteOrgId()
   if (!orgId) throw new Error('No Eventbrite organization found')
 
   const { startUtc: ebStart, endUtc: ebEnd } = ensureFuture(startUtc, endUtc)
@@ -736,17 +848,14 @@ export async function publishToChannel(
     body: JSON.stringify({
       event: {
         name: { html: toEbHtml(ebTitle) },
-        // `description` on the event object is only the short teaser (same as summary).
-        ...(ebSummary ? {
-          summary: ebSummary,
-          description: { html: toEbHtml(ebSummary) },
-        } : {}),
+        // EB rejects both summary + description on create. Listing teaser =
+        // summary only; full body goes to structured_content below.
+        ...(ebSummary ? { summary: ebSummary } : {}),
         start: { utc: ebStart, timezone: ebTz },
         end: { utc: ebEnd, timezone: ebTz },
         currency: 'USD',
         online_event: online && !inPerson,
         listed: ev.visibility === 'Public',
-        status: ebPublishStatus(ev),
         shareable: true,
       },
     }),
@@ -928,8 +1037,8 @@ export async function updateChannelEvent(
 
   // `description` is deprecated on Eventbrite event update and often 400s —
   // only patch name / schedule / listing / summary. Full body goes via
-  // structured content below.
-  const ebStatus = ebPublishStatus(ev)
+  // structured content below. Never send `status` — EB rejects it as unknown;
+  // use publish/unpublish after instead.
   const attempts: Record<string, unknown>[] = [
     {
       name: { html: toEbHtml(ebTitle) },
@@ -937,17 +1046,14 @@ export async function updateChannelEvent(
       start: { utc: ebStart, timezone: ebTz },
       end: { utc: ebEnd, timezone: ebTz },
       listed: ev.visibility === 'Public',
-      status: ebStatus,
     },
     {
       name: { html: toEbHtml(ebTitle) },
       start: { utc: ebStart, timezone: ebTz },
       end: { utc: ebEnd, timezone: ebTz },
-      status: ebStatus,
     },
     {
       name: { html: toEbHtml(ebTitle) },
-      status: ebStatus,
     },
   ]
 
@@ -1172,6 +1278,7 @@ async function persistPublishedEvent(
       ...(htDesc ? { description: htDesc } : {}),
       dates: { starts_at: startUtc, ends_at: endUtc, timezone: tz },
       timezone: tz,
+      url: ref.url || hightribeEventPublicUrl({ title: String(ev.title || '') }),
       cover_url: cover,
       status: htStatus,
       publish_status: htStatus,
@@ -1226,6 +1333,17 @@ export type PublishResults = Partial<Record<ChannelKey, {
   eventId?: string
 }>>
 
+/**
+ * Publish order (channel APIs — not events/:channel/sync):
+ *   1) POST /api/registry                         master (Ewentcast DB only)
+ *   2) per connected channel create:
+ *        Luma       POST /api/luma/events
+ *        Hightribe  POST /api/hightribe/events/with-tickets (fallback: /events)
+ *        Eventbrite GET  /api/eventbrite/organizations → POST .../organizations/:orgId/events
+ *   3) POST /api/registry/:id/channels            link { channel, eventId, url }
+ *
+ * Local channel DB sync is separate: POST /api/events/:channel/sync-from-api
+ */
 export async function publishToAllChannels(
   ev: EventFormData,
   targets: ChannelKey[],
@@ -1243,7 +1361,7 @@ export async function publishToAllChannels(
   const title = masterWrite.title || String(ev.title || 'Untitled')
   const capacity = masterWrite.capacity ?? (parseInt(String(ev.capacity || '150'), 10) || 150)
 
-  // 1) Master first (full payload: category, timezone, location, WHEN, ticket sales)
+  // 1) Master first — registry only (does not create on Luma / EB / HT)
   let masterId = existingMasterId || ''
   if (!masterId) {
     masterId = await createRegistryMaster({
@@ -1255,15 +1373,14 @@ export async function publishToAllChannels(
     await updateRegistryMaster(masterId, masterWrite).catch(() => {})
   }
 
-  // 2) Create on each connected channel
-  // 3) Link each successful create onto the master
+  // 2) Create/publish on each connected channel via that channel's API
+  // 3) Link each successful create back onto the master
   for (const ch of targets) {
     try {
       const ref = await publishToChannel(ch, ev, files)
       if (!ref.eventId) {
         throw new Error(`${ch} did not return an event id`)
       }
-      await persistPublishedEvent(ch, ev, { eventId: ref.eventId, url: ref.url })
       results[ch] = { status: 'synced', url: ref.url, eventId: ref.eventId }
 
       try {
@@ -1285,7 +1402,9 @@ export async function publishToAllChannels(
     }
   }
 
-  try { await fetch('/api/webhooks/setup', { method: 'POST' }) } catch { /* non-fatal */ }
+  try {
+    await channelFetch('/api/webhooks/setup', { method: 'POST' })
+  } catch { /* non-fatal */ }
 
   return { masterId, results }
 }

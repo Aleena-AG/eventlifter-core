@@ -22,6 +22,8 @@ export type HightribeConnectBody = {
   apiKey: string
   serviceUrl?: string
   webhookSecret?: string
+  /** Optional — stored for UI if backend accepts it. */
+  email?: string
 }
 
 async function putSettings(patch: Record<string, unknown>): Promise<ReturnType<typeof unwrapSettingsResponse>> {
@@ -65,18 +67,79 @@ async function deleteChannelSettings(channel: ChannelKey): Promise<void> {
   if (!res.ok) {
     throw new Error(data.message || data.error || `HTTP ${res.status}`)
   }
+
+  // Some backends DELETE events only and leave apiKey — clear credentials so refresh stays disconnected.
+  try {
+    await clearChannelCredentials(channel)
+  } catch {
+    // DELETE already succeeded; credentials clear is best-effort
+  }
+}
+
+/** PUT empty credentials so GET /settings → channel.configured === false. */
+async function clearChannelCredentials(channel: ChannelKey): Promise<void> {
+  if (channel === 'hightribe') {
+    await putSettings({
+      hightribe: {
+        serviceUrl: 'https://api.hightribe.com',
+        apiKey: '',
+        webhookSecret: '',
+      },
+    })
+  } else if (channel === 'luma') {
+    await putSettings({
+      luma: {
+        apiKey: '',
+        calendarId: '',
+        apiBaseUrl: 'https://public-api.luma.com',
+        discoverBaseUrl: 'https://api.lu.ma',
+      },
+    })
+  } else if (channel === 'eventbrite') {
+    await putSettings({
+      eventbrite: {
+        privateToken: '',
+        clientId: '',
+        clientSecret: '',
+        redirectUri: '',
+        publicToken: '',
+      },
+    })
+  }
+
+  // Confirm disconnect stuck — some APIs ignore empty strings and keep the old key.
+  const { getSettings } = await import('@/lib/api')
+  const saved = await getSettings() as Record<string, { configured?: boolean } | undefined>
+  if (saved[channel]?.configured === true) {
+    // Second pass with null so backends that skip empty strings still clear.
+    if (channel === 'hightribe') {
+      await putSettings({ hightribe: { serviceUrl: 'https://api.hightribe.com', apiKey: null, webhookSecret: null } })
+    } else if (channel === 'luma') {
+      await putSettings({ luma: { apiKey: null, calendarId: null } })
+    } else if (channel === 'eventbrite') {
+      await putSettings({ eventbrite: { privateToken: null } })
+    }
+  }
 }
 
 /** Connect Luma via PUT /api/v1/settings (proxied at /api/settings). */
 export async function connectLuma(body: LumaConnectBody): Promise<unknown> {
   const apiKey = body.apiKey?.trim()
   if (!apiKey) throw new Error('Luma apiKey is required')
+  const apiBaseUrl = body.apiBaseUrl || 'https://public-api.luma.com'
+  const discoverBaseUrl = body.discoverBaseUrl || 'https://api.lu.ma'
+  // Send camelCase + snake_case — remote backends differ on which they persist.
   return putSettings({
     luma: {
       apiKey,
-      ...(body.calendarId ? { calendarId: body.calendarId } : {}),
-      apiBaseUrl: body.apiBaseUrl || 'https://public-api.luma.com',
-      discoverBaseUrl: body.discoverBaseUrl || 'https://api.lu.ma',
+      api_key: apiKey,
+      ...(body.calendarId
+        ? { calendarId: body.calendarId, calendar_id: body.calendarId }
+        : {}),
+      apiBaseUrl,
+      api_base_url: apiBaseUrl,
+      discoverBaseUrl,
+      discover_base_url: discoverBaseUrl,
     },
   })
 }
@@ -88,23 +151,35 @@ export async function connectEventbrite(body: EventbriteConnectBody): Promise<un
   return putSettings({
     eventbrite: {
       privateToken,
+      private_token: privateToken,
       clientId: body.clientId || '',
+      client_id: body.clientId || '',
       clientSecret: body.clientSecret || '',
+      client_secret: body.clientSecret || '',
       redirectUri: body.redirectUri || '',
+      redirect_uri: body.redirectUri || '',
       publicToken: body.publicToken || '',
+      public_token: body.publicToken || '',
     },
   })
 }
 
-/** Connect Hightribe via PUT /api/v1/settings (apiKey = HT token from login). */
+/** Connect Hightribe via PUT /api/v1/settings — exact contract:
+ *   { hightribe: { serviceUrl, apiKey, webhookSecret } }
+ * Optional email is saved when the backend accepts it (for Settings UI).
+ */
 export async function connectHightribeChannel(body: HightribeConnectBody): Promise<unknown> {
   const apiKey = body.apiKey?.trim()
   if (!apiKey) throw new Error('Hightribe apiKey is required')
+  const serviceUrl = (body.serviceUrl || 'https://api.hightribe.com').replace(/\/$/, '')
+  const webhookSecret = body.webhookSecret ?? ''
+  const email = body.email?.trim() || undefined
   return putSettings({
     hightribe: {
+      serviceUrl,
       apiKey,
-      serviceUrl: (body.serviceUrl || 'https://api.hightribe.com').replace(/\/$/, ''),
-      ...(body.webhookSecret !== undefined ? { webhookSecret: body.webhookSecret } : {}),
+      webhookSecret,
+      ...(email ? { email } : {}),
     },
   })
 }
@@ -112,14 +187,42 @@ export async function connectHightribeChannel(body: HightribeConnectBody): Promi
 export type HightribeLoginConnectResult = {
   htToken: string
   settings: unknown
+  configured: boolean
+}
+
+/** Pull HT apiKey from /api/hightribe/login response shapes. */
+function extractHightribeLoginToken(raw: unknown): string {
+  if (!raw || typeof raw !== 'object') return ''
+  const root = raw as Record<string, unknown>
+  const nested = root.data && typeof root.data === 'object'
+    ? (root.data as Record<string, unknown>)
+    : null
+  const candidates = [
+    root.token,
+    root.access_token,
+    root.apiKey,
+    root.api_key,
+    nested?.token,
+    nested?.access_token,
+    nested?.apiKey,
+    nested?.api_key,
+  ]
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim()) {
+      const t = c.trim()
+      return t.startsWith('Bearer ') ? t.slice(7) : t
+    }
+  }
+  return ''
 }
 
 /**
- * User enters Hightribe email + password on the frontend.
- * We login to Hightribe ourselves, then store the returned token as settings.apiKey:
+ * Hightribe connect (settings only — backend has no /hightribe/login route):
  *
- *   POST https://api.hightribe.com/api/login  { email, password }
- *   PUT  /api/v1/settings  { hightribe: { serviceUrl, apiKey: <token>, webhookSecret? } }
+ *   1) POST https://api.hightribe.com/api/login { email, password }  → HT token
+ *   2) PUT  /api/v1/settings { hightribe: { serviceUrl, apiKey, webhookSecret } }
+ *      (Bearer = Ewentcast session)
+ *   3) Connected when GET /api/v1/settings → hightribe.configured === true
  */
 export async function connectHightribeWithPassword(opts: {
   email: string
@@ -132,8 +235,14 @@ export async function connectHightribeWithPassword(opts: {
   if (!email || !password) {
     throw new Error('Hightribe email and password are required')
   }
+  if (!authHeader()) {
+    throw new Error('Sign in to Ewentcast first, then connect Hightribe')
+  }
 
-  const loginRes = await fetch(resolveClientApiUrl('/api/hightribe/login'), {
+  const serviceUrl = (opts.serviceUrl || 'https://api.hightribe.com').replace(/\/$/, '')
+
+  // Backend has no /api/v1/hightribe/login — login on Hightribe itself, then save via settings.
+  const loginRes = await fetch(`${serviceUrl}/api/login`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -144,27 +253,37 @@ export async function connectHightribeWithPassword(opts: {
   const loginData = await loginRes.json().catch(() => ({})) as {
     status?: boolean
     success?: boolean
-    token?: string
     message?: string
     error?: string
   }
 
-  const htTokenRaw = loginData.token
-  const loginOk = loginRes.ok && (loginData.status === true || loginData.success === true || !!htTokenRaw)
-  if (!loginOk || !htTokenRaw) {
+  const htToken = extractHightribeLoginToken(loginData)
+  const loginOk =
+    loginRes.ok
+    && (loginData.status === true || loginData.success === true || !!htToken)
+
+  if (!loginOk || !htToken) {
     throw new Error(
       loginData.message || loginData.error || 'Invalid Hightribe email or password',
     )
   }
 
-  const htToken = htTokenRaw.startsWith('Bearer ') ? htTokenRaw.slice(7) : htTokenRaw
+  // Connect = PUT /api/v1/settings only.
   const settings = await connectHightribeChannel({
     apiKey: htToken,
-    serviceUrl: opts.serviceUrl || 'https://api.hightribe.com',
+    serviceUrl,
     webhookSecret: opts.webhookSecret ?? '',
+    email,
   })
 
-  return { htToken, settings }
+  const { getSettings } = await import('@/lib/api')
+  const saved = await getSettings() as {
+    hightribe?: { configured?: boolean }
+  }
+  const configured = saved.hightribe?.configured === true
+    || (settings as { hightribe?: { configured?: boolean } })?.hightribe?.configured === true
+
+  return { htToken, settings, configured }
 }
 
 /** Disconnect one channel via DELETE /api/v1/settings/:channel. */
@@ -175,8 +294,15 @@ export async function disconnectChannelSettings(channel: ChannelKey): Promise<vo
   await deleteChannelSettings(channel)
 }
 
-/** After connect, pull events from the channel provider. */
-export async function syncChannelFromApi(channel: ChannelKey): Promise<unknown> {
+export type ChannelSyncFromApiResult = {
+  events: number
+  pruned: number
+  bookings: number
+  raw?: unknown
+}
+
+/** Pull events from the channel provider via POST /api/v1/events/:channel/sync-from-api. */
+export async function syncChannelFromApi(channel: ChannelKey): Promise<ChannelSyncFromApiResult> {
   const res = await fetch(resolveClientApiUrl(`/api/events/${encodeURIComponent(channel)}/sync-from-api`), {
     method: 'POST',
     headers: {
@@ -186,7 +312,20 @@ export async function syncChannelFromApi(channel: ChannelKey): Promise<unknown> 
     },
     body: '{}',
   })
-  const data = await res.json().catch(() => ({})) as { error?: string; message?: string }
+  const data = await res.json().catch(() => ({})) as {
+    error?: string
+    message?: string
+    upserted?: number
+    pruned?: number
+    events?: number
+    bookings?: number
+    data?: {
+      upserted?: number
+      pruned?: number
+      events?: number
+      bookings?: number
+    }
+  }
   if (res.status === 401 || isAuthErrorMessage(data.message || data.error || '')) {
     clearAuth()
     throw new Error('SESSION_EXPIRED')
@@ -194,5 +333,11 @@ export async function syncChannelFromApi(channel: ChannelKey): Promise<unknown> 
   if (!res.ok) {
     throw new Error(data.message || data.error || `Sync failed (${res.status})`)
   }
-  return data
+  const inner = data.data || data
+  return {
+    events: Number(inner.events ?? inner.upserted ?? 0) || 0,
+    pruned: Number(inner.pruned ?? 0) || 0,
+    bookings: Number(inner.bookings ?? 0) || 0,
+    raw: data,
+  }
 }

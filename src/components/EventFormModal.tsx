@@ -3,10 +3,12 @@
 import { useState, useEffect } from 'react'
 import { channelFetch } from '@/lib/channel-fetch'
 import { buildEbTicketClass } from '@/lib/eventbrite-ticket'
-import { postHtEvent, resolveCoverFileForHt } from '@/lib/cover-image'
+import { syncStoredEvents } from '@/lib/channel-events-store'
+import { normalizeTimeZone, zonedDateTimeToUtcIso } from '@/lib/event-datetime'
 import { InlineLoader, PageLoader } from '@/components/Loader'
 import { CHANNEL_META } from '@/lib/channels'
 import { HIGHTRIBE_COLOR } from '@/lib/brand'
+import { hightribeEventPublicUrl } from '@/lib/hightribe-url'
 
 export type Channel = 'hightribe' | 'luma' | 'eventbrite'
 export type FormMode = 'create' | 'edit'
@@ -255,71 +257,30 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
   }
 
   async function submitHt(m: FormMode) {
-    const hasLocation = !!(ht.locationLabel || ht.address || ht.city)
-    const hasTickets = ht.tickets.length > 0
+    const tz = normalizeTimeZone(ht.timezone || 'UTC')
+    const startUtc = zonedDateTimeToUtcIso(ht.startDate, ht.startTime, tz)
+    const endUtc = zonedDateTimeToUtcIso(ht.endDate || ht.startDate, ht.endTime || ht.startTime, tz)
+    const id = m === 'edit' && eventId
+      ? String(eventId)
+      : `ht-${typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Date.now()}`
+    const location = ht.locationType === 'online'
+      ? 'Online'
+      : String(ht.locationLabel || ht.address || ht.city || '').trim()
 
-    const body: Record<string, unknown> = {
+    const event: Record<string, unknown> = {
+      id,
       title: ht.title,
-      description: ht.description,
-      status: ht.status,
-      is_business_profile: ht.isBusinessProfile ? 1 : 0,
-      dates: { start_date: ht.startDate, start_time: ht.startTime, end_date: ht.endDate, end_time: ht.endTime, timezone: ht.timezone },
+      dates: {
+        starts_at: startUtc,
+        ends_at: endUtc,
+      },
+      timezone: tz,
+      url: hightribeEventPublicUrl({ title: String(ht.title || '') }),
+      ...(location ? { location } : {}),
+      publish_status: ht.status === 'published' ? 'published' : 'draft',
     }
 
-    if (hasLocation || ht.locationType === 'online') {
-      body.location = {
-        type: ht.locationType,
-        location: ht.locationLabel || ht.address || ht.city || (ht.locationType === 'online' ? 'Online' : ''),
-        address: ht.address || undefined,
-        city: ht.city || undefined,
-        country: ht.country || undefined,
-        lat: ht.lat ? parseFloat(ht.lat) : undefined,
-        lng: ht.lng ? parseFloat(ht.lng) : undefined,
-        online_url: ht.onlineUrl || undefined,
-      }
-    }
-
-    if (ht.highlights.filter(Boolean).length > 0) body.highlights = ht.highlights.filter(Boolean)
-    if (ht.itineraries.filter(i => i.title).length > 0) body.itineraries = ht.itineraries.filter(i => i.title)
-    if (ht.policies.filter(Boolean).length > 0) body.policies = ht.policies.filter(Boolean)
-
-    if (hasTickets) {
-      body.tickets = ht.tickets.map(t => ({
-        name: t.name, currency: 'USD',
-        price: parseFloat(t.price) || 0, quantity: parseInt(t.quantity) || 0,
-        booking_type: t.bookingType || undefined,
-        // Hightribe MySQL columns are tinyint — send 0/1, not true/false
-        show_ticket: t.showTicket ? 1 : 0,
-        show_ticket_quantity: 1,
-        start_date: t.startDate || undefined, end_date: t.endDate || undefined,
-      }))
-      body.ticketSetting = {
-        minQty: parseInt(ht.ticketMinQty) || 1,
-        maxQty: parseInt(ht.ticketMaxQty) || 10,
-        salesEndTime: ht.salesEndTime ? parseInt(ht.salesEndTime) : undefined,
-        salesEndUnit: ht.salesEndTime ? ht.salesEndUnit : undefined,
-      }
-      body.allow_refunds = ht.allowRefunds ? 1 : 0
-    }
-
-    // Use with-tickets endpoint when creating with tickets, else standard
-    const useTicketsEndpoint = m === 'create' && hasTickets
-    const url = m === 'edit'
-      ? `/api/hightribe/events/${eventId}`
-      : useTicketsEndpoint ? '/api/hightribe/events/with-tickets' : '/api/hightribe/events'
-    const method = m === 'edit' ? 'PUT' : 'POST'
-
-    const res = await postHtEvent(
-      url,
-      body,
-      method,
-      await resolveCoverFileForHt(ht.coverUrl, htCoverFile),
-    )
-    const data = await res.json() as { message?: string; error?: string; errors?: Record<string, string[]> }
-    if (!res.ok) {
-      const msg = data.message || data.error || (data.errors ? Object.values(data.errors).flat().join(', ') : `HTTP ${res.status}`)
-      throw new Error(msg)
-    }
+    await syncStoredEvents('hightribe', [event], { prune: false })
   }
 
   async function submitLuma(m: FormMode) {

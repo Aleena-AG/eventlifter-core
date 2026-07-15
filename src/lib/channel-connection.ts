@@ -8,7 +8,7 @@ import type { ChannelKey } from '@/lib/types'
 export interface ChannelSettingsView {
   luma?: { configured?: boolean; calendarId?: string; apiKey?: string }
   eventbrite?: { configured?: boolean; hasPrivateToken?: boolean }
-  hightribe?: { configured?: boolean }
+  hightribe?: { configured?: boolean; hasApiKey?: boolean }
 }
 
 export function isLumaConnected(settings: ChannelSettingsView): boolean {
@@ -19,12 +19,9 @@ export function isEventbriteConnected(settings: ChannelSettingsView): boolean {
   return settings.eventbrite?.configured === true
 }
 
-/** Hightribe connected via PUT /api/v1/settings, or native HT login session. */
+/** Hightribe connected iff server `configured === true` (same contract as luma/eventbrite). */
 export function isHightribeConnected(settings: ChannelSettingsView): boolean {
-  if (settings.hightribe?.configured === true) return true
-  const account = getEwentcastAccount()
-  if (account?.auth_source === 'hightribe_native') return !!getUser()
-  return false
+  return settings.hightribe?.configured === true
 }
 
 /** @deprecated Prefer isHightribeConnected(settings) when settings are available. */

@@ -1,8 +1,9 @@
 'use client'
 
-import { syncChannelDataToDb } from '@/lib/channel-data-sync'
+import { syncChannelFromApi } from '@/lib/channel-connect'
 
-/** Pull HT events/bookings from API and persist to MySQL. Surfaces errors to caller. */
+/** Pull HT events from the provider via POST /api/v1/events/hightribe/sync-from-api. */
 export async function syncHightribeAfterConnect(): Promise<{ events: number; bookings: number }> {
-  return syncChannelDataToDb('hightribe')
+  const result = await syncChannelFromApi('hightribe')
+  return { events: result.events, bookings: result.bookings }
 }

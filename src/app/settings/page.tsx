@@ -6,14 +6,14 @@ import { useSearchParams } from 'next/navigation'
 import { api } from '@/lib/api'
 import { Toast, useToast } from '@/components/Toast'
 import { InlineLoader, PageLoader } from '@/components/Loader'
-import { getUser, getToken } from '@/lib/auth'
-import type { HtUser } from '@/lib/auth'
+import { getToken } from '@/lib/auth'
 import { ChannelLogo } from '@/components/ChannelLogo'
-import { HIGHTRIBE_COLOR, LUMA_COLOR, EVENTBRITE_COLOR } from '@/lib/brand'
+import { LUMA_COLOR, EVENTBRITE_COLOR } from '@/lib/brand'
 import { ConnectHightribeSection } from '@/components/ConnectHightribeSection'
 import { ConnectLumaSection } from '@/components/ConnectLumaSection'
 import { disconnectChannelIntegration } from '@/lib/channel-disconnect'
 import { connectLuma, syncChannelFromApi } from '@/lib/channel-connect'
+import { getEwentcastAccount, setEwentcastAccount } from '@/lib/ewentcast-session'
 import { effectiveEventbriteRedirectUri } from '@/lib/app-url'
 import { useAppUrl, useEventbriteRedirectUri } from '@/lib/use-app-url'
 import { useRouter } from 'next/navigation'
@@ -377,34 +377,41 @@ function WebhooksPanel({ only }: { only?: 'luma' | 'eventbrite' }) {
   const [result, setResult] = useState('')
 
   useEffect(() => {
-    fetch('/api/webhooks/setup').then(r => r.json()).then((d: {
-      endpoints?: Record<string, string>
-    }) => {
-      if (d.endpoints) {
-        const filtered: Record<string, string> = {}
-        for (const ch of WEBHOOK_CHANNELS) {
-          if (d.endpoints[ch]) filtered[ch] = d.endpoints[ch]
+    void (async () => {
+      try {
+        const { channelFetch } = await import('@/lib/channel-fetch')
+        const res = await channelFetch('/api/webhooks/setup')
+        const d = await res.json() as { endpoints?: Record<string, string> }
+        if (d.endpoints) {
+          const filtered: Record<string, string> = {}
+          for (const ch of WEBHOOK_CHANNELS) {
+            if (d.endpoints[ch]) filtered[ch] = d.endpoints[ch]
+          }
+          setEndpoints(filtered)
         }
-        setEndpoints(filtered)
+      } catch {
+        // ignore
       }
-    }).catch(() => {})
+    })()
   }, [])
 
   const setup = async () => {
     setLoading(true)
     setResult('')
     try {
-      const res = await fetch('/api/webhooks/setup', { method: 'POST' })
+      const { channelFetch } = await import('@/lib/channel-fetch')
+      const res = await channelFetch('/api/webhooks/setup', { method: 'POST' })
       const text = await res.text()
       let data: {
         ok?: boolean
         error?: string
+        message?: string
         webhooks?: Record<string, { ok?: boolean; error?: string }>
       } = {}
       try { data = text ? JSON.parse(text) : {} } catch {
         throw new Error(res.ok ? 'Invalid response' : `HTTP ${res.status}`)
       }
-      if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`)
+      if (!res.ok || data.error) throw new Error(data.error || data.message || `HTTP ${res.status}`)
       const lines = channels.map((ch) => {
         const r = data.webhooks?.[ch]
         return `${ch}: ${r?.ok ? '✓ registered' : `✗ ${r?.error || 'failed'}`}`
@@ -519,6 +526,7 @@ function sanitizeLoadedSettings(data: SettingsShape): SettingsShape {
   const calendarId = pickStr(raw.calendarId, raw.calendar_id)
   // API contract: connected iff configured === true (do not invent it from other fields).
   const configured = raw.configured === true
+  const htConfigured = data.hightribe?.configured === true
   return {
     ...data,
     luma: {
@@ -535,7 +543,30 @@ function sanitizeLoadedSettings(data: SettingsShape): SettingsShape {
     },
     hightribe: {
       ...(data.hightribe || {}),
-      configured: data.hightribe?.configured === true,
+      configured: htConfigured,
+      hasApiKey: htConfigured,
+      serviceUrl: pickStr(
+        (data.hightribe as Record<string, unknown> | undefined)?.serviceUrl,
+        (data.hightribe as Record<string, unknown> | undefined)?.service_url,
+      ) || undefined,
+      email: pickStr(
+        (data.hightribe as Record<string, unknown> | undefined)?.email,
+      ) || undefined,
+    },
+  }
+}
+
+function clearChannelConfigured(
+  prev: SettingsShape,
+  section: 'eventbrite' | 'luma' | 'hightribe',
+): SettingsShape {
+  return {
+    ...prev,
+    [section]: {
+      ...(prev[section] || {}),
+      configured: false,
+      hasApiKey: false,
+      hasPrivateToken: false,
     },
   }
 }
@@ -556,15 +587,11 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
   const [disconnecting, setDisconnecting] = useState<string | null>(null)
-  const [testing, setTesting] = useState<string | null>(null)
-  const [htUser, setHtUser] = useState<HtUser | null>(null)
   const [channelLoadError, setChannelLoadError] = useState<string | null>(null)
   const { toasts, toast, removeToast } = useToast()
 
-  useEffect(() => { setHtUser(getUser()) }, [])
-
-  const loadSettings = useCallback(async () => {
-    setLoading(true)
+  const loadSettings = useCallback(async (opts?: { soft?: boolean }) => {
+    if (!opts?.soft) setLoading(true)
     setChannelLoadError(null)
     try {
       const data = await api.getSettings() as SettingsShape
@@ -577,11 +604,11 @@ export default function SettingsPage() {
       setSettings({})
       setChannelLoadError(e instanceof Error ? e.message : 'Could not load settings')
     } finally {
-      setLoading(false)
+      if (!opts?.soft) setLoading(false)
     }
   }, [])
 
-  useEffect(() => { loadSettings() }, [loadSettings])
+  useEffect(() => { void loadSettings() }, [loadSettings])
 
   const updateSection = (section: 'eventbrite' | 'hightribe', key: string, value: string) => {
     setSettings((prev) => ({ ...prev, [section]: { ...(prev[section] || {}), [key]: value } }))
@@ -652,6 +679,16 @@ export default function SettingsPage() {
       await api.updateSettings(patch)
       toast.success(`${section} settings saved`)
       await loadSettings()
+      if (section === 'eventbrite') {
+        try {
+          await syncChannelFromApi('eventbrite')
+          toast.success('Eventbrite events synced')
+        } catch (syncErr) {
+          toast.error(
+            syncErr instanceof Error ? syncErr.message : 'Eventbrite sync failed',
+          )
+        }
+      }
     } catch (err) {
       toast.error(`Save failed: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
@@ -665,29 +702,28 @@ export default function SettingsPage() {
     setDisconnecting(section)
     try {
       const result = await disconnectChannelIntegration(section)
+      // DELETE is source of truth — keep UI disconnected even if a stale GET still says configured.
+      setSettings((prev) => clearChannelConfigured(prev, section))
       if (result === 'session') {
         toast.success('Signed out')
         router.replace('/login')
         return
       }
       toast.success(`${names[section]} disconnected`)
-      await loadSettings()
+      try {
+        const data = await api.getSettings() as SettingsShape
+        setSettings(clearChannelConfigured(sanitizeLoadedSettings({
+          hightribe: data.hightribe || {},
+          luma: data.luma || {},
+          eventbrite: data.eventbrite || {},
+        }), section))
+      } catch {
+        // optimistic clear already applied
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Disconnect failed')
     } finally {
       setDisconnecting(null)
-    }
-  }
-
-  const testEventbrite = async () => {
-    setTesting('eventbrite')
-    try {
-      await api.testEventbrite()
-      toast.success('Eventbrite connection OK')
-    } catch (err) {
-      toast.error(`Test failed: ${err instanceof Error ? err.message : String(err)}`)
-    } finally {
-      setTesting(null)
     }
   }
 
@@ -700,7 +736,7 @@ export default function SettingsPage() {
   const lu = settings.luma || {}
   const ebConnected = settings.eventbrite?.configured === true
   const luConnected = lu.configured === true
-  const htConnected = settings.hightribe?.configured === true || !!htUser
+  const htConnected = settings.hightribe?.configured === true
 
   const showEventbrite = !focusChannel || focusChannel === 'eventbrite'
   const showLuma = !focusChannel || focusChannel === 'luma'
@@ -808,10 +844,6 @@ export default function SettingsPage() {
                   style={{ ...BTN_PRIMARY, opacity: saving === 'eventbrite' ? 0.6 : 1 }}>
                   {saving === 'eventbrite' ? <InlineLoader label="Saving" /> : 'Save'}
                 </button>
-                <button onClick={testEventbrite} disabled={testing === 'eventbrite'}
-                  style={{ ...BTN_GHOST, opacity: testing === 'eventbrite' ? 0.6 : 1 }}>
-                  {testing === 'eventbrite' ? 'Testing…' : 'Test Connection'}
-                </button>
                 {ebConnected && (
                   <button
                     onClick={() => disconnectSection('eventbrite')}
@@ -850,13 +882,25 @@ export default function SettingsPage() {
                       setDisconnecting('luma')
                       try {
                         const result = await disconnectChannelIntegration('luma')
+                        setSettings((prev) => clearChannelConfigured(prev, 'luma'))
                         if (result === 'session') {
                           toast.success('Signed out')
                           router.replace('/login')
                           return
                         }
                         toast.success('Luma disconnected')
-                        await loadSettings()
+                        try {
+                          const data = await api.getSettings() as SettingsShape
+                          setSettings(clearChannelConfigured(sanitizeLoadedSettings({
+                            hightribe: data.hightribe || {},
+                            luma: data.luma || {},
+                            eventbrite: data.eventbrite || {},
+                          }), 'luma'))
+                        } catch {
+                          // optimistic clear already applied
+                        }
+                      } catch (err) {
+                        toast.error(err instanceof Error ? err.message : 'Disconnect failed')
                       } finally {
                         setDisconnecting(null)
                       }
@@ -870,41 +914,69 @@ export default function SettingsPage() {
 
           {showHightribe && (
           <SectionCard title="Hightribe" channel="hightribe" connected={htConnected}>
-            {htUser && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: 12 }}>
-                <div style={{
-                  width: '40px', height: '40px', borderRadius: '50%', flexShrink: 0,
-                  background: `linear-gradient(135deg, ${HIGHTRIBE_COLOR}, #D98A2B)`,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: '16px', fontWeight: 700, color: '#fff',
-                }}>
-                  {htUser.name?.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase() || '?'}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: '14px', fontWeight: 600, color: '#211B16' }}>{htUser.name}</div>
-                  <div style={{ fontSize: '12px', color: '#8C7F6D', marginBottom: '6px' }}>
-                    {htUser.email}
-                    {htUser.username && <span style={{ marginLeft: '6px', color: HIGHTRIBE_COLOR }}>@{htUser.username}</span>}
-                  </div>
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                    <span style={{
-                      fontSize: '11px', padding: '2px 8px', borderRadius: '20px',
-                      background: 'rgba(63,185,80,0.1)', border: '1px solid rgba(63,185,80,0.3)', color: '#4E7A4B',
-                    }}>
-                      ✓ Signed in
-                    </span>
-                    {htUser.has_business_profile && (
-                      <span style={{
-                        fontSize: '11px', padding: '2px 8px', borderRadius: '20px',
-                        background: 'rgba(209,71,157,0.1)', border: '1px solid rgba(209,71,157,0.3)', color: HIGHTRIBE_COLOR,
-                      }}>Business Profile</span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-         
-            <ConnectHightribeSection onChange={() => void loadSettings()} />
+            <ConnectHightribeSection
+              connected={htConnected}
+              connectEmail={
+                String(settings.hightribe?.email || '')
+                || getEwentcastAccount()?.ht_connect_email
+                || undefined
+              }
+              serviceUrl={String(settings.hightribe?.serviceUrl || '') || undefined}
+              onConnected={async (info) => {
+                if (info?.email) {
+                  const account = getEwentcastAccount()
+                  if (account) {
+                    setEwentcastAccount({
+                      ...account,
+                      ht_connected: true,
+                      ht_connect_email: info.email,
+                      ht_connected_at: new Date().toISOString(),
+                    })
+                  }
+                }
+                setSettings((prev) => ({
+                  ...prev,
+                  hightribe: {
+                    ...(prev.hightribe || {}),
+                    configured: true,
+                    ...(info?.email ? { email: info.email } : {}),
+                  },
+                }))
+                try {
+                  const data = await api.getSettings() as SettingsShape
+                  const next = sanitizeLoadedSettings({
+                    hightribe: data.hightribe || {},
+                    luma: data.luma || {},
+                    eventbrite: data.eventbrite || {},
+                  })
+                  setSettings({
+                    ...next,
+                    hightribe: {
+                      ...(next.hightribe || {}),
+                      configured: true,
+                      ...(info?.email && !next.hightribe?.email
+                        ? { email: info.email }
+                        : {}),
+                    },
+                  })
+                } catch {
+                  // optimistic configured already applied
+                }
+              }}
+              onDisconnected={async () => {
+                setSettings((prev) => clearChannelConfigured(prev, 'hightribe'))
+                try {
+                  const data = await api.getSettings() as SettingsShape
+                  setSettings(clearChannelConfigured(sanitizeLoadedSettings({
+                    hightribe: data.hightribe || {},
+                    luma: data.luma || {},
+                    eventbrite: data.eventbrite || {},
+                  }), 'hightribe'))
+                } catch {
+                  // optimistic clear already applied
+                }
+              }}
+            />
           </SectionCard>
           )}
 

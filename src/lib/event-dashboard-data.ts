@@ -1,8 +1,17 @@
 'use client'
 
 import type { AttendeeRecord, MasterEventRecord } from '@/lib/event-registry'
+import { normalizeMasterEvent } from '@/lib/event-registry'
 import { getStoredEvent, listAllStoredBookings, listStoredEvents, syncStoredBookings } from '@/lib/channel-events-store'
-import { fetchLumaGuestsForEvent, mapStoredBookingToListItem, type BookingListItem } from '@/lib/bookings'
+import {
+  fetchEbBookingList,
+  fetchEbEventsForSync,
+  fetchHightribeBookingsList,
+  fetchLumaEventsForSync,
+  fetchLumaGuestsForEvent,
+  mapStoredBookingToListItem,
+  type BookingListItem,
+} from '@/lib/bookings'
 import type { ChannelKey } from '@/lib/types'
 import { CHANNEL_KEYS } from '@/lib/channels'
 
@@ -57,6 +66,34 @@ export interface EventDashboardData {
 
 const DEFAULT_CAPACITY = 150
 
+type EventBookingRow = {
+  guest_email: string
+  guest_name: string
+  channel: ChannelKey
+  registered_at: string
+  ticket_count?: number | null
+  event_external_id?: string | null
+  event_title?: string
+  /** Provider booking id — used so same email can appear more than once. */
+  booking_external_id?: string | null
+}
+
+/** Normalize titles for cross-channel matching (dashes, spaces, case). */
+function normalizeTitle(raw: string | null | undefined): string {
+  return String(raw || '')
+    .toLowerCase()
+    .replace(/[\u2010-\u2015\u2212]/g, '-') // fancy dashes → -
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ')
+}
+
+function titlesMatch(a: string | null | undefined, b: string | null | undefined): boolean {
+  const na = normalizeTitle(a)
+  const nb = normalizeTitle(b)
+  return !!na && !!nb && na === nb
+}
+
 async function fetchMasterEvent(channel: ChannelKey, eventId: string): Promise<MasterEventRecord | null> {
   try {
     const { channelFetch } = await import('@/lib/channel-fetch')
@@ -74,21 +111,32 @@ async function fetchMasterEvent(channel: ChannelKey, eventId: string): Promise<M
     const res = await channelFetch(`/api/registry/${encodeURIComponent(masterId)}`)
     if (!res.ok) return null
     const raw = await res.json()
-    return unwrapApiData(raw) as MasterEventRecord
+    return normalizeMasterEvent(unwrapApiData(raw))
   } catch {
     return null
   }
 }
 
 function bookingsToAttendees(
-  bookings: Array<{ guest_email: string; guest_name: string; channel: ChannelKey; registered_at: string }>,
+  bookings: Array<{
+    guest_email: string
+    guest_name: string
+    channel: ChannelKey
+    registered_at: string
+    booking_external_id?: string | null
+  }>,
 ): AttendeeRecord[] {
   const seen = new Set<string>()
   const list: AttendeeRecord[] = []
   for (const b of bookings) {
     const email = b.guest_email.toLowerCase().trim()
-    if (!email || seen.has(email)) continue
-    seen.add(email)
+    if (!email) continue
+    // One UI row per booking (not per email) so EB qty / multiple tickets all show
+    const key = b.booking_external_id
+      ? `${b.channel}|${b.booking_external_id}`
+      : `${b.channel}|${email}|${b.registered_at}`
+    if (seen.has(key)) continue
+    seen.add(key)
     list.push({
       email,
       name: b.guest_name || email.split('@')[0] || 'Guest',
@@ -99,12 +147,89 @@ function bookingsToAttendees(
   return list
 }
 
-function countByChannel(attendees: AttendeeRecord[]): Partial<Record<ChannelKey, number>> {
-  const counts: Partial<Record<ChannelKey, number>> = {}
-  for (const a of attendees) {
-    counts[a.source] = (counts[a.source] || 0) + 1
+function uniqueEmailCount(attendees: AttendeeRecord[]): number {
+  return new Set(attendees.map((a) => a.email.toLowerCase().trim()).filter(Boolean)).size
+}
+
+function attendeesToBookingRows(attendees: AttendeeRecord[]): EventBookingRow[] {
+  return attendees.map((a) => ({
+    guest_email: a.email,
+    guest_name: a.name,
+    channel: a.source,
+    registered_at: a.registeredAt,
+    ticket_count: 1,
+    booking_external_id: `master:${a.source}:${a.email.toLowerCase().trim()}`,
+  }))
+}
+
+function dedupeBookingRows(rows: EventBookingRow[]): EventBookingRow[] {
+  const seen = new Set<string>()
+  return rows.filter((b) => {
+    const email = b.guest_email.toLowerCase().trim()
+    const key = b.booking_external_id
+      ? `${b.channel}|${b.booking_external_id}`
+      : `${b.channel}|${email}|${b.registered_at}|${b.event_external_id || ''}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+/** Seed channel event ids from already-synced bookings with a matching title. */
+function channelIdsFromBookings(
+  allBookings: Awaited<ReturnType<typeof listAllStoredBookings>>,
+  title: string,
+): Partial<Record<ChannelKey, string>> {
+  const out: Partial<Record<ChannelKey, string>> = {}
+  for (const b of allBookings) {
+    if (!b.event_external_id || !titlesMatch(b.event_title, title)) continue
+    if (!out[b.channel]) out[b.channel] = String(b.event_external_id)
   }
-  return counts
+  return out
+}
+
+/** Stored bookings for linked channel ids OR same event title (any platform). */
+function collectPublishedBookings(
+  allBookings: Awaited<ReturnType<typeof listAllStoredBookings>>,
+  published: { channels: ChannelKey[]; channelIds: Partial<Record<ChannelKey, string>> },
+  title: string,
+): EventBookingRow[] {
+  const publishedIds = new Set(
+    Object.entries(published.channelIds).map(([ch, id]) => `${ch}:${id}`),
+  )
+  return allBookings
+    .filter((b) => {
+      if (b.event_external_id && publishedIds.has(`${b.channel}:${b.event_external_id}`)) {
+        return true
+      }
+      return titlesMatch(b.event_title, title)
+    })
+    .map((b) => ({
+      guest_email: b.guest_email,
+      guest_name: b.guest_name,
+      channel: b.channel,
+      registered_at: b.registered_at,
+      ticket_count: b.ticket_count,
+      event_external_id: b.event_external_id,
+      event_title: b.event_title,
+      booking_external_id: b.external_id,
+    }))
+}
+
+function isChannelKey(value: string): value is ChannelKey {
+  return (CHANNEL_KEYS as string[]).includes(value)
+}
+
+/** Coerce registry-sourced attendees so `source` is always a known ChannelKey. */
+function normalizeAttendees(
+  attendees: AttendeeRecord[],
+  fallback: ChannelKey,
+): AttendeeRecord[] {
+  return attendees.map((a) => {
+    const raw = typeof a.source === 'string' ? a.source.trim().toLowerCase() : ''
+    const source = isChannelKey(raw) ? raw : fallback
+    return { ...a, source }
+  })
 }
 
 function ticketCountsByChannel(
@@ -132,17 +257,21 @@ function revenueByChannel(
   return out
 }
 
-/** Prefer registry-linked channels, then title matches across stores. */
+/** Prefer registry-linked channels, then synced bookings / stores / live APIs by title. */
 async function resolvePublishedChannels(
   channel: ChannelKey,
   eventId: string,
   title: string,
   master: MasterEventRecord | null,
+  allBookings: Awaited<ReturnType<typeof listAllStoredBookings>>,
 ): Promise<{
   channels: ChannelKey[]
   channelIds: Partial<Record<ChannelKey, string>>
 }> {
-  const channelIds: Partial<Record<ChannelKey, string>> = { [channel]: String(eventId) }
+  const channelIds: Partial<Record<ChannelKey, string>> = {
+    [channel]: String(eventId),
+    ...channelIdsFromBookings(allBookings, title),
+  }
 
   if (master?.channels) {
     for (const ch of CHANNEL_KEYS) {
@@ -151,16 +280,32 @@ async function resolvePublishedChannels(
     }
   }
 
-  // Best-effort: same title on other channel stores = also published there
-  const normTitle = title.trim().toLowerCase()
-  if (normTitle) {
+  if (normalizeTitle(title)) {
     const others = CHANNEL_KEYS.filter((ch) => !channelIds[ch])
     if (others.length) {
       const lists = await Promise.all(others.map((ch) => listStoredEvents(ch)))
       others.forEach((ch, i) => {
-        const match = lists[i].find((row) => row.title.trim().toLowerCase() === normTitle)
+        const match = lists[i].find((row) => titlesMatch(row.title, title))
         if (match) channelIds[ch] = match.external_id
       })
+    }
+
+    if (!channelIds.luma) {
+      try {
+        const lumaEvents = await fetchLumaEventsForSync()
+        const match = lumaEvents.find((e) => titlesMatch(e.name, title))
+        if (match?.api_id) channelIds.luma = match.api_id
+      } catch { /* optional */ }
+    }
+    if (!channelIds.eventbrite) {
+      try {
+        const ebEvents = await fetchEbEventsForSync()
+        const match = ebEvents.find((e) => {
+          const name = typeof e.name === 'string' ? e.name : (e.name?.text || '')
+          return titlesMatch(name, title)
+        })
+        if (match?.id) channelIds.eventbrite = match.id
+      } catch { /* optional */ }
     }
   }
 
@@ -243,6 +388,48 @@ function venueFromPayload(channel: ChannelKey, payload: Record<string, unknown>)
       .filter(Boolean)
     return parts.length ? parts.join(' · ') : null
   }
+  return null
+}
+
+/** Prefer stored cover_url; fall back to channel-native fields in the payload. */
+function coverFromPayload(channel: ChannelKey, payload: Record<string, unknown>): string | null {
+  const pick = (...vals: unknown[]): string | null => {
+    for (const v of vals) {
+      if (v == null) continue
+      const s = String(v).trim()
+      if (s) return s
+    }
+    return null
+  }
+
+  if (channel === 'hightribe') {
+    const root = asRecord(payload.data) || payload
+    const direct = pick(root.cover_image, root.cover_url, payload.cover_image, payload.cover_url)
+    if (direct) return direct
+    const ratios = Array.isArray(root.cover_image_aspect_ratio)
+      ? root.cover_image_aspect_ratio
+      : Array.isArray(payload.cover_image_aspect_ratio)
+        ? payload.cover_image_aspect_ratio
+        : []
+    for (const item of ratios) {
+      const rec = asRecord(item)
+      const img = pick(rec?.image)
+      if (img) return img
+    }
+    return null
+  }
+
+  if (channel === 'luma') {
+    const event = asRecord(payload.event) || payload
+    return pick(event.cover_url, payload.cover_url)
+  }
+
+  if (channel === 'eventbrite') {
+    const logo = asRecord(payload.logo)
+    const original = asRecord(logo?.original)
+    return pick(original?.url, logo?.url, payload.cover_url)
+  }
+
   return null
 }
 
@@ -409,7 +596,7 @@ function extractEventMeta(
   return {
     startAt: stored?.start_at || null,
     endAt: stored?.end_at || null,
-    coverUrl: stored?.cover_url || null,
+    coverUrl: (stored?.cover_url?.trim() || coverFromPayload(channel, payload)) || null,
     venue: venueFromPayload(channel, payload),
     status: stored?.status || null,
     eventUrl: stored?.url || null,
@@ -424,16 +611,6 @@ function formatDashboardMetrics(
   const ticketsSoldPct = capacity > 0 ? Math.min(100, Math.round((registrations / capacity) * 100)) : 0
   const revenue = pricing.isFree ? 0 : Math.round(registrations * pricing.ticketPrice * 100) / 100
   return { ticketsSoldPct, revenue }
-}
-
-type EventBookingRow = {
-  guest_email: string
-  guest_name: string
-  channel: ChannelKey
-  registered_at: string
-  ticket_count?: number | null
-  event_external_id?: string | null
-  event_title?: string
 }
 
 function storedRowToBooking(b: Awaited<ReturnType<typeof listAllStoredBookings>>[number]): BookingListItem {
@@ -451,44 +628,23 @@ function storedRowToBooking(b: Awaited<ReturnType<typeof listAllStoredBookings>>
   })
 }
 
-function bookingsForAttendees(
-  attendees: AttendeeRecord[],
-  allBookings: Awaited<ReturnType<typeof listAllStoredBookings>>,
-  title: string,
-): BookingListItem[] {
-  return attendees.map((a) => {
-    const email = a.email.toLowerCase().trim()
-    const stored = allBookings.find(
-      (b) => b.guest_email.toLowerCase().trim() === email && b.channel === a.source,
-    )
-    if (stored) return storedRowToBooking(stored)
-    return {
-      id: `${a.source}-${email}`,
-      name: a.name,
-      email: a.email,
-      channel: a.source,
-      eventTitle: title,
-      registeredAt: a.registeredAt,
-      source: 'api' as const,
-    }
-  })
-}
-
 function bookingsFromEventRows(
   rows: EventBookingRow[],
   allBookings: Awaited<ReturnType<typeof listAllStoredBookings>>,
 ): BookingListItem[] {
   return rows.map((row) => {
     const email = row.guest_email.toLowerCase().trim()
-    const stored = allBookings.find(
-      (b) =>
+    const stored = allBookings.find((b) => {
+      if (row.booking_external_id && b.external_id === row.booking_external_id) return true
+      return (
         b.guest_email.toLowerCase().trim() === email
         && b.channel === row.channel
-        && (b.registered_at === row.registered_at || !row.registered_at),
-    )
+        && (b.registered_at === row.registered_at || !row.registered_at)
+      )
+    })
     if (stored) return storedRowToBooking(stored)
     return mapStoredBookingToListItem({
-      external_id: `${row.channel}-${email}`,
+      external_id: row.booking_external_id || `${row.channel}-${email}-${row.registered_at}`,
       channel: row.channel,
       event_title: row.event_title || '',
       event_external_id: row.event_external_id,
@@ -501,20 +657,6 @@ function bookingsFromEventRows(
   })
 }
 
-function filterStoredBookings(
-  allBookings: Awaited<ReturnType<typeof listAllStoredBookings>>,
-  channel: ChannelKey,
-  eventId: string,
-  title: string,
-): EventBookingRow[] {
-  const normTitle = title.trim().toLowerCase()
-  return allBookings.filter((b) => {
-    if (b.channel !== channel) return false
-    if (b.event_external_id && String(b.event_external_id) === String(eventId)) return true
-    return b.event_title.trim().toLowerCase() === normTitle
-  })
-}
-
 async function pullLumaGuestsLive(
   eventId: string,
   title: string,
@@ -523,11 +665,10 @@ async function pullLumaGuestsLive(
   let live = await fetchLumaGuestsForEvent(eventId, title)
 
   if (!live.length) {
-    const normTitle = title.trim().toLowerCase()
     const events = await listStoredEvents('luma')
     for (const ev of events) {
       if (ev.external_id === eventId) continue
-      if (ev.title.trim().toLowerCase() !== normTitle) continue
+      if (!titlesMatch(ev.title, title)) continue
       live = await fetchLumaGuestsForEvent(ev.external_id, title)
       if (live.length) break
     }
@@ -558,7 +699,95 @@ async function pullLumaGuestsLive(
     channel: 'luma' as const,
     registered_at: g.registeredAt,
     ticket_count: g.ticketCount ?? 1,
+    event_external_id: g.eventExternalId || eventId,
+    event_title: title,
+    booking_external_id: g.id,
   }))
+}
+
+async function pullEventbriteGuestsLive(
+  eventId: string,
+  title: string,
+  persist: boolean,
+): Promise<EventBookingRow[]> {
+  const live = await fetchEbBookingList([{ id: eventId, name: title }])
+  if (!live.length) return []
+
+  if (persist) {
+    try {
+      await syncStoredBookings('eventbrite', live.map((g) => ({
+        id: g.id,
+        email: g.email,
+        name: g.name,
+        event_title: g.eventTitle,
+        event_external_id: g.eventExternalId || eventId,
+        registered_at: g.registeredAt,
+        status: g.status,
+        ticket_count: g.ticketCount,
+      })))
+    } catch {
+      /* display live data even if cache write fails */
+    }
+  }
+
+  return live.map((g) => ({
+    guest_email: g.email,
+    guest_name: g.name,
+    channel: 'eventbrite' as const,
+    registered_at: g.registeredAt,
+    ticket_count: g.ticketCount ?? 1,
+    event_external_id: g.eventExternalId || eventId,
+    event_title: title,
+    booking_external_id: g.id,
+  }))
+}
+
+async function pullHightribeGuestsLive(
+  eventId: string,
+  title: string,
+): Promise<EventBookingRow[]> {
+  try {
+    const all = await fetchHightribeBookingsList()
+    const id = String(eventId)
+    return all
+      .filter((g) => {
+        if (g.eventExternalId && String(g.eventExternalId) === id) return true
+        return titlesMatch(g.eventTitle, title)
+      })
+      .map((g) => ({
+        guest_email: g.email,
+        guest_name: g.name,
+        channel: 'hightribe' as const,
+        registered_at: g.registeredAt,
+        ticket_count: g.ticketCount ?? 1,
+        event_external_id: g.eventExternalId || eventId,
+        event_title: g.eventTitle || title,
+        booking_external_id: g.id,
+      }))
+  } catch {
+    return []
+  }
+}
+
+/** Always live-pull guests for every discovered channel id (force sync on page load). */
+async function pullLiveBookingsForPublished(
+  published: { channels: ChannelKey[]; channelIds: Partial<Record<ChannelKey, string>> },
+  title: string,
+): Promise<EventBookingRow[]> {
+  const jobs: Array<Promise<EventBookingRow[]>> = []
+
+  const lumaId = published.channelIds.luma
+  if (lumaId) jobs.push(pullLumaGuestsLive(lumaId, title, true))
+
+  const ebId = published.channelIds.eventbrite
+  if (ebId) jobs.push(pullEventbriteGuestsLive(ebId, title, true))
+
+  const htId = published.channelIds.hightribe
+  if (htId) jobs.push(pullHightribeGuestsLive(htId, title))
+
+  if (!jobs.length) return []
+  const chunks = await Promise.all(jobs)
+  return chunks.flat()
 }
 
 export async function loadEventDashboardData(
@@ -566,7 +795,6 @@ export async function loadEventDashboardData(
   eventId: string,
   opts?: { refresh?: boolean },
 ): Promise<EventDashboardData> {
-  const refresh = !!opts?.refresh
   const [stored, master, allBookings] = await Promise.all([
     getStoredEvent(channel, eventId),
     fetchMasterEvent(channel, eventId),
@@ -575,79 +803,35 @@ export async function loadEventDashboardData(
 
   const title = master?.title || stored?.title || 'Untitled event'
   const meta = extractEventMeta(channel, stored)
-  const published = await resolvePublishedChannels(channel, eventId, title, master)
+  const published = await resolvePublishedChannels(channel, eventId, title, master, allBookings)
+  const masterAttendees = normalizeAttendees(master?.attendees || [], channel)
 
-  const masterAttendees = master?.attendees || []
-  if (master && masterAttendees.length > 0) {
-    const registrations = master.sold || masterAttendees.length
-    const ticketTypes = extractTicketTypes(channel, stored, registrations)
-    const pricing = extractPricing(channel, stored, ticketTypes)
-    const capacity = master?.capacity || pricing.capacityHint || DEFAULT_CAPACITY
-    const metrics = formatDashboardMetrics(capacity, registrations, pricing)
-    const channelCounts = {
-      ...emptyChannelCounts(published.channels),
-      ...countByChannel(masterAttendees),
-    }
-    const channelRevenue = revenueByChannel(channelCounts, published.channels, pricing)
-    return {
-      title,
-      capacity,
-      attendees: masterAttendees,
-      bookings: bookingsForAttendees(masterAttendees, allBookings, title),
-      channels: published.channels,
-      channelIds: published.channelIds,
-      channelCounts,
-      channelRevenue,
-      registrations,
-      uniqueAttendees: masterAttendees.length,
-      masterId: master.id,
-      ticketPrice: pricing.ticketPrice,
-      currency: pricing.currency,
-      isFree: pricing.isFree,
-      hasPricing: pricing.hasPricing,
-      revenue: metrics.revenue,
-      ticketsSoldPct: metrics.ticketsSoldPct,
-      ticketTypes,
-      startAt: meta.startAt,
-      endAt: meta.endAt,
-      coverUrl: meta.coverUrl,
-      venue: meta.venue,
-      status: meta.status,
-      eventUrl: meta.eventUrl,
-      primaryChannel: channel,
-    }
+  // Synced bookings for this event (by linked id OR title) + registry + live pull.
+  let eventBookings = dedupeBookingRows([
+    ...collectPublishedBookings(allBookings, published, title),
+    ...attendeesToBookingRows(masterAttendees),
+  ])
+
+  const live = await pullLiveBookingsForPublished(published, title)
+  if (live.length) {
+    eventBookings = dedupeBookingRows([...eventBookings, ...live])
   }
 
-  let eventBookings: EventBookingRow[] = filterStoredBookings(allBookings, channel, eventId, title)
-
-  if (channel === 'luma' && (refresh || eventBookings.length === 0)) {
-    const live = await pullLumaGuestsLive(eventId, title, refresh)
-    if (live.length) {
-      eventBookings = live
-    }
-  }
-
-  // Pull bookings for every published channel id (registry + title match),
-  // not only the channel we opened from.
-  const normTitle = title.trim().toLowerCase()
-  const publishedIds = new Set(
-    Object.entries(published.channelIds).map(([ch, id]) => `${ch}:${id}`),
+  const bookingChannels = new Set(eventBookings.map((b) => b.channel))
+  const channels = CHANNEL_KEYS.filter(
+    (ch) => published.channelIds[ch] != null || bookingChannels.has(ch),
   )
-  const linkedBookings: EventBookingRow[] = allBookings.filter((b) => {
-    if (b.event_external_id && publishedIds.has(`${b.channel}:${b.event_external_id}`)) {
-      return true
+  const channelIds = { ...published.channelIds }
+  for (const b of eventBookings) {
+    if (!channelIds[b.channel] && b.event_external_id) {
+      channelIds[b.channel] = String(b.event_external_id)
     }
-    if (b.channel === channel) return false
-    return !!normTitle && b.event_title.trim().toLowerCase() === normTitle
-  })
-  // Keep primary-channel bookings + linked ones (dedupe by email+channel+time later via attendees)
-  const seenBooking = new Set<string>()
-  eventBookings = [...eventBookings, ...linkedBookings].filter((b) => {
-    const key = `${b.channel}|${b.guest_email}|${b.registered_at}|${b.event_external_id || ''}`
-    if (seenBooking.has(key)) return false
-    seenBooking.add(key)
-    return true
-  })
+  }
+
+  let coverUrl = meta.coverUrl
+  if (!coverUrl) {
+    coverUrl = await resolveCoverFromLinkedChannels(channel, channelIds)
+  }
 
   const attendees = bookingsToAttendees(eventBookings)
   const registrations = eventBookings.reduce((sum, b) => sum + (b.ticket_count || 1), 0)
@@ -655,16 +839,18 @@ export async function loadEventDashboardData(
   const pricing = extractPricing(channel, stored, ticketTypes)
   const capacity = master?.capacity || pricing.capacityHint || DEFAULT_CAPACITY
   const metrics = formatDashboardMetrics(capacity, registrations, pricing)
+  const displayChannels = channels.length ? channels : [channel]
+  const ticketsByChannel = ticketCountsByChannel(eventBookings)
   const channelCounts = {
-    ...emptyChannelCounts(published.channels),
-    ...countByChannel(attendees),
+    ...emptyChannelCounts(displayChannels),
+    ...ticketsByChannel,
   }
   const channelRevenue = revenueByChannel(
     {
-      ...emptyChannelCounts(published.channels),
-      ...ticketCountsByChannel(eventBookings),
+      ...emptyChannelCounts(displayChannels),
+      ...ticketsByChannel,
     },
-    published.channels,
+    displayChannels,
     pricing,
   )
 
@@ -673,12 +859,12 @@ export async function loadEventDashboardData(
     capacity,
     attendees,
     bookings: bookingsFromEventRows(eventBookings, allBookings),
-    channels: published.channels,
-    channelIds: published.channelIds,
+    channels: displayChannels,
+    channelIds,
     channelCounts,
     channelRevenue,
     registrations,
-    uniqueAttendees: attendees.length,
+    uniqueAttendees: uniqueEmailCount(attendees),
     masterId: master?.id || null,
     ticketPrice: pricing.ticketPrice,
     currency: pricing.currency,
@@ -689,10 +875,35 @@ export async function loadEventDashboardData(
     ticketTypes,
     startAt: meta.startAt,
     endAt: meta.endAt,
-    coverUrl: meta.coverUrl,
+    coverUrl,
     venue: meta.venue,
     status: meta.status,
     eventUrl: meta.eventUrl,
     primaryChannel: channel,
   }
+}
+
+/** When the primary row has no cover, try linked channel copies (HT cover_image, etc.). */
+async function resolveCoverFromLinkedChannels(
+  primary: ChannelKey,
+  channelIds: Partial<Record<ChannelKey, string>>,
+): Promise<string | null> {
+  // Prefer Hightribe — that's where cover_image usually lives for cast events.
+  const order: ChannelKey[] = ['hightribe', 'luma', 'eventbrite'].filter(
+    (ch) => ch !== primary && channelIds[ch],
+  ) as ChannelKey[]
+
+  for (const ch of order) {
+    const id = channelIds[ch]
+    if (!id) continue
+    try {
+      const row = await getStoredEvent(ch, id)
+      if (!row) continue
+      const url = row.cover_url?.trim() || coverFromPayload(ch, asRecord(row.payload) || {})
+      if (url) return url
+    } catch {
+      // best-effort
+    }
+  }
+  return null
 }

@@ -1,30 +1,33 @@
-import { authHeader, clearAuth, getUser } from '@/lib/auth'
-import { resolveClientApiUrl } from '@/lib/client-api-url'
-import { getEwentcastAccount, logoutLocal } from '@/lib/ewentcast-session'
+import { clearAuth, getUser } from '@/lib/auth'
+import {
+  getEwentcastAccount,
+  logoutLocal,
+  setEwentcastAccount,
+  setHtLinkToken,
+} from '@/lib/ewentcast-session'
 import type { ChannelKey } from '@/lib/types'
 import { purgeChannelDataFromDb } from '@/lib/channel-data-sync'
 import { disconnectChannelSettings } from '@/lib/channel-connect'
-import type { AppSettings } from '@/lib/settings-types'
 
-async function saveUserSettings(patch: Partial<AppSettings>): Promise<void> {
-  const res = await fetch(resolveClientApiUrl('/api/settings'), {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: authHeader(),
-      Accept: 'application/json',
-    },
-    body: JSON.stringify(patch),
-  })
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({})) as { error?: string; message?: string }
-    throw new Error(data.message || data.error || 'Failed to save settings')
+function clearLocalHightribeLink(): void {
+  setHtLinkToken(null)
+  const account = getEwentcastAccount()
+  if (account) {
+    setEwentcastAccount({
+      ...account,
+      ht_connected: false,
+      linked_ht_user_id: null,
+      ht_connected_at: null,
+      ht_connect_email: null,
+    })
   }
 }
 
 /**
- * Disconnect a channel integration via DELETE /api/v1/settings/:channel.
- * Hightribe signed in as native auth (no Ewentcast settings) still signs out.
+ * Disconnect a channel via DELETE /api/v1/settings/:channel
+ * (hightribe | luma | eventbrite). Always hits the API; then clears local cache.
+ *
+ * Hightribe native login treats disconnect as sign-out after the DELETE.
  */
 export async function disconnectChannelIntegration(
   channel: ChannelKey,
@@ -33,21 +36,29 @@ export async function disconnectChannelIntegration(
     throw new Error('Unknown channel')
   }
 
+  const account = channel === 'hightribe' ? getEwentcastAccount() : null
+  const nativeHtSession =
+    channel === 'hightribe'
+    && account?.auth_source === 'hightribe_native'
+    && !!getUser()
+
+  // DELETE /api/v1/settings/hightribe | /luma | /eventbrite
+  await disconnectChannelSettings(channel)
+
   if (channel === 'hightribe') {
-    const account = getEwentcastAccount()
-    if (account?.auth_source === 'hightribe_native' && getUser()) {
-      try {
-        await logoutLocal()
-      } catch {
-        // clear locally even if logout API fails
-      }
-      clearAuth()
-      void purgeChannelDataFromDb(channel)
-      return 'session'
-    }
+    clearLocalHightribeLink()
   }
 
-  await disconnectChannelSettings(channel)
+  if (nativeHtSession) {
+    try {
+      await logoutLocal()
+    } catch {
+      // clear locally even if logout API fails
+    }
+    clearAuth()
+    void purgeChannelDataFromDb(channel)
+    return 'session'
+  }
 
   if (getUser()) {
     void purgeChannelDataFromDb(channel)
@@ -60,5 +71,3 @@ export function channelDisconnectLabel(channel: ChannelKey, connected: boolean):
   if (!connected) return null
   return 'Disconnect'
 }
-
-export { saveUserSettings }

@@ -66,6 +66,7 @@ export function unwrapLumaEvent(data: unknown): Record<string, unknown> {
       description_md: inner.description_md ?? payload.description_md,
       description_html: inner.description_html ?? payload.description_html,
       cover_url: inner.cover_url ?? payload.cover_url,
+      url: inner.url ?? payload.url,
       geo_address_json: inner.geo_address_json ?? payload.geo_address_json,
       geo_latitude: inner.geo_latitude ?? payload.geo_latitude,
       geo_longitude: inner.geo_longitude ?? payload.geo_longitude,

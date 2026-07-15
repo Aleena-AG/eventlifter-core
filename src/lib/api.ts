@@ -1,8 +1,8 @@
-// Browser → remote API directly (NEXT_PUBLIC_BACKEND_URL), except local-only routes.
+// Browser → remote API directly (NEXT_PUBLIC_BACKEND_URL → /api/v1/...).
 // See resolveClientApiUrl().
 
 import { authHeader, clearAuth, isAuthErrorMessage } from './auth'
-import { resolveClientApiUrl } from './client-api-url'
+import { remapChannelProxyPath, resolveClientApiUrl } from './client-api-url'
 
 function withAuth(headers: Record<string, string> = {}): Record<string, string> {
   const auth = authHeader()
@@ -25,40 +25,48 @@ async function parseApiError(r: Response): Promise<never> {
 
 async function get<T = unknown>(path: string, opts?: { auth?: boolean }): Promise<T> {
   const headers = opts?.auth === false ? undefined : withAuth()
-  const r = await fetch(resolveClientApiUrl(path), headers ? { headers } : undefined)
-    if (!r.ok) return parseApiError(r)
+  const r = await fetch(resolveClientApiUrl(path, 'GET'), headers ? { headers } : undefined)
+  if (!r.ok) return parseApiError(r)
   return r.json() as Promise<T>
 }
 
 async function post<T = unknown>(path: string, body: unknown = {}, opts?: { auth?: boolean }): Promise<T> {
-  const r = await fetch(resolveClientApiUrl(path), {
-    method: 'POST',
+  const remapped = remapChannelProxyPath(
+    path.includes('?') ? path.slice(0, path.indexOf('?')) : path,
+    'POST',
+  )
+  const r = await fetch(resolveClientApiUrl(path, 'POST'), {
+    method: remapped.method,
     headers: {
       'Content-Type': 'application/json',
       ...(opts?.auth === false ? {} : withAuth()),
     },
     body: JSON.stringify(body),
   })
-    if (!r.ok) return parseApiError(r)
+  if (!r.ok) return parseApiError(r)
   return r.json() as Promise<T>
 }
 
 async function put<T = unknown>(path: string, body: unknown = {}, opts?: { auth?: boolean }): Promise<T> {
-  const r = await fetch(resolveClientApiUrl(path), {
-    method: 'PUT',
+  const remapped = remapChannelProxyPath(
+    path.includes('?') ? path.slice(0, path.indexOf('?')) : path,
+    'PUT',
+  )
+  const r = await fetch(resolveClientApiUrl(path, 'PUT'), {
+    method: remapped.method,
     headers: {
       'Content-Type': 'application/json',
       ...(opts?.auth === false ? {} : withAuth()),
     },
     body: JSON.stringify(body),
   })
-    if (!r.ok) return parseApiError(r)
+  if (!r.ok) return parseApiError(r)
   return r.json() as Promise<T>
 }
 
 async function del<T = unknown>(path: string): Promise<T> {
-  const r = await fetch(resolveClientApiUrl(path), { method: 'DELETE', headers: withAuth() })
-    if (!r.ok) return parseApiError(r)
+  const r = await fetch(resolveClientApiUrl(path, 'DELETE'), { method: 'DELETE', headers: withAuth() })
+  if (!r.ok) return parseApiError(r)
   return r.json() as Promise<T>
 }
 
@@ -83,12 +91,11 @@ export const api = {
     get('/api/luma/events/hosted' + (query ? '?' + new URLSearchParams(query) : '')),
   getLumaGuests: (eventApiId: string) =>
     get(`/api/luma/guests?event_id=${encodeURIComponent(eventApiId)}`),
-  createLumaEvent: (body: object) => post('/api/luma/events/create', body),
+  createLumaEvent: (body: object) => post('/api/luma/events', body),
   getLumaDiscover: (params?: Record<string, string>) =>
     get('/api/luma/discover' + (params ? '?' + new URLSearchParams(params) : '')),
 
-  // Eventbrite
-  getEbStatus: () => get('/api/eventbrite/status'),
+  // Eventbrite — connect is PUT /settings only (no /status or users/me on remote yet)
   getEbMe: () => get('/api/eventbrite/users/me'),
   getEbOrganizations: () => get('/api/eventbrite/users/me/organizations'),
   getEbOrgEvents: (orgId: string) =>
@@ -98,10 +105,6 @@ export const api = {
 
   // Hightribe
   getHtStatus: () => get('/api/hightribe/status'),
-
-  // Convenience aliases used by settings page tests
-  testLuma: () => post('/api/luma/verify-key', {}),
-  testEventbrite: () => get('/api/eventbrite/status'),
 }
 
 // Named exports kept for backwards compat with existing page imports
@@ -124,15 +127,19 @@ export async function getLumaConfig(): Promise<unknown> {
   return get('/api/luma/users/self')
 }
 
-export async function getEventbriteStatus(): Promise<unknown> {
-  return get('/api/eventbrite/status')
+/** Connection status comes from settings — remote has no Eventbrite test route. */
+export async function getEventbriteStatus(): Promise<{ connected: boolean }> {
+  const settings = await getSettings() as {
+    eventbrite?: { configured?: boolean }
+  }
+  return { connected: settings.eventbrite?.configured === true }
 }
 
 // These endpoints no longer exist in the standalone architecture.
 // They return empty stubs so existing page code doesn't break at runtime.
 export async function getConnections(_hostId: string): Promise<ConnectionsResponse> {
   const settings = await getSettings()
-  const map = channelConnectionMap(settings)
+  const map = channelConnectionMap(settings as any)
   const channels = (['hightribe', 'eventbrite', 'luma'] as ChannelKey[]).map((channel) => ({
     channel,
     status: map[channel] ? ('connected' as const) : ('disconnected' as const),
@@ -234,7 +241,7 @@ export async function createEvent(payload: CreateEventPayload): Promise<MasterEv
     capacity: payload.capacity,
     tags: payload.tags,
   }
-  const res = await post<{ api_id?: string }>('/api/luma/events/create', body)
+  const res = await post<{ api_id?: string }>('/api/luma/events', body)
   return {
     id: res.api_id || String(Date.now()),
     hostId: payload.hostId,

@@ -54,9 +54,11 @@ export function WebhookLogsViewer({ token, initialLogs }: Props) {
   const refresh = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/wh-logs/${encodeURIComponent(token)}?limit=150`, {
-        cache: 'no-store',
-      })
+      const { resolveClientApiUrl } = await import('@/lib/client-api-url')
+      const res = await fetch(
+        resolveClientApiUrl(`/api/wh-logs/${encodeURIComponent(token)}?limit=150`),
+        { cache: 'no-store' },
+      )
       if (!res.ok) return
       const data = await res.json() as { logs?: WebhookLogRow[] }
       if (Array.isArray(data.logs)) {

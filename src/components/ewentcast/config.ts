@@ -1,10 +1,28 @@
 import type { ChannelKey } from '@/lib/types'
 import { HIGHTRIBE_COLOR, LUMA_COLOR, EVENTBRITE_COLOR } from '@/lib/brand'
 
-export const CH_META: Record<ChannelKey, { name: string; color: string; auth: string; cap: string; base: string; signin: string }> = {
+export type ChannelMeta = { name: string; color: string; auth: string; cap: string; base: string; signin: string }
+
+export const CH_META: Record<ChannelKey, ChannelMeta> = {
   hightribe: { name: 'Hightribe', color: HIGHTRIBE_COLOR, auth: 'Native', cap: 'Two-way sync', base: 'Hightribe.co/e/', signin: 'Linked to your Hightribe account' },
   eventbrite: { name: 'Eventbrite', color: EVENTBRITE_COLOR, auth: 'OAuth 2.0', cap: 'Two-way sync · webhooks', base: 'eventbrite.com/e/', signin: 'Sign in to Eventbrite' },
   luma: { name: 'Luma', color: LUMA_COLOR, auth: 'API key', cap: 'Two-way sync · Luma Plus', base: 'lu.ma/', signin: 'Sign in to Luma for your key' },
+}
+
+const UNKNOWN_CHANNEL_META: ChannelMeta = {
+  name: 'Unknown',
+  color: '#94a3b8',
+  auth: '',
+  cap: '',
+  base: '',
+  signin: '',
+}
+
+/** Safe lookup when attendee/booking source may be missing or non-ChannelKey. */
+export function getChannelMeta(source: string | null | undefined): ChannelMeta {
+  if (source && source in CH_META) return CH_META[source as ChannelKey]
+  if (source) return { ...UNKNOWN_CHANNEL_META, name: source }
+  return UNKNOWN_CHANNEL_META
 }
 
 // Display order: Eventbrite & Luma lead, Hightribe intentionally last (kept less

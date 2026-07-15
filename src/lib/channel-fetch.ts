@@ -1,7 +1,7 @@
 'use client'
 
 import { authHeader, clearAuth, isAuthErrorMessage } from '@/lib/auth'
-import { resolveClientApiUrl } from '@/lib/client-api-url'
+import { remapChannelProxyPath, resolveClientApiUrl } from '@/lib/client-api-url'
 import { resolveHtApiAuthHeader } from '@/lib/ewentcast-session'
 
 function sleep(ms: number): Promise<void> {
@@ -26,11 +26,13 @@ function extraHeadersFromInit(init?: RequestInit): Record<string, string> | unde
 }
 
 /**
- * Build Authorization headers for any `/api/...` call.
+ * Build Authorization headers for `/api/...` calls (resolved to remote `/api/v1/...`).
  *
- * - Hightribe proxies need the Ewentcast session so Next can load
- *   `settings.hightribe.apiKey`, plus optional browser HT link token.
- * - All other routes get the Ewentcast session JWT.
+ * Always attach the Ewentcast session JWT when present (settings / registry /
+ * Luma / Eventbrite / Hightribe proxies all need it).
+ *
+ * For Hightribe, also send the HT link token as X-Hightribe-Authorization so
+ * the backend can fall back if settings.apiKey is missing/expired.
  */
 export async function channelAuthHeaders(
   url: string,
@@ -39,25 +41,19 @@ export async function channelAuthHeaders(
   const out: Record<string, string> = { Accept: 'application/json', ...extra }
 
   try {
+    const session = authHeader()
+    if (session) out.Authorization = session
+
     if (url.includes('/api/hightribe')) {
-      const session = authHeader()
       let ht = ''
       try {
         ht = await resolveHtApiAuthHeader()
       } catch {
         ht = ''
       }
-
-      // Prefer Ewentcast session for settings lookup on the Next proxy.
-      if (session) out.Authorization = session
-      else if (ht) out.Authorization = ht
-
       if (ht) out['X-Hightribe-Authorization'] = ht
-      return out
+      if (!session && ht) out.Authorization = ht
     }
-
-    const auth = authHeader()
-    if (auth) out.Authorization = auth
   } catch {
     // Never block the request on header assembly failure.
   }
@@ -71,7 +67,6 @@ function requiresSessionAuth(pathname: string): boolean {
   if (pathname.startsWith('/api/auth/register')) return false
   if (pathname.startsWith('/api/auth/forgot-password')) return false
   if (pathname.startsWith('/api/auth/reset-password')) return false
-  if (pathname === '/api/hightribe/login' || pathname.startsWith('/api/hightribe/login?')) return false
   if (pathname.startsWith('/api/places/')) return false
   if (pathname.startsWith('/api/health')) return false
   if (pathname.startsWith('/api/wh-logs/')) return false
@@ -88,16 +83,17 @@ async function parseErrorMessage(res: Response): Promise<string> {
 }
 
 /**
- * Authenticated fetch for all app `/api/*` routes.
- * Attaches the correct Authorization headers and retries transient network failures.
+ * Authenticated fetch for all app `/api/*` routes (resolved to remote `/api/v1/*`).
+ * Remaps legacy Luma path aliases, attaches auth headers, retries transient failures.
  */
 export async function channelFetch(input: string, init?: RequestInit): Promise<Response> {
   const raw = String(input)
-  const url = resolveClientApiUrl(raw)
-  const extraHeaders = extraHeadersFromInit(init)
-
   const qIndex = raw.indexOf('?')
   const pathname = qIndex >= 0 ? raw.slice(0, qIndex) : raw
+  const requestedMethod = (init?.method || 'GET').toUpperCase()
+  const remapped = remapChannelProxyPath(pathname, requestedMethod)
+  const url = resolveClientApiUrl(raw, requestedMethod)
+  const extraHeaders = extraHeadersFromInit(init)
 
   const maxAttempts = 3
   let lastErr: unknown
@@ -105,6 +101,11 @@ export async function channelFetch(input: string, init?: RequestInit): Promise<R
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       const headers = await channelAuthHeaders(raw, extraHeaders)
+
+      // FormData must not carry a manual Content-Type (boundary is required).
+      if (typeof FormData !== 'undefined' && init?.body instanceof FormData) {
+        delete headers['Content-Type']
+      }
 
       if (
         requiresSessionAuth(pathname)
@@ -124,6 +125,7 @@ export async function channelFetch(input: string, init?: RequestInit): Promise<R
 
       const res = await fetch(url, {
         ...init,
+        method: remapped.method,
         headers,
       })
 

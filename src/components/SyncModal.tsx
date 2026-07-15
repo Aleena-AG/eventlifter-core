@@ -13,6 +13,7 @@ import { normalizeEbCountry, writeEventbriteStructuredDescription } from '@/lib/
 import { hightribeDatesToUtc } from '@/lib/event-datetime'
 import { InlineLoader } from '@/components/Loader'
 import { HIGHTRIBE_COLOR, LUMA_COLOR, EVENTBRITE_COLOR } from '@/lib/brand'
+import { hightribeEventPublicUrl } from '@/lib/hightribe-url'
 
 export type SyncSource = 'hightribe' | 'luma' | 'eventbrite'
 
@@ -292,30 +293,7 @@ async function fetchEbEvent(id: string | number): Promise<NormEvent> {
   }
 }
 
-// Mirrors Hightribe-Laravel-Backend EventRequest + EventbriteService::importEventToHightribe
-function buildHtLocation(norm: NormEvent): Record<string, unknown> {
-  if (norm.isOnline) {
-    return {
-      type: 'online',
-      location: 'Online',
-      address: 'Online',
-      city: 'Online',
-    }
-  }
 
-  const venueLabel = norm.venueName || norm.address || 'TBD'
-  const street = norm.address || norm.venueName || venueLabel
-  const city = norm.city || norm.venueName || 'TBD'
-
-  return {
-    type: 'physical',
-    location: venueLabel,
-    address: street,
-    city,
-    lat: norm.lat,
-    lng: norm.lng,
-  }
-}
 
 export function SyncModal({ open, event, onClose }: Props) {
   const [selected, setSelected] = useState<Record<ChannelKey, boolean>>({
@@ -423,45 +401,34 @@ export function SyncModal({ open, event, onClose }: Props) {
       targets.map(async (ch) => {
         try {
           if (ch === 'hightribe') {
-            // Token is attached by channelFetch (session + settings.apiKey / HT link token).
-            // Parse startUtc → date + time fields HT expects
-            const startD = new Date(norm.startUtc)
-            const endD   = new Date(norm.endUtc)
-            const pad = (n: number) => String(n).padStart(2, '0')
-            const toDate = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`
-            const toTime = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`
-            const tz = norm.timezone || 'UTC'
-            // Convert to local timezone date/time
-            const startLocal = new Date(startD.toLocaleString('en-US', { timeZone: tz }))
-            const endLocal   = new Date(endD.toLocaleString('en-US', { timeZone: tz }))
-
-            const body: Record<string, unknown> = {
+            const id = `ht-${typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Date.now()}`
+            const location = norm.isOnline
+              ? 'Online'
+              : [norm.venueName, norm.address, norm.city].filter(Boolean).join(', ')
+            const { startUtc, endUtc } = ensureEndAfterStart(norm.startUtc, norm.endUtc)
+            const event = {
+              id,
               title: norm.title,
-              description: norm.description || norm.title,
-              status: 'published',
-              is_business_profile: 0,
               dates: {
-                start_date: toDate(startLocal),
-                start_time: toTime(startLocal),
-                end_date: toDate(endLocal),
-                end_time: toTime(endLocal),
-                timezone: tz,
+                starts_at: startUtc,
+                ends_at: endUtc,
               },
-              location: buildHtLocation(norm),
+              timezone: norm.timezone || 'UTC',
+              url: hightribeEventPublicUrl({ title: String(norm.title || '') }),
+              ...(location ? { location } : {}),
+              publish_status: 'published',
             }
-            const res = await channelFetch('/api/hightribe/events', {
+            const res = await channelFetch('/api/events/hightribe/sync', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(body),
+              body: JSON.stringify({ prune: false, events: [event] }),
             })
-            const data = await res.json() as { message?: string; errors?: Record<string, string[]>; data?: { id?: unknown } }
+            const data = await res.json() as { message?: string; error?: string }
             if (!res.ok) {
-              const msg = data.message || (data.errors ? Object.values(data.errors).flat().join(', ') : `HTTP ${res.status}`)
-              throw new Error(msg)
+              throw new Error(data.message || data.error || `HTTP ${res.status}`)
             }
-            const newId = (data.data as Record<string, unknown>)?.id || '—'
-            if (newId !== '—') channelRefs[ch] = { eventId: String(newId) }
-            newResults[ch] = { status: 'success', message: `Created on Hightribe (ID: ${newId})` }
+            channelRefs[ch] = { eventId: id, url: String(event.url) }
+            newResults[ch] = { status: 'success', message: `Created on Hightribe (ID: ${id})` }
           }
 
           if (ch === 'luma') {

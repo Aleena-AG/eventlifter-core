@@ -65,13 +65,26 @@ export default function ChannelsPage() {
     setDisconnecting(ch)
     try {
       const result = await disconnectChannelIntegration(ch)
+      // DELETE won — clear local connected flag immediately.
+      setSettings((prev) => ({
+        ...prev,
+        [ch]: { ...(prev[ch] || {}), configured: false },
+      }))
       if (result === 'session') {
         toast.success('Signed out')
         router.replace('/login')
         return
       }
       toast.success(`${name} disconnected`)
-      await load()
+      try {
+        const s = await getSettings()
+        setSettings({
+          ...(s as SafeSettings),
+          [ch]: { configured: false },
+        })
+      } catch {
+        // optimistic clear already applied
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Disconnect failed')
     } finally {
