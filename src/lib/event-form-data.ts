@@ -216,6 +216,21 @@ function inferPlaceFromAddress(address?: string): {
   return { venueName, street, city, country, region, postal }
 }
 
+function asBoolish(raw: unknown): boolean | null {
+  if (typeof raw === 'boolean') return raw
+  if (typeof raw === 'number') {
+    if (raw === 1) return true
+    if (raw === 0) return false
+    return null
+  }
+  if (typeof raw === 'string') {
+    const s = raw.trim().toLowerCase()
+    if (s === 'true' || s === '1' || s === 'yes' || s === 'on') return true
+    if (s === 'false' || s === '0' || s === 'no' || s === 'off') return false
+  }
+  return null
+}
+
 function mapPublishStatus(raw?: string | null, isPublic?: boolean | null): string {
   const s = String(raw || '').trim().toLowerCase()
   if (/draft|unpublished|pending/.test(s)) return 'Draft'
@@ -226,11 +241,15 @@ function mapPublishStatus(raw?: string | null, isPublic?: boolean | null): strin
 }
 
 function mapLumaPublishStatus(e: Record<string, unknown>, raw: Record<string, unknown>): string {
-  const fromStatus = mapPublishStatus(String(e.status || raw.status || ''))
-  if (fromStatus === 'Published') return 'Published'
-
-  const vis = String(e.visibility || raw.visibility || '').toLowerCase()
-  if (vis === 'public') return 'Published'
+  // Prefer an explicit status we persisted (or Luma returned) — do NOT infer
+  // publish state from visibility (Public/Unlisted are a separate Access field).
+  const explicit =
+    e._publish_status || raw._publish_status
+    || e.status || raw.status
+  const fromStatus = mapPublishStatus(String(explicit || ''))
+  if (fromStatus === 'Published' || /draft|unpublished|pending/.test(String(explicit || '').toLowerCase())) {
+    return fromStatus
+  }
 
   const entry = (e.entry || raw.entry) as Record<string, unknown> | undefined
   const calendarStatus = String(
@@ -293,6 +312,7 @@ interface NormEvent {
   currency?: string
   onlineUrl?: string
   requireApproval?: boolean
+  showRemaining?: boolean
   capacity?: number
   status?: string
   visibility?: string
@@ -459,7 +479,7 @@ function normToForm(n: NormEvent): EventFormData {
     visibility: n.visibility || 'Public',
     requireApproval: !!n.requireApproval,
     inviteOnly: false,
-    showRemaining: true,
+    showRemaining: n.showRemaining === true,
     password: '',
     hostName: n.hostName || '',
     refundPolicy: n.refundPolicy || '',
@@ -558,14 +578,20 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
       currency: 'USD',
       capacity: Number.isFinite(ticketQty) && ticketQty! > 0 ? ticketQty : undefined,
       status: mapPublishStatus(
-        String(e.publish_status || e.status || raw.publish_status || raw.status || ''),
-        typeof e.is_public === 'boolean' ? e.is_public : typeof raw.is_public === 'boolean' ? raw.is_public as boolean : null,
+        String(e.publish_status || e.status || e._publish_status || raw.publish_status || raw.status || raw._publish_status || ''),
+        asBoolish(e.is_public) ?? asBoolish(raw.is_public),
       ),
       visibility: mapVisibility(
         optStr(e.visibility),
         null,
-        typeof e.is_public === 'boolean' ? e.is_public : typeof raw.is_public === 'boolean' ? raw.is_public as boolean : null,
+        asBoolish(e.is_public) ?? asBoolish(raw.is_public),
       ),
+      requireApproval: asBoolish(e.require_approval)
+        ?? asBoolish(e.require_rsvp_approval)
+        ?? asBoolish(e._require_approval)
+        ?? asBoolish(raw._require_approval)
+        ?? false,
+      showRemaining: asBoolish(e._show_remaining) ?? asBoolish(raw._show_remaining) ?? false,
       hostName: pickHostName(
         e.host_name, e.organizer_name, e.host, e.organizer,
         raw.host_name, raw.organizer_name, e.user, e.creator,
@@ -644,7 +670,11 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
       country: canonicalizeCountry(norm.country) || inferred.country,
       lat: norm.lat,
       lng: norm.lng,
-      requireApproval: !!(e.require_rsvp_approval),
+      requireApproval: asBoolish(e.require_rsvp_approval)
+        ?? asBoolish(e._require_approval)
+        ?? asBoolish(raw._require_approval)
+        ?? false,
+      showRemaining: asBoolish(e._show_remaining) ?? asBoolish(raw._show_remaining) ?? false,
       capacity: typeof e.capacity === 'number' ? e.capacity : undefined,
       status: mapLumaPublishStatus(e, { ...raw, ...e }),
       visibility: mapVisibility(String(e.visibility || raw.visibility || '')),
@@ -742,8 +772,13 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
     lat: parseCoord(venue?.latitude) ?? parseCoord(addr?.latitude),
     lng: parseCoord(venue?.longitude) ?? parseCoord(addr?.longitude),
     currency: 'USD',
-    status: mapPublishStatus(String(e.status || '')),
-    visibility: mapVisibility(null, typeof e.listed === 'boolean' ? e.listed : null),
+    status: mapPublishStatus(String(e.status || e._publish_status || '')),
+    visibility: mapVisibility(null, asBoolish(e.listed)),
+    requireApproval: asBoolish(e._require_approval) ?? false,
+    showRemaining: asBoolish(e._show_remaining)
+      ?? asBoolish(tc?.show_remaining)
+      ?? asBoolish(tc?.display_remaining_quantity)
+      ?? false,
     hostName: pickHostName(e.organizer, e.organizer_name, e.host, e.host_name),
     capacity: Number.isFinite(tcQty) && tcQty! > 0 ? tcQty : undefined,
     ...refundAndFaqFromPayload(e),
@@ -831,6 +866,14 @@ function applyTicketToNorm(norm: NormEvent, ticket: Record<string, unknown>, cha
     const salesEnd = optStr(ticket.sales_end) || optStr(ticket.end_sale_date) || optStr(ticket.valid_end_at)
     if (salesStart) norm.salesStartUtc = stripMs(salesStart)
     if (salesEnd) norm.salesEndUtc = stripMs(salesEnd)
+    const booking = String(ticket.booking_type || '').toLowerCase()
+    if (booking === 'request' || booking === 'approval' || booking === 'manual') {
+      norm.requireApproval = true
+    } else if (booking === 'instant') {
+      norm.requireApproval = false
+    }
+    const showQty = asBoolish(ticket.show_ticket_quantity)
+    if (showQty != null) norm.showRemaining = showQty
     return
   }
   if (channel === 'eventbrite') {
@@ -993,6 +1036,18 @@ function mergeStoredMeta(norm: NormEvent, stored: Awaited<ReturnType<typeof getS
 
   if ((!norm.status || norm.status === 'Draft') && stored.status) {
     norm.status = mapPublishStatus(stored.status)
+  }
+  if (stored.payload && typeof stored.payload === 'object') {
+    const p = stored.payload as Record<string, unknown>
+    const storedPublish = mapPublishStatus(String(p._publish_status || p.publish_status || p.status || ''))
+    if (storedPublish === 'Published') norm.status = 'Published'
+    else if ((!norm.status || norm.status === 'Draft') && /draft/.test(String(p._publish_status || '').toLowerCase())) {
+      norm.status = 'Draft'
+    }
+    const req = asBoolish(p._require_approval) ?? asBoolish(p.require_approval) ?? asBoolish(p.require_rsvp_approval)
+    if (req != null) norm.requireApproval = req
+    const show = asBoolish(p._show_remaining)
+    if (show != null) norm.showRemaining = show
   }
   if (!norm.tags?.length && stored.payload && typeof stored.payload === 'object') {
     const p = stored.payload as Record<string, unknown>

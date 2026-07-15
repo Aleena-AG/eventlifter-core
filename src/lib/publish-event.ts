@@ -223,6 +223,39 @@ function ebPublishStatus(ev: EventFormData): 'live' | 'draft' {
   return 'draft'
 }
 
+async function syncEventbritePublishState(
+  eventId: string | number,
+  ev: EventFormData,
+): Promise<void> {
+  const wantLive = ebPublishStatus(ev) === 'live'
+  const path = wantLive
+    ? `/api/eventbrite/events/${eventId}/publish/`
+    : `/api/eventbrite/events/${eventId}/unpublish/`
+  try {
+    const res = await channelFetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    })
+    // Draft→live needs publish; live→draft needs unpublish. Ignore 400 when
+    // already in the target state (EB returns errors like "already published").
+    if (res.ok || res.status === 400) return
+  } catch {
+    // best-effort — event fields still updated
+  }
+}
+
+/** Access toggles we always persist locally so edit form round-trips even when a channel API omits them. */
+function accessPersistFields(ev: EventFormData): Record<string, unknown> {
+  const publish = htPublishStatus(ev)
+  return {
+    _publish_status: publish,
+    _require_approval: !!ev.requireApproval,
+    _show_remaining: !!ev.showRemaining,
+    require_rsvp_approval: !!ev.requireApproval,
+  }
+}
+
 function htIsPublic(ev: EventFormData): boolean {
   const vis = String(ev.visibility || '').trim().toLowerCase()
   if (vis === 'private' || vis === 'unlisted' || vis === 'member-only') return false
@@ -249,6 +282,7 @@ function buildHightribeEventBody(
     publish_status: status,
     is_public: htIsPublic(ev) ? 1 : 0,
     is_business_profile: 0,
+    require_approval: !!ev.requireApproval ? 1 : 0,
     dates: {
       start_date: start.date,
       start_time: start.time,
@@ -380,10 +414,10 @@ function buildHightribeTicketsFromForm(ev: EventFormData): {
     currency,
     price: Number.isFinite(price) ? price : 0,
     quantity: cap,
-    booking_type: 'instant',
+    booking_type: ev.requireApproval ? 'request' : 'instant',
     // Hightribe MySQL columns are tinyint — send 0/1, not true/false
     show_ticket: 1,
-    show_ticket_quantity: 1,
+    show_ticket_quantity: ev.showRemaining ? 1 : 0,
   }
   if (ticketId) ticket.id = ticketId
 
@@ -629,6 +663,8 @@ export async function publishToChannel(
       require_rsvp_approval: !!ev.requireApproval,
       capacity: cap,
       visibility: String(ev.visibility || 'Public').toLowerCase() === 'public' ? 'public' : 'private',
+      // Persist explicit publish intent for round-trip (Luma has no separate draft field).
+      ...accessPersistFields(ev),
     }
     const hostName = String(ev.hostName || '').trim()
     if (hostName) body.host = hostName
@@ -773,6 +809,8 @@ export async function publishToChannel(
   const tcData = await tcRes.json() as { id?: string; error_description?: string }
   if (!tcRes.ok) throw new Error(tcData.error_description || `HTTP ${tcRes.status}`)
 
+  await syncEventbritePublishState(eventId, ev)
+
   return { eventId, ticketId: tcData.id, url: `eventbrite.com/e/${eventId}` }
 }
 
@@ -826,6 +864,7 @@ export async function updateChannelEvent(
       require_rsvp_approval: !!ev.requireApproval,
       capacity: ev.capacity ? parseInt(String(ev.capacity)) : undefined,
       visibility: String(ev.visibility || 'Public').toLowerCase() === 'public' ? 'public' : 'private',
+      ...accessPersistFields(ev),
     }
     const hostName = String(ev.hostName || '').trim()
     if (hostName) body.host = hostName
@@ -982,6 +1021,7 @@ export async function updateChannelEvent(
   }
 
   await updateEventbriteTickets(eventId, ev)
+  await syncEventbritePublishState(eventId, ev)
 }
 
 export async function updateChannelEventsAll(
@@ -1047,6 +1087,7 @@ async function persistPublishedEvent(
   const hostExtras = {
     ...(refundPolicy ? { _refund_policy: refundPolicy } : {}),
     ...(faq ? { _faq: faq } : {}),
+    ...accessPersistFields(ev),
   }
 
   if (ch === 'luma') {
@@ -1066,6 +1107,7 @@ async function persistPublishedEvent(
       visibility: String(ev.visibility || 'Public').toLowerCase() === 'public' ? 'public' : 'private',
       host: hostName || undefined,
       ...hostExtras,
+      require_rsvp_approval: !!ev.requireApproval,
       meeting_url: online ? (ev.onlineUrl || undefined) : undefined,
       ...(inPerson && hasPlace ? {
         geo_address_json: {
@@ -1134,6 +1176,7 @@ async function persistPublishedEvent(
       status: htStatus,
       publish_status: htStatus,
       is_public: htIsPublic(ev),
+      require_approval: !!ev.requireApproval,
       host_name: hostName || undefined,
       organizer_name: hostName || undefined,
       ...(() => {
