@@ -9,7 +9,7 @@ import { publishToAllChannels, updateChannelEventsAll, upsertLocalEventSnapshot,
 import { refreshStoredEventsForChannels, markEventsListStale } from '@/lib/channel-data-sync'
 import type { EventCoverFiles } from '@/lib/cover-image'
 import { loadEventFormData } from '@/lib/event-form-data'
-import { resolveClientApiUrl } from '@/lib/client-api-url'
+import { channelFetch } from '@/lib/channel-fetch'
 import type { ChannelKey } from '@/lib/types'
 import {
   ALL_CHANNELS, CH_META, DEFAULT_EVENT, SECTIONS, WIZARD_STEPS,
@@ -188,13 +188,22 @@ export function EwentcastWizard({
 
   useEffect(() => {
     if (step !== 2) return
-    fetch(resolveClientApiUrl('/api/registry')).then(r => r.json()).then((d: { events?: Array<{ attendees: AttendeeRecord[]; sold: number }> }) => {
-      const latest = d.events?.[d.events.length - 1]
-      if (latest) {
-        setAttendees(latest.attendees || [])
-        setSold(latest.sold || 0)
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await channelFetch('/api/registry')
+        if (!res.ok || cancelled) return
+        const d = await res.json() as { events?: Array<{ attendees: AttendeeRecord[]; sold: number }> }
+        const latest = d.events?.[d.events.length - 1]
+        if (latest && !cancelled) {
+          setAttendees(latest.attendees || [])
+          setSold(latest.sold || 0)
+        }
+      } catch {
+        // registry optional on publish step
       }
-    }).catch(() => {})
+    })()
+    return () => { cancelled = true }
   }, [step])
 
   useEffect(() => {

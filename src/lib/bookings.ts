@@ -1,7 +1,5 @@
 'use client'
 
-import { authHeader, getUser } from '@/lib/auth'
-import { resolveClientApiUrl } from '@/lib/client-api-url'
 import { channelFetch } from '@/lib/channel-fetch'
 import { fetchHtBookingsPage } from '@/lib/hightribe-events'
 import { lumaHostedEventRef } from '@/lib/luma-event-utils'
@@ -423,33 +421,34 @@ export function bookingToStoredPayload(b: BookingListItem): Record<string, unkno
 }
 
 export async function loadAllBookings(): Promise<BookingListItem[]> {
-  const res = await fetch(resolveClientApiUrl('/api/events/bookings'), {
-    headers: { Authorization: authHeader(), Accept: 'application/json' },
-  })
-  if (!res.ok) return []
-  const raw = await res.json().catch(() => ({}))
-  const { unwrapApiData } = await import('@/lib/api-response')
-  const data = unwrapApiData<{
-    bookings?: Array<StoredBookingRow & { payload?: Record<string, unknown> }>
-  } | Array<StoredBookingRow & { payload?: Record<string, unknown> }>>(raw)
+  try {
+    const res = await channelFetch('/api/events/bookings')
+    if (!res.ok) return []
+    const raw = await res.json().catch(() => ({}))
+    const { unwrapApiData } = await import('@/lib/api-response')
+    const data = unwrapApiData<{
+      bookings?: Array<StoredBookingRow & { payload?: Record<string, unknown> }>
+    } | Array<StoredBookingRow & { payload?: Record<string, unknown> }>>(raw)
 
-  const rows = Array.isArray(data)
-    ? data
-    : (data.bookings || [])
+    const rows = Array.isArray(data)
+      ? data
+      : (data.bookings || [])
 
-  const list = rows.map((b) => mapStoredBookingToListItem({
-    external_id: b.external_id,
-    channel: b.channel,
-    event_title: b.event_title,
-    event_external_id: b.event_external_id,
-    guest_name: b.guest_name,
-    guest_email: b.guest_email,
-    registered_at: b.registered_at,
-    status: b.status,
-    ticket_count: b.ticket_count,
-    payload: b.payload,
-  }))
-
-  list.sort((a, b) => new Date(b.registeredAt).getTime() - new Date(a.registeredAt).getTime())
-  return list
+    const list = rows.map((b) => mapStoredBookingToListItem({
+      external_id: b.external_id,
+      channel: b.channel,
+      event_title: b.event_title,
+      event_external_id: b.event_external_id,
+      guest_name: b.guest_name,
+      guest_email: b.guest_email,
+      registered_at: b.registered_at,
+      status: b.status,
+      ticket_count: b.ticket_count,
+      payload: b.payload,
+    }))
+    list.sort((a, b) => new Date(b.registeredAt).getTime() - new Date(a.registeredAt).getTime())
+    return list
+  } catch {
+    return []
+  }
 }

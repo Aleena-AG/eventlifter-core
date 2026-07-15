@@ -1,8 +1,7 @@
 'use client'
 
-import { authHeader } from '@/lib/auth'
 import { extractRegistryMasterId, unwrapApiData } from '@/lib/api-response'
-import { resolveClientApiUrl } from '@/lib/client-api-url'
+import { channelFetch } from '@/lib/channel-fetch'
 import { normalizeTimeZone, zonedDateTimeToUtcIso } from '@/lib/event-datetime'
 import type { ChannelKey } from '@/lib/types'
 
@@ -149,11 +148,9 @@ function serializeRegistryMasterBody(input: RegistryMasterWrite): Record<string,
 }
 
 function registryAuthHeaders(extra?: Record<string, string>): Record<string, string> {
-  const auth = authHeader()
   return {
     'Content-Type': 'application/json',
     Accept: 'application/json',
-    ...(auth ? { Authorization: auth } : {}),
     ...extra,
   }
 }
@@ -165,21 +162,29 @@ async function parseRegistryError(res: Response): Promise<string> {
 
 /** GET /api/registry — list masters */
 export async function listRegistry(): Promise<unknown> {
-  const res = await fetch(resolveClientApiUrl('/api/registry'), { headers: registryAuthHeaders() })
-  if (!res.ok) throw new Error(await parseRegistryError(res))
-  const raw = await res.json().catch(() => ({}))
-  return unwrapApiData(raw)
+  try {
+    const res = await channelFetch('/api/registry', { headers: registryAuthHeaders() })
+    if (!res.ok) throw new Error(await parseRegistryError(res))
+    const raw = await res.json().catch(() => ({}))
+    return unwrapApiData(raw)
+  } catch (e) {
+    throw e instanceof Error ? e : new Error(String(e))
+  }
 }
 
 /** GET /api/registry/:id */
 export async function getRegistryById(masterId: string): Promise<Record<string, unknown> | null> {
-  const res = await fetch(resolveClientApiUrl(`/api/registry/${encodeURIComponent(masterId)}`), {
-    headers: registryAuthHeaders(),
-  })
-  if (!res.ok) return null
-  const raw = await res.json().catch(() => null)
-  if (!raw) return null
-  return unwrapApiData(raw)
+  try {
+    const res = await channelFetch(`/api/registry/${encodeURIComponent(masterId)}`, {
+      headers: registryAuthHeaders(),
+    })
+    if (!res.ok) return null
+    const raw = await res.json().catch(() => null)
+    if (!raw) return null
+    return unwrapApiData(raw)
+  } catch {
+    return null
+  }
 }
 
 /** POST /api/registry — create master (+ optional extended fields / channelRefs). */
@@ -191,17 +196,21 @@ export async function createRegistryMaster(input: RegistryMasterWrite & {
   if (!body.title) body.title = input.title
   if (body.capacity == null) body.capacity = input.capacity
 
-  const res = await fetch(resolveClientApiUrl('/api/registry'), {
-    method: 'POST',
-    headers: registryAuthHeaders(),
-    body: JSON.stringify(body),
-  })
-  const raw = await res.json().catch(() => ({})) as { error?: string; message?: string }
-  const id = extractRegistryMasterId(raw)
-  if (!res.ok || !id) {
-    throw new Error(raw.message || raw.error || `Registry create failed (HTTP ${res.status})`)
+  try {
+    const res = await channelFetch('/api/registry', {
+      method: 'POST',
+      headers: registryAuthHeaders(),
+      body: JSON.stringify(body),
+    })
+    const raw = await res.json().catch(() => ({})) as { error?: string; message?: string }
+    const id = extractRegistryMasterId(raw)
+    if (!res.ok || !id) {
+      throw new Error(raw.message || raw.error || `Registry create failed (HTTP ${res.status})`)
+    }
+    return id
+  } catch (e) {
+    throw e instanceof Error ? e : new Error(String(e))
   }
-  return id
 }
 
 /** @deprecated Use createRegistryMaster */
@@ -223,14 +232,18 @@ export async function updateRegistryMaster(
   input: RegistryMasterWrite,
 ): Promise<Record<string, unknown>> {
   const body = serializeRegistryMasterBody(input)
-  const res = await fetch(resolveClientApiUrl(`/api/registry/${encodeURIComponent(masterId)}`), {
-    method: 'PATCH',
-    headers: registryAuthHeaders(),
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) throw new Error(await parseRegistryError(res))
-  const raw = await res.json().catch(() => ({}))
-  return unwrapApiData(raw)
+  try {
+    const res = await channelFetch(`/api/registry/${encodeURIComponent(masterId)}`, {
+      method: 'PATCH',
+      headers: registryAuthHeaders(),
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) throw new Error(await parseRegistryError(res))
+    const raw = await res.json().catch(() => ({}))
+    return unwrapApiData(raw)
+  } catch (e) {
+    throw e instanceof Error ? e : new Error(String(e))
+  }
 }
 
 /** POST /api/registry/:id/channels — link one channel. */
@@ -238,17 +251,21 @@ export async function linkRegistryChannel(
   masterId: string,
   ref: RegistryChannelRef,
 ): Promise<void> {
-  const res = await fetch(resolveClientApiUrl(`/api/registry/${encodeURIComponent(masterId)}/channels`), {
-    method: 'POST',
-    headers: registryAuthHeaders(),
-    body: JSON.stringify({
-      channel: ref.channel,
-      eventId: ref.eventId,
-      ...(ref.ticketId ? { ticketId: ref.ticketId } : {}),
-      ...(ref.url ? { url: ref.url } : {}),
-    }),
-  })
-  if (!res.ok) throw new Error(await parseRegistryError(res))
+  try {
+    const res = await channelFetch(`/api/registry/${encodeURIComponent(masterId)}/channels`, {
+      method: 'POST',
+      headers: registryAuthHeaders(),
+      body: JSON.stringify({
+        channel: ref.channel,
+        eventId: ref.eventId,
+        ...(ref.ticketId ? { ticketId: ref.ticketId } : {}),
+        ...(ref.url ? { url: ref.url } : {}),
+      }),
+    })
+    if (!res.ok) throw new Error(await parseRegistryError(res))
+  } catch (e) {
+    throw e instanceof Error ? e : new Error(String(e))
+  }
 }
 
 /**
@@ -284,11 +301,15 @@ export async function updateRegistryChannelRefs(
 
 /** DELETE /api/registry/:id */
 export async function deleteRegistryMaster(masterId: string): Promise<void> {
-  const res = await fetch(resolveClientApiUrl(`/api/registry/${encodeURIComponent(masterId)}`), {
-    method: 'DELETE',
-    headers: registryAuthHeaders(),
-  })
-  if (!res.ok) throw new Error(await parseRegistryError(res))
+  try {
+    const res = await channelFetch(`/api/registry/${encodeURIComponent(masterId)}`, {
+      method: 'DELETE',
+      headers: registryAuthHeaders(),
+    })
+    if (!res.ok) throw new Error(await parseRegistryError(res))
+  } catch (e) {
+    throw e instanceof Error ? e : new Error(String(e))
+  }
 }
 
 /** @deprecated Use deleteRegistryMaster */
@@ -299,23 +320,29 @@ export async function unlinkRegistryChannel(
   masterId: string,
   channel: ChannelKey,
 ): Promise<void> {
-  const res = await fetch(
-    resolveClientApiUrl(
+  try {
+    const res = await channelFetch(
       `/api/registry/${encodeURIComponent(masterId)}/channels/${encodeURIComponent(channel)}`,
-    ),
-    { method: 'DELETE', headers: registryAuthHeaders() },
-  )
-  if (!res.ok) throw new Error(await parseRegistryError(res))
+      { method: 'DELETE', headers: registryAuthHeaders() },
+    )
+    if (!res.ok) throw new Error(await parseRegistryError(res))
+  } catch (e) {
+    throw e instanceof Error ? e : new Error(String(e))
+  }
 }
 
 /** GET /api/registry/:id/attendees */
 export async function listRegistryAttendees(masterId: string): Promise<unknown> {
-  const res = await fetch(resolveClientApiUrl(`/api/registry/${encodeURIComponent(masterId)}/attendees`), {
-    headers: registryAuthHeaders(),
-  })
-  if (!res.ok) throw new Error(await parseRegistryError(res))
-  const raw = await res.json().catch(() => ({}))
-  return unwrapApiData(raw)
+  try {
+    const res = await channelFetch(`/api/registry/${encodeURIComponent(masterId)}/attendees`, {
+      headers: registryAuthHeaders(),
+    })
+    if (!res.ok) throw new Error(await parseRegistryError(res))
+    const raw = await res.json().catch(() => ({}))
+    return unwrapApiData(raw)
+  } catch (e) {
+    throw e instanceof Error ? e : new Error(String(e))
+  }
 }
 
 /** POST /api/registry/:id/attendees */
@@ -328,19 +355,23 @@ export async function registerAttendee(
     registeredAt?: string
   },
 ): Promise<Record<string, unknown>> {
-  const res = await fetch(resolveClientApiUrl(`/api/registry/${encodeURIComponent(masterId)}/attendees`), {
-    method: 'POST',
-    headers: registryAuthHeaders(),
-    body: JSON.stringify({
-      email: attendee.email.toLowerCase().trim(),
-      name: attendee.name,
-      source: attendee.source,
-      ...(attendee.registeredAt ? { registeredAt: attendee.registeredAt } : {}),
-    }),
-  })
-  if (!res.ok) throw new Error(await parseRegistryError(res))
-  const raw = await res.json().catch(() => ({}))
-  return unwrapApiData(raw)
+  try {
+    const res = await channelFetch(`/api/registry/${encodeURIComponent(masterId)}/attendees`, {
+      method: 'POST',
+      headers: registryAuthHeaders(),
+      body: JSON.stringify({
+        email: attendee.email.toLowerCase().trim(),
+        name: attendee.name,
+        source: attendee.source,
+        ...(attendee.registeredAt ? { registeredAt: attendee.registeredAt } : {}),
+      }),
+    })
+    if (!res.ok) throw new Error(await parseRegistryError(res))
+    const raw = await res.json().catch(() => ({}))
+    return unwrapApiData(raw)
+  } catch (e) {
+    throw e instanceof Error ? e : new Error(String(e))
+  }
 }
 
 /** @deprecated Use registerAttendee */
@@ -355,19 +386,23 @@ export async function registerAttendeeByChannel(input: {
   registeredAt?: string
   externalId?: string
 }): Promise<Record<string, unknown>> {
-  const res = await fetch(resolveClientApiUrl('/api/registry/attendees/by-channel'), {
-    method: 'POST',
-    headers: registryAuthHeaders(),
-    body: JSON.stringify({
-      channel: input.channel,
-      eventId: input.eventId,
-      email: input.email.toLowerCase().trim(),
-      ...(input.name ? { name: input.name } : {}),
-      ...(input.registeredAt ? { registeredAt: input.registeredAt } : {}),
-      ...(input.externalId ? { externalId: input.externalId } : {}),
-    }),
-  })
-  if (!res.ok) throw new Error(await parseRegistryError(res))
-  const raw = await res.json().catch(() => ({}))
-  return unwrapApiData(raw)
+  try {
+    const res = await channelFetch('/api/registry/attendees/by-channel', {
+      method: 'POST',
+      headers: registryAuthHeaders(),
+      body: JSON.stringify({
+        channel: input.channel,
+        eventId: input.eventId,
+        email: input.email.toLowerCase().trim(),
+        ...(input.name ? { name: input.name } : {}),
+        ...(input.registeredAt ? { registeredAt: input.registeredAt } : {}),
+        ...(input.externalId ? { externalId: input.externalId } : {}),
+      }),
+    })
+    if (!res.ok) throw new Error(await parseRegistryError(res))
+    const raw = await res.json().catch(() => ({}))
+    return unwrapApiData(raw)
+  } catch (e) {
+    throw e instanceof Error ? e : new Error(String(e))
+  }
 }

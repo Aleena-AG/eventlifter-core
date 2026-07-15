@@ -3,10 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { channelFetch } from '@/lib/channel-fetch'
-import { authHeader } from '@/lib/auth'
-import { resolveClientApiUrl } from '@/lib/client-api-url'
 import { fetchChannelConnectionMap } from '@/lib/channel-connection'
-import { resolveHtApiAuthHeader } from '@/lib/ewentcast-session'
 import { buildEbTicketClass, ebTicketQuantity } from '@/lib/eventbrite-ticket'
 import { resolveEbTimezone } from '@/lib/eventbrite-timezone'
 import { lumaEntryMatchesId, lumaEventToNorm, unwrapLumaEvent, isLumaDescriptionSentinel } from '@/lib/luma-event-utils'
@@ -100,15 +97,6 @@ async function resolveLumaCover(url?: string): Promise<string | undefined> {
   const raw = String(url || '').trim()
   if (!raw) return undefined
   return resolveLumaCoverUrl(raw)
-}
-
-function registryHeaders(): Record<string, string> {
-  const auth = authHeader()
-  return {
-    'Content-Type': 'application/json',
-    Accept: 'application/json',
-    ...(auth ? { Authorization: auth } : {}),
-  }
 }
 
 async function linkRegistryChannels(
@@ -356,14 +344,22 @@ export function SyncModal({ open, event, onClose }: Props) {
   useEffect(() => {
     if (!open || !event) { setExistingLinks({}); return }
     let cancelled = false
-    fetch(resolveClientApiUrl(`/api/registry?channel=${event.source}&eventId=${encodeURIComponent(String(event.id))}`), {
-      headers: registryHeaders(),
-    })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: { links?: Partial<Record<ChannelKey, { eventId: string; url?: string }>> } | null) => {
+    void (async () => {
+      try {
+        const { channelFetch } = await import('@/lib/channel-fetch')
+        const res = await channelFetch(
+          `/api/registry?channel=${event.source}&eventId=${encodeURIComponent(String(event.id))}`,
+        )
+        if (!res.ok || cancelled) {
+          if (!cancelled) setExistingLinks({})
+          return
+        }
+        const data = await res.json() as { links?: Partial<Record<ChannelKey, { eventId: string; url?: string }>> }
         if (!cancelled) setExistingLinks(data?.links || {})
-      })
-      .catch(() => { if (!cancelled) setExistingLinks({}) })
+      } catch {
+        if (!cancelled) setExistingLinks({})
+      }
+    })()
     return () => { cancelled = true }
   }, [open, event?.id, event?.source])
 
@@ -427,10 +423,7 @@ export function SyncModal({ open, event, onClose }: Props) {
       targets.map(async (ch) => {
         try {
           if (ch === 'hightribe') {
-            const htAuth = await resolveHtApiAuthHeader()
-            if (!htAuth) {
-              throw new Error('HighTribe session expired. Reconnect in Settings → Hightribe.')
-            }
+            // Token is attached by channelFetch (session + settings.apiKey / HT link token).
             // Parse startUtc → date + time fields HT expects
             const startD = new Date(norm.startUtc)
             const endD   = new Date(norm.endUtc)
@@ -636,9 +629,8 @@ export function SyncModal({ open, event, onClose }: Props) {
       channelRefs[source] = { eventId: String(event.id) }
       let masterId: string | undefined
       const { extractRegistryMasterId, unwrapApiData } = await import('@/lib/api-response')
-      const lookup = await fetch(
+      const lookup = await channelFetch(
         `/api/registry?channel=${source}&eventId=${encodeURIComponent(String(event.id))}`,
-        { headers: registryHeaders() },
       )
       if (lookup.ok) {
         const raw = await lookup.json()

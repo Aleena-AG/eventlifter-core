@@ -1,7 +1,5 @@
 'use client'
 
-import { authHeader } from '@/lib/auth'
-import { resolveClientApiUrl } from '@/lib/client-api-url'
 import type { AttendeeRecord, MasterEventRecord } from '@/lib/event-registry'
 import { getStoredEvent, listAllStoredBookings, listStoredEvents, syncStoredBookings } from '@/lib/channel-events-store'
 import { fetchLumaGuestsForEvent, mapStoredBookingToListItem, type BookingListItem } from '@/lib/bookings'
@@ -60,30 +58,26 @@ export interface EventDashboardData {
 const DEFAULT_CAPACITY = 150
 
 async function fetchMasterEvent(channel: ChannelKey, eventId: string): Promise<MasterEventRecord | null> {
-  const lookupRes = await fetch(
-    resolveClientApiUrl(
+  try {
+    const { channelFetch } = await import('@/lib/channel-fetch')
+    const lookupRes = await channelFetch(
       `/api/registry?channel=${encodeURIComponent(channel)}&eventId=${encodeURIComponent(eventId)}`,
-    ),
-    { headers: { Authorization: authHeader(), Accept: 'application/json' } },
-  )
-  if (!lookupRes.ok) return null
+    )
+    if (!lookupRes.ok) return null
 
-  const { unwrapApiData, extractRegistryMasterId } = await import('@/lib/api-response')
-  const lookupRaw = await lookupRes.json()
-  const lookup = unwrapApiData<{ master?: { id: string } | null }>(lookupRaw)
-  const masterId = lookup.master?.id || extractRegistryMasterId(lookupRaw)
-  if (!masterId) return null
+    const { unwrapApiData, extractRegistryMasterId } = await import('@/lib/api-response')
+    const lookupRaw = await lookupRes.json()
+    const lookup = unwrapApiData<{ master?: { id: string } | null }>(lookupRaw)
+    const masterId = lookup.master?.id || extractRegistryMasterId(lookupRaw)
+    if (!masterId) return null
 
-  // GET /api/v1/registry/:id
-  const res = await fetch(resolveClientApiUrl(`/api/registry/${encodeURIComponent(masterId)}`), {
-    headers: {
-      Authorization: authHeader(),
-      Accept: 'application/json',
-    },
-  })
-  if (!res.ok) return null
-  const raw = await res.json()
-  return unwrapApiData(raw) as MasterEventRecord
+    const res = await channelFetch(`/api/registry/${encodeURIComponent(masterId)}`)
+    if (!res.ok) return null
+    const raw = await res.json()
+    return unwrapApiData(raw) as MasterEventRecord
+  } catch {
+    return null
+  }
 }
 
 function bookingsToAttendees(

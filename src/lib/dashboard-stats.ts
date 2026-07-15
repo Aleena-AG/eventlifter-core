@@ -1,8 +1,6 @@
 'use client'
 
 import { unwrapApiData } from '@/lib/api-response'
-import { authHeader } from '@/lib/auth'
-import { resolveClientApiUrl } from '@/lib/client-api-url'
 import { loadAllBookings, type BookingListItem } from '@/lib/bookings'
 import { isHightribeConnected } from '@/lib/channel-connection'
 import { listStoredEvents, type StoredChannelEvent } from '@/lib/channel-events-store'
@@ -321,23 +319,27 @@ export async function loadDashboardStats(settings: {
   eventbrite?: { configured?: boolean; hasPrivateToken?: boolean; oauthConfigured?: boolean }
   hightribe?: { configured?: boolean }
 }): Promise<DashboardStats> {
-  const res = await fetch(resolveClientApiUrl('/api/dashboard/stats'), {
-    headers: { Authorization: authHeader(), Accept: 'application/json' },
-  })
+  try {
+    const { channelFetch } = await import('@/lib/channel-fetch')
+    const res = await channelFetch('/api/dashboard/stats')
 
-  if (!res.ok) {
-    let message = `Dashboard stats failed (${res.status})`
-    try {
-      const err = await res.json() as { message?: string }
-      if (typeof err.message === 'string' && err.message.trim()) {
-        message = err.message.trim()
+    if (!res.ok) {
+      let message = `Dashboard stats failed (${res.status})`
+      try {
+        const err = await res.json() as { message?: string }
+        if (typeof err.message === 'string' && err.message.trim()) {
+          message = err.message.trim()
+        }
+      } catch {
+        // ignore JSON parse errors
       }
-    } catch {
-      // ignore JSON parse errors
+      throw new Error(message)
     }
-    throw new Error(message)
-  }
 
-  const raw = await res.json()
-  return mapDashboardStatsPayload(raw, settings)
+    const raw = await res.json()
+    return mapDashboardStatsPayload(raw, settings)
+  } catch (e) {
+    if (e instanceof Error) throw e
+    throw new Error('Dashboard stats failed')
+  }
 }

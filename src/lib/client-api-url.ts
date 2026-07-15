@@ -52,7 +52,11 @@ export function resolveClientApiUrl(input: string): string {
   return `${getPublicBackendUrl()}/api/v1/${rest}${search}`
 }
 
-/** fetch() wrapper that applies resolveClientApiUrl. */
+/**
+ * fetch() with URL resolution.
+ * Prefer `channelFetch` from `@/lib/channel-fetch` for authenticated calls —
+ * this helper does not attach Authorization (use it only for public routes).
+ */
 export function clientFetch(input: string, init?: RequestInit): Promise<Response> {
   return fetch(resolveClientApiUrl(input), init)
 }

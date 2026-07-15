@@ -62,7 +62,8 @@ export function ConnectLumaSection({
     setVerifying(true)
     setError('')
     try {
-      const res = await fetch('/api/luma/verify-key', {
+      const { channelFetch } = await import('@/lib/channel-fetch')
+      const res = await channelFetch('/api/luma/verify-key', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ apiKey: key }),

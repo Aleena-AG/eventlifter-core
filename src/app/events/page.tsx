@@ -4,8 +4,6 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { channelFetch } from '@/lib/channel-fetch'
-import { authHeader } from '@/lib/auth'
-import { resolveClientApiUrl } from '@/lib/client-api-url'
 import { getEwentcastAccount, isEwentcastSignupUser } from '@/lib/ewentcast-session'
 import { fetchChannelConnectionMap } from '@/lib/channel-connection'
 import { deleteStoredEvent, listStoredEvents } from '@/lib/channel-events-store'
@@ -1074,9 +1072,9 @@ export default function EventsPage() {
     }
 
     try {
-      const res = await fetch(
+      const { channelFetch } = await import('@/lib/channel-fetch')
+      const res = await channelFetch(
         `/api/registry?channel=${channel}&eventId=${encodeURIComponent(String(id))}`,
-        { headers: { Authorization: authHeader(), Accept: 'application/json' } },
       )
       if (res.ok) {
         const { unwrapApiData, extractRegistryMasterId } = await import('@/lib/api-response')
@@ -1084,13 +1082,8 @@ export default function EventsPage() {
         const data = unwrapApiData<{ master?: { id: string } }>(raw)
         const masterId = data.master?.id || extractRegistryMasterId(raw)
         if (masterId) {
-          // DELETE /api/v1/registry/:id
-          await fetch(resolveClientApiUrl(`/api/registry/${encodeURIComponent(masterId)}`), {
+          await channelFetch(`/api/registry/${encodeURIComponent(masterId)}`, {
             method: 'DELETE',
-            headers: {
-              Authorization: authHeader(),
-              Accept: 'application/json',
-            },
           })
         }
       }
@@ -1117,7 +1110,7 @@ export default function EventsPage() {
     }
 
     try {
-      const res = await fetch(
+      const res = await channelFetch(
         `/api/registry?channel=${evt.channel}&eventId=${encodeURIComponent(String(evt.id))}`,
       )
       if (res.ok) {
@@ -1163,9 +1156,9 @@ export default function EventsPage() {
       }
 
       try {
-        const res = await fetch(
+        const { channelFetch } = await import('@/lib/channel-fetch')
+        const res = await channelFetch(
           `/api/registry?channel=${evt.channel}&eventId=${encodeURIComponent(String(evt.id))}`,
-          { headers: { Authorization: authHeader(), Accept: 'application/json' } },
         )
         if (res.ok) {
           const { unwrapApiData, extractRegistryMasterId } = await import('@/lib/api-response')
@@ -1173,12 +1166,8 @@ export default function EventsPage() {
           const data = unwrapApiData<{ master?: { id: string } }>(raw)
           const masterId = data.master?.id || extractRegistryMasterId(raw)
           if (masterId) {
-            await fetch(resolveClientApiUrl(`/api/registry/${encodeURIComponent(masterId)}`), {
+            await channelFetch(`/api/registry/${encodeURIComponent(masterId)}`, {
               method: 'DELETE',
-              headers: {
-                Authorization: authHeader(),
-                Accept: 'application/json',
-              },
             })
           }
         }

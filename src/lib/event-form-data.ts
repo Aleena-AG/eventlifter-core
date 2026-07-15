@@ -1180,6 +1180,15 @@ async function loadNormForChannel(
   try {
     if (channel === 'hightribe') {
       const res = await channelFetch(`/api/hightribe/events/${eventId}`)
+      if (res.status === 401) {
+        // Fall back to stored copy when HT token/settings are missing.
+        const stored = await getStoredEvent(channel as ChannelName, String(eventId))
+        if (!stored) return null
+        const norm = normFromPayload(channel, stored.payload as Record<string, unknown>)
+        mergeStoredMeta(norm, stored)
+        await enrichTickets(norm, 'hightribe', eventId).catch(() => undefined)
+        return norm
+      }
       if (!res.ok) return null
       const fresh = await res.json() as Record<string, unknown>
       const norm = normFromPayload(channel, fresh)
@@ -1207,7 +1216,15 @@ async function loadNormForChannel(
       return norm
     }
   } catch {
-    return null
+    try {
+      const stored = await getStoredEvent(channel as ChannelName, String(eventId))
+      if (!stored) return null
+      const norm = normFromPayload(channel, stored.payload as Record<string, unknown>)
+      mergeStoredMeta(norm, stored)
+      return norm
+    } catch {
+      return null
+    }
   }
   return null
 }

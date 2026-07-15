@@ -76,14 +76,22 @@ export function htApiAuthHeader(): string {
 
 /** Resolve HT API bearer token, refreshing from /api/auth/me when local storage is empty. */
 export async function resolveHtApiAuthHeader(): Promise<string> {
-  const cached = htApiAuthHeader()
-  if (cached) return cached
+  try {
+    const cached = htApiAuthHeader()
+    if (cached) return cached
 
-  const account = getEwentcastAccount()
-  if (account?.ht_connected || account?.auth_source === 'hightribe_native') {
-    await fetchAuthMe()
-    const refreshed = htApiAuthHeader()
-    if (refreshed) return refreshed
+    const account = getEwentcastAccount()
+    if (account?.ht_connected || account?.auth_source === 'hightribe_native') {
+      try {
+        await fetchAuthMe()
+      } catch {
+        // auth/me optional — keep going with whatever local token we have
+      }
+      const refreshed = htApiAuthHeader()
+      if (refreshed) return refreshed
+    }
+  } catch {
+    // never throw from auth header resolution
   }
 
   return ''
@@ -169,13 +177,21 @@ export async function fetchAuthMe(): Promise<{
     user?: HtUser
     ewentcast?: EwentcastAccount
     ht_link_token?: string | null
+    data?: {
+      user?: HtUser
+      ewentcast?: EwentcastAccount
+      ht_link_token?: string | null
+    }
   }
-  if (!data.user || !data.ewentcast) return null
+  const user = data.user || data.data?.user
+  const ewentcast = data.ewentcast || data.data?.ewentcast
+  const htLink = data.ht_link_token || data.data?.ht_link_token
+  if (!user || !ewentcast) return null
 
-  setUser(data.user)
-  setEwentcastAccount(data.ewentcast)
-  if (data.ht_link_token) setHtLinkToken(data.ht_link_token)
-  return { user: data.user, ewentcast: data.ewentcast }
+  setUser(user)
+  setEwentcastAccount(ewentcast)
+  if (htLink) setHtLinkToken(htLink)
+  return { user, ewentcast }
 }
 
 /** Refresh session from server; throws SESSION_EXPIRED when login is required again. */
