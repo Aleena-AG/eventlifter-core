@@ -26,9 +26,5 @@ export async function POST(req: NextRequest) {
   if ('error' in gated && gated.error) return gated.error
 
   const res = await proxyToBackend(req, 'billing/portal')
-  if (res.status !== 404) return res
-  return NextResponse.json(
-    { status: false, message: 'Billing is not available on the remote API yet.' },
-    { status: 503 },
-  )
+  return res
 }

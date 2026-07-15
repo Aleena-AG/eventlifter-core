@@ -21,13 +21,5 @@ export async function POST(req: NextRequest) {
   if (billingDenied) return billingDenied
 
   const res = await proxyToBackend(req, 'billing/checkout')
-  if (res.status !== 404) return res
-
-  return NextResponse.json(
-    {
-      status: false,
-      message: 'Billing is not available on the remote API yet. Configure it on ewentcast-backend.',
-    },
-    { status: 503 },
-  )
+  return res
 }

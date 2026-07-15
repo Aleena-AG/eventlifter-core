@@ -1,4 +1,5 @@
-import { deriveDashboardStatsFromApis } from '@/lib/server/derive-dashboard-stats'
+import { backendFetch } from '@/lib/backend-client'
+import { unwrapApiData } from '@/lib/api-response'
 
 export type DashboardChannelStats = {
   channel: string
@@ -33,11 +34,16 @@ export async function getDashboardStatsForUser(
   authorization?: string,
 ): Promise<DashboardStatsPayload> {
   if (!authorization?.trim()) {
-    return { channels: {}, events: [], bookings: [], trend: [], derived: true }
+    return { channels: {}, events: [], bookings: [], trend: [] }
   }
-  try {
-    return await deriveDashboardStatsFromApis(authorization)
-  } catch {
-    return { channels: {}, events: [], bookings: [], trend: [], derived: true }
+
+  const res = await backendFetch('dashboard/stats', {
+    headers: { Authorization: authorization },
+  })
+  if (!res.ok) {
+    return { channels: {}, events: [], bookings: [], trend: [] }
   }
+
+  const raw = await res.json()
+  return unwrapApiData<DashboardStatsPayload>(raw)
 }

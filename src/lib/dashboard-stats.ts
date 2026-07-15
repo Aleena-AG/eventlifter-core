@@ -1,6 +1,8 @@
 'use client'
 
+import { unwrapApiData } from '@/lib/api-response'
 import { authHeader } from '@/lib/auth'
+import { resolveClientApiUrl } from '@/lib/client-api-url'
 import { loadAllBookings, type BookingListItem } from '@/lib/bookings'
 import { isHightribeConnected } from '@/lib/channel-connection'
 import { listStoredEvents, type StoredChannelEvent } from '@/lib/channel-events-store'
@@ -253,71 +255,89 @@ export async function deriveDashboardStats(settings: {
   }
 }
 
+type DashboardStatsPayload = {
+  derived?: boolean
+  channels?: Record<ChannelKey, {
+    events: number
+    bookings: number
+    tickets: number
+    revenue?: number
+    currency?: string
+  }>
+  totalEvents?: number
+  totalBookings?: number
+  totalTickets?: number
+  totalRevenue?: number
+  revenueCurrency?: string
+  unifiedAttendees?: number
+  recent?: DashboardRecentEvent[]
+  recentBookings?: DashboardBooking[]
+  bookingTrend?: DashboardBookingTrendPoint[]
+}
+
+function mapDashboardStatsPayload(
+  raw: unknown,
+  settings: {
+    luma?: { configured?: boolean }
+    eventbrite?: { configured?: boolean; hasPrivateToken?: boolean; oauthConfigured?: boolean }
+    hightribe?: { configured?: boolean }
+  },
+): DashboardStats {
+  const data = unwrapApiData<DashboardStatsPayload>(raw)
+  const lumaConfigured = settings.luma?.configured === true
+  const ebConfigured = settings.eventbrite?.configured === true
+  const htConfigured = isHightribeConnected(settings)
+
+  const withChannelDefaults = (ch: ChannelKey, configured: boolean): ChannelStats => ({
+    events: data.channels?.[ch]?.events ?? 0,
+    bookings: data.channels?.[ch]?.bookings ?? 0,
+    tickets: data.channels?.[ch]?.tickets ?? 0,
+    revenue: data.channels?.[ch]?.revenue ?? 0,
+    currency: data.channels?.[ch]?.currency ?? data.revenueCurrency ?? 'USD',
+    configured,
+  })
+
+  return {
+    channels: {
+      hightribe: withChannelDefaults('hightribe', htConfigured),
+      luma: withChannelDefaults('luma', lumaConfigured),
+      eventbrite: withChannelDefaults('eventbrite', ebConfigured),
+    },
+    totalEvents: data.totalEvents ?? 0,
+    totalTickets: data.totalTickets ?? 0,
+    totalBookings: data.totalBookings ?? 0,
+    totalRevenue: data.totalRevenue ?? 0,
+    revenueCurrency: data.revenueCurrency ?? 'USD',
+    unifiedAttendees: data.unifiedAttendees ?? 0,
+    recent: data.recent ?? [],
+    recentBookings: data.recentBookings ?? [],
+    bookingTrend: normalizeTrend(data.bookingTrend),
+    derived: data.derived === true,
+  }
+}
+
 export async function loadDashboardStats(settings: {
   luma?: { configured?: boolean }
   eventbrite?: { configured?: boolean; hasPrivateToken?: boolean; oauthConfigured?: boolean }
   hightribe?: { configured?: boolean }
 }): Promise<DashboardStats> {
-  const lumaConfigured = settings.luma?.configured === true
-  const ebConfigured = settings.eventbrite?.configured === true
-  const htConfigured = isHightribeConnected(settings)
-
-  const res = await fetch('/api/dashboard/stats', {
+  const res = await fetch(resolveClientApiUrl('/api/dashboard/stats'), {
     headers: { Authorization: authHeader(), Accept: 'application/json' },
   })
 
-  // Remote API currently has no /dashboard/stats (404) — always derive from bookings/registry.
-  if (res.ok) {
-    const raw = await res.json() as {
-      derived?: boolean
-      channels?: Record<ChannelKey, {
-        events: number
-        bookings: number
-        tickets: number
-        revenue?: number
-        currency?: string
-      }>
-      totalEvents?: number
-      totalBookings?: number
-      totalTickets?: number
-      totalRevenue?: number
-      revenueCurrency?: string
-      unifiedAttendees?: number
-      recent?: DashboardRecentEvent[]
-      recentBookings?: DashboardBooking[]
-      bookingTrend?: DashboardBookingTrendPoint[]
-    }
-
-    // Prefer server-derived payload (has full booking KPIs) when marked.
-    if (raw.derived || (raw.channels && typeof raw.totalBookings === 'number')) {
-      const withChannelDefaults = (ch: ChannelKey, configured: boolean): ChannelStats => ({
-        events: raw.channels?.[ch]?.events ?? 0,
-        bookings: raw.channels?.[ch]?.bookings ?? 0,
-        tickets: raw.channels?.[ch]?.tickets ?? 0,
-        revenue: raw.channels?.[ch]?.revenue ?? 0,
-        currency: 'USD',
-        configured,
-      })
-
-      return {
-        channels: {
-          hightribe: withChannelDefaults('hightribe', htConfigured),
-          luma: withChannelDefaults('luma', lumaConfigured),
-          eventbrite: withChannelDefaults('eventbrite', ebConfigured),
-        },
-        totalEvents: raw.totalEvents ?? 0,
-        totalTickets: raw.totalTickets ?? 0,
-        totalBookings: raw.totalBookings ?? 0,
-        totalRevenue: raw.totalRevenue ?? 0,
-        revenueCurrency: 'USD',
-        unifiedAttendees: raw.unifiedAttendees ?? 0,
-        recent: raw.recent ?? [],
-        recentBookings: raw.recentBookings ?? [],
-        bookingTrend: normalizeTrend(raw.bookingTrend),
-        derived: raw.derived === true,
+  if (!res.ok) {
+    let message = `Dashboard stats failed (${res.status})`
+    try {
+      const err = await res.json() as { message?: string }
+      if (typeof err.message === 'string' && err.message.trim()) {
+        message = err.message.trim()
       }
+    } catch {
+      // ignore JSON parse errors
     }
+    throw new Error(message)
   }
 
-  return deriveDashboardStats(settings)
+  const raw = await res.json()
+  return mapDashboardStatsPayload(raw, settings)
 }

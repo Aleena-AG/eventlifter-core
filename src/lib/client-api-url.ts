@@ -2,8 +2,7 @@
  * Browser API base — when set, BFF routes go straight to the remote API
  * so DevTools Network shows ewentcast-backend.vercel.app (not localhost).
  *
- * Local-only Next routes (Luma/HT/EB proxies, places, dashboard derive, …)
- * stay on the same origin.
+ * Local-only Next routes (Luma/HT/EB proxies, places, …) stay on the same origin.
  */
 const DEFAULT_PUBLIC_BACKEND = 'https://ewentcast-backend.vercel.app'
 
@@ -15,7 +14,6 @@ const LOCAL_ONLY_PREFIXES = [
   '/api/cover',
   '/api/health',
   '/api/db-health',
-  '/api/dashboard',
   '/api/webhooks/setup',
   '/api/wh-logs',
 ] as const

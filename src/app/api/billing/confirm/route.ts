@@ -21,9 +21,5 @@ export async function POST(req: NextRequest) {
   if (billingDenied) return billingDenied
 
   const res = await proxyToBackend(req, 'billing/confirm')
-  if (res.status !== 404) return res
-  return NextResponse.json(
-    { status: false, message: 'Billing is not available on the remote API yet.' },
-    { status: 503 },
-  )
+  return res
 }
