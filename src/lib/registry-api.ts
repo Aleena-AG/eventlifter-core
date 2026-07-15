@@ -2,6 +2,7 @@
 
 import { authHeader } from '@/lib/auth'
 import { extractRegistryMasterId, unwrapApiData } from '@/lib/api-response'
+import { resolveClientApiUrl } from '@/lib/client-api-url'
 import { normalizeTimeZone, zonedDateTimeToUtcIso } from '@/lib/event-datetime'
 import type { ChannelKey } from '@/lib/types'
 
@@ -164,7 +165,7 @@ async function parseRegistryError(res: Response): Promise<string> {
 
 /** GET /api/registry — list masters */
 export async function listRegistry(): Promise<unknown> {
-  const res = await fetch('/api/registry', { headers: registryAuthHeaders() })
+  const res = await fetch(resolveClientApiUrl('/api/registry'), { headers: registryAuthHeaders() })
   if (!res.ok) throw new Error(await parseRegistryError(res))
   const raw = await res.json().catch(() => ({}))
   return unwrapApiData(raw)
@@ -172,7 +173,7 @@ export async function listRegistry(): Promise<unknown> {
 
 /** GET /api/registry/:id */
 export async function getRegistryById(masterId: string): Promise<Record<string, unknown> | null> {
-  const res = await fetch(`/api/registry/${encodeURIComponent(masterId)}`, {
+  const res = await fetch(resolveClientApiUrl(`/api/registry/${encodeURIComponent(masterId)}`), {
     headers: registryAuthHeaders(),
   })
   if (!res.ok) return null
@@ -190,7 +191,7 @@ export async function createRegistryMaster(input: RegistryMasterWrite & {
   if (!body.title) body.title = input.title
   if (body.capacity == null) body.capacity = input.capacity
 
-  const res = await fetch('/api/registry', {
+  const res = await fetch(resolveClientApiUrl('/api/registry'), {
     method: 'POST',
     headers: registryAuthHeaders(),
     body: JSON.stringify(body),
@@ -222,7 +223,7 @@ export async function updateRegistryMaster(
   input: RegistryMasterWrite,
 ): Promise<Record<string, unknown>> {
   const body = serializeRegistryMasterBody(input)
-  const res = await fetch(`/api/registry/${encodeURIComponent(masterId)}`, {
+  const res = await fetch(resolveClientApiUrl(`/api/registry/${encodeURIComponent(masterId)}`), {
     method: 'PATCH',
     headers: registryAuthHeaders(),
     body: JSON.stringify(body),
@@ -237,7 +238,7 @@ export async function linkRegistryChannel(
   masterId: string,
   ref: RegistryChannelRef,
 ): Promise<void> {
-  const res = await fetch(`/api/registry/${encodeURIComponent(masterId)}/channels`, {
+  const res = await fetch(resolveClientApiUrl(`/api/registry/${encodeURIComponent(masterId)}/channels`), {
     method: 'POST',
     headers: registryAuthHeaders(),
     body: JSON.stringify({
@@ -283,7 +284,7 @@ export async function updateRegistryChannelRefs(
 
 /** DELETE /api/registry/:id */
 export async function deleteRegistryMaster(masterId: string): Promise<void> {
-  const res = await fetch(`/api/registry/${encodeURIComponent(masterId)}`, {
+  const res = await fetch(resolveClientApiUrl(`/api/registry/${encodeURIComponent(masterId)}`), {
     method: 'DELETE',
     headers: registryAuthHeaders(),
   })
@@ -299,7 +300,9 @@ export async function unlinkRegistryChannel(
   channel: ChannelKey,
 ): Promise<void> {
   const res = await fetch(
-    `/api/registry/${encodeURIComponent(masterId)}/channels/${encodeURIComponent(channel)}`,
+    resolveClientApiUrl(
+      `/api/registry/${encodeURIComponent(masterId)}/channels/${encodeURIComponent(channel)}`,
+    ),
     { method: 'DELETE', headers: registryAuthHeaders() },
   )
   if (!res.ok) throw new Error(await parseRegistryError(res))
@@ -307,7 +310,7 @@ export async function unlinkRegistryChannel(
 
 /** GET /api/registry/:id/attendees */
 export async function listRegistryAttendees(masterId: string): Promise<unknown> {
-  const res = await fetch(`/api/registry/${encodeURIComponent(masterId)}/attendees`, {
+  const res = await fetch(resolveClientApiUrl(`/api/registry/${encodeURIComponent(masterId)}/attendees`), {
     headers: registryAuthHeaders(),
   })
   if (!res.ok) throw new Error(await parseRegistryError(res))
@@ -325,7 +328,7 @@ export async function registerAttendee(
     registeredAt?: string
   },
 ): Promise<Record<string, unknown>> {
-  const res = await fetch(`/api/registry/${encodeURIComponent(masterId)}/attendees`, {
+  const res = await fetch(resolveClientApiUrl(`/api/registry/${encodeURIComponent(masterId)}/attendees`), {
     method: 'POST',
     headers: registryAuthHeaders(),
     body: JSON.stringify({
@@ -352,7 +355,7 @@ export async function registerAttendeeByChannel(input: {
   registeredAt?: string
   externalId?: string
 }): Promise<Record<string, unknown>> {
-  const res = await fetch('/api/registry/attendees/by-channel', {
+  const res = await fetch(resolveClientApiUrl('/api/registry/attendees/by-channel'), {
     method: 'POST',
     headers: registryAuthHeaders(),
     body: JSON.stringify({

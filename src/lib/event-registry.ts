@@ -1,13 +1,16 @@
 import type { ChannelKey } from '@/lib/types'
 import { getAppUrl } from '@/lib/app-url'
 import { authHeader } from '@/lib/auth'
+import { resolveClientApiUrl } from '@/lib/client-api-url'
 import type { AttendeeRecord, ChannelRef, MasterEventRecord } from '@/lib/event-registry-types'
 
 export type { AttendeeRecord, ChannelRef, MasterEventRecord } from '@/lib/event-registry-types'
 
 function registryUrl(path: string): string {
-  if (typeof window !== 'undefined') return path
-  return `${getAppUrl()}${path}`
+  const resolved = resolveClientApiUrl(path)
+  if (typeof window !== 'undefined') return resolved
+  if (resolved.startsWith('http')) return resolved
+  return `${getAppUrl()}${resolved}`
 }
 
 function withAuthHeaders(init?: RequestInit): HeadersInit {

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { channelFetch } from '@/lib/channel-fetch'
 import { authHeader } from '@/lib/auth'
+import { resolveClientApiUrl } from '@/lib/client-api-url'
 import { fetchChannelConnectionMap } from '@/lib/channel-connection'
 import { resolveHtApiAuthHeader } from '@/lib/ewentcast-session'
 import { buildEbTicketClass, ebTicketQuantity } from '@/lib/eventbrite-ticket'
@@ -355,7 +356,7 @@ export function SyncModal({ open, event, onClose }: Props) {
   useEffect(() => {
     if (!open || !event) { setExistingLinks({}); return }
     let cancelled = false
-    fetch(`/api/registry?channel=${event.source}&eventId=${encodeURIComponent(String(event.id))}`, {
+    fetch(resolveClientApiUrl(`/api/registry?channel=${event.source}&eventId=${encodeURIComponent(String(event.id))}`), {
       headers: registryHeaders(),
     })
       .then((res) => (res.ok ? res.json() : null))

@@ -1,6 +1,7 @@
 'use client'
 
 import { authHeader, getUser } from '@/lib/auth'
+import { resolveClientApiUrl } from '@/lib/client-api-url'
 import { channelFetch } from '@/lib/channel-fetch'
 import { fetchHtBookingsPage } from '@/lib/hightribe-events'
 import { lumaHostedEventRef } from '@/lib/luma-event-utils'
@@ -422,7 +423,7 @@ export function bookingToStoredPayload(b: BookingListItem): Record<string, unkno
 }
 
 export async function loadAllBookings(): Promise<BookingListItem[]> {
-  const res = await fetch('/api/events/bookings', {
+  const res = await fetch(resolveClientApiUrl('/api/events/bookings'), {
     headers: { Authorization: authHeader(), Accept: 'application/json' },
   })
   if (!res.ok) return []

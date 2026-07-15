@@ -1,6 +1,7 @@
 'use client'
 
 import { authHeader } from '@/lib/auth'
+import { resolveClientApiUrl } from '@/lib/client-api-url'
 import { resolveHtApiAuthHeader } from '@/lib/ewentcast-session'
 
 function sleep(ms: number): Promise<void> {
@@ -16,23 +17,6 @@ function isTransientFetchError(err: unknown): boolean {
     || msg.includes('suspended')
 }
 
-async function fetchWithRetry(input: string, init?: RequestInit): Promise<Response> {
-  const maxAttempts = 3
-  let lastErr: unknown
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      return await fetch(input, init)
-    } catch (err) {
-      lastErr = err
-      if (!isTransientFetchError(err) || attempt >= maxAttempts) throw err
-      await sleep(250 * attempt)
-    }
-  }
-
-  throw lastErr
-}
-
 /** Attach session (and HT token for Hightribe routes) so server proxies load per-user keys. */
 export async function channelAuthHeaders(
   url: string,
@@ -45,6 +29,7 @@ export async function channelAuthHeaders(
 }
 
 export async function channelFetch(input: string, init?: RequestInit): Promise<Response> {
+  const url = resolveClientApiUrl(String(input))
   const extraHeaders = init?.headers instanceof Headers
     ? Object.fromEntries(init.headers.entries())
     : (init?.headers as Record<string, string> | undefined)
@@ -54,7 +39,7 @@ export async function channelFetch(input: string, init?: RequestInit): Promise<R
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      return await fetch(input, {
+      return await fetch(url, {
         ...init,
         headers: await channelAuthHeaders(String(input), extraHeaders),
       })

@@ -1,4 +1,5 @@
 import { authHeader, clearAuth, getUser } from '@/lib/auth'
+import { resolveClientApiUrl } from '@/lib/client-api-url'
 import { getEwentcastAccount, logoutLocal } from '@/lib/ewentcast-session'
 import type { ChannelKey } from '@/lib/types'
 import { purgeChannelDataFromDb } from '@/lib/channel-data-sync'
@@ -6,7 +7,7 @@ import { disconnectChannelSettings } from '@/lib/channel-connect'
 import type { AppSettings } from '@/lib/settings-types'
 
 async function saveUserSettings(patch: Partial<AppSettings>): Promise<void> {
-  const res = await fetch('/api/settings', {
+  const res = await fetch(resolveClientApiUrl('/api/settings'), {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',

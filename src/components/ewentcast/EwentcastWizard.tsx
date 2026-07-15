@@ -9,6 +9,7 @@ import { publishToAllChannels, updateChannelEventsAll, upsertLocalEventSnapshot,
 import { refreshStoredEventsForChannels, markEventsListStale } from '@/lib/channel-data-sync'
 import type { EventCoverFiles } from '@/lib/cover-image'
 import { loadEventFormData } from '@/lib/event-form-data'
+import { resolveClientApiUrl } from '@/lib/client-api-url'
 import type { ChannelKey } from '@/lib/types'
 import {
   ALL_CHANNELS, CH_META, DEFAULT_EVENT, SECTIONS, WIZARD_STEPS,
@@ -187,7 +188,7 @@ export function EwentcastWizard({
 
   useEffect(() => {
     if (step !== 2) return
-    fetch('/api/registry').then(r => r.json()).then((d: { events?: Array<{ attendees: AttendeeRecord[]; sold: number }> }) => {
+    fetch(resolveClientApiUrl('/api/registry')).then(r => r.json()).then((d: { events?: Array<{ attendees: AttendeeRecord[]; sold: number }> }) => {
       const latest = d.events?.[d.events.length - 1]
       if (latest) {
         setAttendees(latest.attendees || [])

@@ -1,7 +1,8 @@
-// All requests go to Next.js App Router API routes (relative paths).
-// No Express backend needed.
+// Browser → remote API directly (NEXT_PUBLIC_BACKEND_URL), except local-only routes.
+// See resolveClientApiUrl().
 
 import { authHeader, clearAuth, isAuthErrorMessage } from './auth'
+import { resolveClientApiUrl } from './client-api-url'
 
 function withAuth(headers: Record<string, string> = {}): Record<string, string> {
   const auth = authHeader()
@@ -24,13 +25,13 @@ async function parseApiError(r: Response): Promise<never> {
 
 async function get<T = unknown>(path: string, opts?: { auth?: boolean }): Promise<T> {
   const headers = opts?.auth === false ? undefined : withAuth()
-  const r = await fetch(path, headers ? { headers } : undefined)
+  const r = await fetch(resolveClientApiUrl(path), headers ? { headers } : undefined)
     if (!r.ok) return parseApiError(r)
   return r.json() as Promise<T>
 }
 
 async function post<T = unknown>(path: string, body: unknown = {}, opts?: { auth?: boolean }): Promise<T> {
-  const r = await fetch(path, {
+  const r = await fetch(resolveClientApiUrl(path), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -43,7 +44,7 @@ async function post<T = unknown>(path: string, body: unknown = {}, opts?: { auth
 }
 
 async function put<T = unknown>(path: string, body: unknown = {}, opts?: { auth?: boolean }): Promise<T> {
-  const r = await fetch(path, {
+  const r = await fetch(resolveClientApiUrl(path), {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
@@ -56,7 +57,7 @@ async function put<T = unknown>(path: string, body: unknown = {}, opts?: { auth?
 }
 
 async function del<T = unknown>(path: string): Promise<T> {
-  const r = await fetch(path, { method: 'DELETE', headers: withAuth() })
+  const r = await fetch(resolveClientApiUrl(path), { method: 'DELETE', headers: withAuth() })
     if (!r.ok) return parseApiError(r)
   return r.json() as Promise<T>
 }

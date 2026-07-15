@@ -1,6 +1,7 @@
 'use client'
 
 import { authHeader } from '@/lib/auth'
+import { resolveClientApiUrl } from '@/lib/client-api-url'
 import type { AttendeeRecord, MasterEventRecord } from '@/lib/event-registry'
 import { getStoredEvent, listAllStoredBookings, listStoredEvents, syncStoredBookings } from '@/lib/channel-events-store'
 import { fetchLumaGuestsForEvent, mapStoredBookingToListItem, type BookingListItem } from '@/lib/bookings'
@@ -60,7 +61,9 @@ const DEFAULT_CAPACITY = 150
 
 async function fetchMasterEvent(channel: ChannelKey, eventId: string): Promise<MasterEventRecord | null> {
   const lookupRes = await fetch(
-    `/api/registry?channel=${encodeURIComponent(channel)}&eventId=${encodeURIComponent(eventId)}`,
+    resolveClientApiUrl(
+      `/api/registry?channel=${encodeURIComponent(channel)}&eventId=${encodeURIComponent(eventId)}`,
+    ),
     { headers: { Authorization: authHeader(), Accept: 'application/json' } },
   )
   if (!lookupRes.ok) return null
@@ -72,7 +75,7 @@ async function fetchMasterEvent(channel: ChannelKey, eventId: string): Promise<M
   if (!masterId) return null
 
   // GET /api/v1/registry/:id
-  const res = await fetch(`/api/registry/${encodeURIComponent(masterId)}`, {
+  const res = await fetch(resolveClientApiUrl(`/api/registry/${encodeURIComponent(masterId)}`), {
     headers: {
       Authorization: authHeader(),
       Accept: 'application/json',

@@ -1,4 +1,5 @@
 import { authHeader, clearAuth, isAuthErrorMessage } from '@/lib/auth'
+import { resolveClientApiUrl } from '@/lib/client-api-url'
 import type { ChannelKey } from '@/lib/types'
 import { unwrapSettingsResponse } from '@/lib/settings-response'
 
@@ -24,7 +25,7 @@ export type HightribeConnectBody = {
 }
 
 async function putSettings(patch: Record<string, unknown>): Promise<ReturnType<typeof unwrapSettingsResponse>> {
-  const res = await fetch('/api/settings', {
+  const res = await fetch(resolveClientApiUrl('/api/settings'), {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
@@ -49,7 +50,7 @@ async function putSettings(patch: Record<string, unknown>): Promise<ReturnType<t
 }
 
 async function deleteChannelSettings(channel: ChannelKey): Promise<void> {
-  const res = await fetch(`/api/settings/${encodeURIComponent(channel)}`, {
+  const res = await fetch(resolveClientApiUrl(`/api/settings/${encodeURIComponent(channel)}`), {
     method: 'DELETE',
     headers: {
       Accept: 'application/json',
@@ -132,7 +133,7 @@ export async function connectHightribeWithPassword(opts: {
     throw new Error('Hightribe email and password are required')
   }
 
-  const loginRes = await fetch('/api/hightribe/login', {
+  const loginRes = await fetch(resolveClientApiUrl('/api/hightribe/login'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -176,7 +177,7 @@ export async function disconnectChannelSettings(channel: ChannelKey): Promise<vo
 
 /** After connect, pull events from the channel provider. */
 export async function syncChannelFromApi(channel: ChannelKey): Promise<unknown> {
-  const res = await fetch(`/api/events/${encodeURIComponent(channel)}/sync-from-api`, {
+  const res = await fetch(resolveClientApiUrl(`/api/events/${encodeURIComponent(channel)}/sync-from-api`), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

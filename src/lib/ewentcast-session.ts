@@ -1,6 +1,7 @@
 'use client'
 
 import { authHeader, clearAuth, getToken, setToken, setUser, isAuthErrorMessage, type HtUser } from '@/lib/auth'
+import { resolveClientApiUrl } from '@/lib/client-api-url'
 import { clearHightribeSsoParams, readHightribeBrowserToken } from '@/lib/hightribe-sso'
 
 export interface EwentcastAccount {
@@ -153,7 +154,7 @@ export async function fetchAuthMe(): Promise<{
   const token = getToken()
   if (!token) return null
 
-  const res = await fetch('/api/auth/me', {
+  const res = await fetch(resolveClientApiUrl('/api/auth/me'), {
     headers: { Authorization: authHeader(), Accept: 'application/json' },
     cache: 'no-store',
   })
@@ -195,7 +196,7 @@ export async function registerLocal(body: {
   email: string
   password: string
 }): Promise<{ token: string; user: HtUser; ewentcast: EwentcastAccount }> {
-  const res = await fetch('/api/auth/register', {
+  const res = await fetch(resolveClientApiUrl('/api/auth/register'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(body),
@@ -221,7 +222,7 @@ export async function registerLocal(body: {
 export const registerEwentcast = registerLocal
 
 export async function loginLocal(email: string, password: string): Promise<void> {
-  const res = await fetch('/api/auth/login', {
+  const res = await fetch(resolveClientApiUrl('/api/auth/login'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ email, password }),
@@ -244,7 +245,7 @@ export async function loginLocal(email: string, password: string): Promise<void>
 
 export async function logoutLocal(): Promise<void> {
   try {
-    await fetch('/api/auth/logout', {
+    await fetch(resolveClientApiUrl('/api/auth/logout'), {
       method: 'POST',
       headers: { Authorization: authHeader(), Accept: 'application/json' },
     })
@@ -258,7 +259,7 @@ export async function requestPasswordReset(email: string): Promise<{
   resetToken?: string
   resetUrl?: string
 }> {
-  const res = await fetch('/api/auth/forgot-password', {
+  const res = await fetch(resolveClientApiUrl('/api/auth/forgot-password'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ email }),
@@ -276,7 +277,7 @@ export async function requestPasswordReset(email: string): Promise<{
 }
 
 export async function resetPassword(token: string, password: string): Promise<void> {
-  const res = await fetch('/api/auth/reset-password', {
+  const res = await fetch(resolveClientApiUrl('/api/auth/reset-password'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ token, password }),
@@ -286,7 +287,7 @@ export async function resetPassword(token: string, password: string): Promise<vo
 }
 
 export async function loginWithHightribe(email: string, password: string): Promise<void> {
-  const res = await fetch('/api/auth/login-hightribe', {
+  const res = await fetch(resolveClientApiUrl('/api/auth/login-hightribe'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ email, password }),
@@ -316,7 +317,7 @@ export async function loginWithHightribeToken(htToken?: string): Promise<void> {
     throw new Error('HIGHTRIBE_NOT_LOGGED_IN')
   }
 
-  const res = await fetch('/api/auth/login-hightribe-token', {
+  const res = await fetch(resolveClientApiUrl('/api/auth/login-hightribe-token'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ ht_token: token }),
@@ -344,7 +345,7 @@ export async function startSubscriptionCheckout(): Promise<string> {
   await requireAuthSession()
 
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
-  const res = await fetch('/api/billing/checkout', {
+  const res = await fetch(resolveClientApiUrl('/api/billing/checkout'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -380,7 +381,7 @@ export async function startSubscriptionCheckout(): Promise<string> {
 }
 
 export async function confirmSubscriptionPayment(sessionId: string): Promise<EwentcastAccount | null> {
-  const res = await fetch('/api/billing/confirm', {
+  const res = await fetch(resolveClientApiUrl('/api/billing/confirm'), {
     method: 'POST',
     headers: {
       Authorization: authHeader(),
@@ -417,7 +418,7 @@ export interface MoneyBackRefundStatus {
 }
 
 export async function fetchMoneyBackRefundStatus(): Promise<MoneyBackRefundStatus> {
-  const res = await fetch('/api/billing/refund', {
+  const res = await fetch(resolveClientApiUrl('/api/billing/refund'), {
     headers: { Authorization: authHeader(), Accept: 'application/json' },
     cache: 'no-store',
   })
@@ -439,7 +440,7 @@ export async function requestMoneyBackRefund(): Promise<{
   currency: string
 }> {
   await requireAuthSession()
-  const res = await fetch('/api/billing/refund', {
+  const res = await fetch(resolveClientApiUrl('/api/billing/refund'), {
     method: 'POST',
     headers: {
       Authorization: authHeader(),
@@ -528,7 +529,7 @@ function normalizeBillingTransaction(raw: Record<string, unknown>): BillingTrans
 }
 
 export async function fetchBillingTransactions(): Promise<BillingData> {
-  const res = await fetch('/api/billing/transactions', {
+  const res = await fetch(resolveClientApiUrl('/api/billing/transactions'), {
     headers: { Authorization: authHeader(), Accept: 'application/json' },
     cache: 'no-store',
   })
@@ -558,7 +559,7 @@ export async function openStripeBillingPortal(): Promise<string> {
   await requireAuthSession()
 
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
-  const res = await fetch('/api/billing/portal', {
+  const res = await fetch(resolveClientApiUrl('/api/billing/portal'), {
     method: 'POST',
     headers: {
       Authorization: authHeader(),
