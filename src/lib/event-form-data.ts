@@ -1228,6 +1228,18 @@ function mergeNormTextFields(primary: NormEvent, extra: NormEvent) {
   if (!primary.hostName && extra.hostName) primary.hostName = extra.hostName
 }
 
+async function loadNormFromStored(
+  channel: ChannelKey,
+  eventId: string | number,
+): Promise<NormEvent | null> {
+  const stored = await getStoredEvent(channel as ChannelName, String(eventId))
+  if (!stored) return null
+  const norm = normFromPayload(channel, stored.payload as Record<string, unknown>)
+  mergeStoredMeta(norm, stored)
+  await enrichTickets(norm, channel, eventId).catch(() => undefined)
+  return norm
+}
+
 async function loadNormForChannel(
   channel: ChannelKey,
   eventId: string | number,
@@ -1235,16 +1247,8 @@ async function loadNormForChannel(
   try {
     if (channel === 'hightribe') {
       const res = await channelFetch(`/api/hightribe/events/${eventId}`)
-      if (res.status === 401) {
-        // Fall back to stored copy when HT token/settings are missing.
-        const stored = await getStoredEvent(channel as ChannelName, String(eventId))
-        if (!stored) return null
-        const norm = normFromPayload(channel, stored.payload as Record<string, unknown>)
-        mergeStoredMeta(norm, stored)
-        await enrichTickets(norm, 'hightribe', eventId).catch(() => undefined)
-        return norm
-      }
-      if (!res.ok) return null
+      // 401 (no token) or 404 (route/event missing upstream) → local DB copy.
+      if (!res.ok) return loadNormFromStored(channel, eventId)
       const fresh = await res.json() as Record<string, unknown>
       const norm = normFromPayload(channel, fresh)
       await enrichTickets(norm, 'hightribe', eventId)
@@ -1272,11 +1276,7 @@ async function loadNormForChannel(
     }
   } catch {
     try {
-      const stored = await getStoredEvent(channel as ChannelName, String(eventId))
-      if (!stored) return null
-      const norm = normFromPayload(channel, stored.payload as Record<string, unknown>)
-      mergeStoredMeta(norm, stored)
-      return norm
+      return await loadNormFromStored(channel, eventId)
     } catch {
       return null
     }
@@ -1353,28 +1353,53 @@ export async function loadEventFormData(
   siblingIds?: Partial<Record<ChannelKey, string | number>>,
 ): Promise<EventFormData> {
   let norm = await loadNormForChannel(channel, eventId)
+  let loadedFrom: ChannelKey = channel
+  let loadedId: string | number = eventId
 
   if (!norm) {
     const stored = await getStoredEvent(channel as ChannelName, String(eventId))
-    if (!stored) {
-      throw new Error('Event not in database. Open Events and use Sync for this channel first.')
+    if (stored) {
+      const payload = { ...stored.payload } as Record<string, unknown>
+      if (channel === 'eventbrite' && !payload._full_description) {
+        const fullDesc = await loadEventbriteFullDescription(eventId)
+        if (fullDesc) payload._full_description = fullDesc
+      }
+      norm = normFromPayload(channel, payload)
+      mergeStoredMeta(norm, stored)
+      await enrichTickets(norm, channel, eventId)
     }
-    const payload = { ...stored.payload } as Record<string, unknown>
-    if (channel === 'eventbrite' && !payload._full_description) {
-      const fullDesc = await loadEventbriteFullDescription(eventId)
-      if (fullDesc) payload._full_description = fullDesc
+  }
+
+  // Primary channel unavailable — open from a linked sibling (Luma / EB / HT).
+  const siblings = siblingIds || {}
+  if (!norm) {
+    for (const ch of (['hightribe', 'eventbrite', 'luma'] as ChannelKey[])) {
+      if (ch === channel) continue
+      const sid = siblings[ch]
+      if (sid == null || sid === '') continue
+      const extra = await loadNormForChannel(ch, sid)
+      if (extra) {
+        norm = extra
+        loadedFrom = ch
+        loadedId = sid
+        break
+      }
     }
-    norm = normFromPayload(channel, payload)
-    mergeStoredMeta(norm, stored)
-    await enrichTickets(norm, channel, eventId)
+  }
+
+  if (!norm) {
+    throw new Error(
+      channel === 'hightribe'
+        ? `Could not load Hightribe event #${eventId}. The API may be unavailable, or this event is not synced locally yet.`
+        : 'Event not in database. Open Events and use Sync for this channel first.',
+    )
   }
 
   // When editing a multi-channel event, fill blank summary/description/place from siblings
   // (e.g. open via Luma → pull Summary / venue from Eventbrite / Hightribe).
-  const siblings = siblingIds || {}
   for (const ch of (['hightribe', 'eventbrite', 'luma'] as ChannelKey[])) {
-    if (ch === channel) continue
-    const sid = siblings[ch]
+    if (ch === loadedFrom) continue
+    const sid = ch === channel ? eventId : siblings[ch]
     if (sid == null || sid === '') continue
     const hasText = !!(norm.summary && norm.description && !isLumaDescriptionSentinel(norm.description))
     const hasPlace = !!(norm.venueName && (norm.address || norm.city))
@@ -1384,11 +1409,15 @@ export async function loadEventFormData(
   }
 
   let form = normToForm(norm)
-  await enrichPublishStatusFromLinked(form, siblings, channel)
+  await enrichPublishStatusFromLinked(form, { ...siblings, [channel]: eventId }, loadedFrom)
 
   try {
     const { findMasterByChannelEvent } = await import('@/lib/event-registry')
-    const master = await findMasterByChannelEvent(channel, String(eventId))
+    const master =
+      (await findMasterByChannelEvent(channel, String(eventId)))
+      || (loadedFrom !== channel
+        ? await findMasterByChannelEvent(loadedFrom, String(loadedId))
+        : null)
     if (master) form = applyMasterOverlayToForm(form, master)
   } catch {
     // Registry optional — keep channel-derived form.

@@ -14,6 +14,7 @@ import {
 } from '@/lib/bookings'
 import type { ChannelKey } from '@/lib/types'
 import { CHANNEL_KEYS } from '@/lib/channels'
+import { hightribeDatesToUtc } from '@/lib/event-datetime'
 
 export interface EventTicketType {
   id: string
@@ -391,6 +392,76 @@ function venueFromPayload(channel: ChannelKey, payload: Record<string, unknown>)
   return null
 }
 
+/** Prefer a real ISO timestamp; ignore empty / invalid values. */
+function pickIso(...vals: unknown[]): string | null {
+  for (const v of vals) {
+    if (v == null) continue
+    const s = String(v).trim()
+    if (!s) continue
+    const ms = Date.parse(s)
+    if (!Number.isNaN(ms)) return new Date(ms).toISOString()
+  }
+  return null
+}
+
+/** Prefer stored start/end; fall back to channel-native fields in the payload. */
+function datesFromPayload(
+  channel: ChannelKey,
+  payload: Record<string, unknown>,
+): { startAt: string | null; endAt: string | null } {
+  if (channel === 'hightribe') {
+    const root = asRecord(payload.data) || payload
+    const dates = asRecord(root.dates) || asRecord(payload.dates)
+    if (dates) {
+      const hasWall =
+        typeof dates.start_date === 'string' && String(dates.start_date).trim()
+      const hasIso =
+        typeof dates.starts_at === 'string' && String(dates.starts_at).trim()
+      if (hasWall || hasIso) {
+        const { startUtc, endUtc } = hightribeDatesToUtc(
+          {
+            starts_at: dates.starts_at != null ? String(dates.starts_at) : undefined,
+            ends_at: dates.ends_at != null ? String(dates.ends_at) : undefined,
+            start_date: dates.start_date != null ? String(dates.start_date) : undefined,
+            start_time: dates.start_time != null ? String(dates.start_time) : undefined,
+            end_date: dates.end_date != null ? String(dates.end_date) : undefined,
+            end_time: dates.end_time != null ? String(dates.end_time) : undefined,
+            timezone: dates.timezone != null ? String(dates.timezone) : undefined,
+          },
+          root.timezone != null ? String(root.timezone) : undefined,
+        )
+        return {
+          startAt: pickIso(startUtc),
+          endAt: pickIso(endUtc),
+        }
+      }
+    }
+    return {
+      startAt: pickIso(root.starts_at, root.start_at, payload.starts_at, payload.start_at),
+      endAt: pickIso(root.ends_at, root.end_at, payload.ends_at, payload.end_at),
+    }
+  }
+
+  if (channel === 'luma') {
+    const event = asRecord(payload.event) || payload
+    return {
+      startAt: pickIso(event.start_at, payload.start_at),
+      endAt: pickIso(event.end_at, payload.end_at),
+    }
+  }
+
+  if (channel === 'eventbrite') {
+    const start = asRecord(payload.start)
+    const end = asRecord(payload.end)
+    return {
+      startAt: pickIso(start?.utc, start?.local, payload.start_at),
+      endAt: pickIso(end?.utc, end?.local, payload.end_at),
+    }
+  }
+
+  return { startAt: null, endAt: null }
+}
+
 /** Prefer stored cover_url; fall back to channel-native fields in the payload. */
 function coverFromPayload(channel: ChannelKey, payload: Record<string, unknown>): string | null {
   const pick = (...vals: unknown[]): string | null => {
@@ -593,9 +664,10 @@ function extractEventMeta(
   stored: Awaited<ReturnType<typeof getStoredEvent>>,
 ) {
   const payload = asRecord(stored?.payload) || {}
+  const fromPayload = datesFromPayload(channel, payload)
   return {
-    startAt: stored?.start_at || null,
-    endAt: stored?.end_at || null,
+    startAt: pickIso(stored?.start_at) || fromPayload.startAt,
+    endAt: pickIso(stored?.end_at) || fromPayload.endAt,
     coverUrl: (stored?.cover_url?.trim() || coverFromPayload(channel, payload)) || null,
     venue: venueFromPayload(channel, payload),
     status: stored?.status || null,
@@ -833,6 +905,14 @@ export async function loadEventDashboardData(
     coverUrl = await resolveCoverFromLinkedChannels(channel, channelIds)
   }
 
+  let startAt = meta.startAt || pickIso(master?.startAt) || null
+  let endAt = meta.endAt || pickIso(master?.endAt) || null
+  if (!startAt || !endAt) {
+    const linked = await resolveDatesFromLinkedChannels(channel, channelIds)
+    startAt = startAt || linked.startAt
+    endAt = endAt || linked.endAt
+  }
+
   const attendees = bookingsToAttendees(eventBookings)
   const registrations = eventBookings.reduce((sum, b) => sum + (b.ticket_count || 1), 0)
   const ticketTypes = extractTicketTypes(channel, stored, registrations)
@@ -873,8 +953,8 @@ export async function loadEventDashboardData(
     revenue: metrics.revenue,
     ticketsSoldPct: metrics.ticketsSoldPct,
     ticketTypes,
-    startAt: meta.startAt,
-    endAt: meta.endAt,
+    startAt,
+    endAt,
     coverUrl,
     venue: meta.venue,
     status: meta.status,
@@ -906,4 +986,34 @@ async function resolveCoverFromLinkedChannels(
     }
   }
   return null
+}
+
+/** When the primary row has no start/end, try linked channel copies. */
+async function resolveDatesFromLinkedChannels(
+  primary: ChannelKey,
+  channelIds: Partial<Record<ChannelKey, string>>,
+): Promise<{ startAt: string | null; endAt: string | null }> {
+  const order: ChannelKey[] = ['hightribe', 'luma', 'eventbrite'].filter(
+    (ch) => ch !== primary && channelIds[ch],
+  ) as ChannelKey[]
+
+  let startAt: string | null = null
+  let endAt: string | null = null
+
+  for (const ch of order) {
+    if (startAt && endAt) break
+    const id = channelIds[ch]
+    if (!id) continue
+    try {
+      const row = await getStoredEvent(ch, id)
+      if (!row) continue
+      const fromPayload = datesFromPayload(ch, asRecord(row.payload) || {})
+      startAt = startAt || pickIso(row.start_at) || fromPayload.startAt
+      endAt = endAt || pickIso(row.end_at) || fromPayload.endAt
+    } catch {
+      // best-effort
+    }
+  }
+
+  return { startAt, endAt }
 }

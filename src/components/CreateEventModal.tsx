@@ -277,7 +277,7 @@ export function CreateEventModal({ open, onClose, onCreated }: Props) {
               free: form.ticketType === 'free',
               capacity: form.ticketQuantity,
               currency: form.currency,
-              price: form.ticketType === 'free' ? 0 : form.ticketPrice,
+              price: form.ticketType === 'free' ? undefined : form.ticketPrice,
             }),
           }),
         })

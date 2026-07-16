@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { channelFetch } from '@/lib/channel-fetch'
 import { buildEbTicketClass } from '@/lib/eventbrite-ticket'
-import { syncStoredEvents } from '@/lib/channel-events-store'
+import { getStoredEvent, syncStoredEvents } from '@/lib/channel-events-store'
 import { normalizeTimeZone, zonedDateTimeToUtcIso } from '@/lib/event-datetime'
 import { InlineLoader, PageLoader } from '@/components/Loader'
 import { CHANNEL_META } from '@/lib/channels'
@@ -163,8 +163,25 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
     try {
       if (ch === 'hightribe') {
         const res = await channelFetch(`/api/hightribe/events/${id}`)
-        const data = await res.json() as { data?: Record<string, unknown> }
-        const e = (data.data || data) as Record<string, unknown>
+        let e: Record<string, unknown>
+        if (res.ok) {
+          const data = await res.json() as { data?: Record<string, unknown> }
+          e = (data.data || data) as Record<string, unknown>
+        } else {
+          // Backend may 404 if route/event missing upstream — use local copy.
+          const stored = await getStoredEvent('hightribe', String(id))
+          if (!stored) {
+            setError(
+              res.status === 404
+                ? `Could not load Hightribe event #${id}. Try again after the API is available, or Sync this channel first.`
+                : `Failed to load event (${res.status})`,
+            )
+            return
+          }
+          e = (stored.payload?.data && typeof stored.payload.data === 'object'
+            ? stored.payload.data
+            : stored.payload) as Record<string, unknown>
+        }
         const dates = (e.dates || {}) as Record<string, string>
         const loc = (e.location || {}) as Record<string, string>
         // Load tickets if any
@@ -339,7 +356,7 @@ export function EventFormModal({ open, mode, channel: initChannel, eventId, onCl
       free: eb.ticketType === 'free',
       capacity: eb.ticketQuantity,
       currency: 'USD',
-      price: eb.ticketType === 'free' ? 0 : eb.ticketPrice,
+      price: eb.ticketType === 'free' ? undefined : eb.ticketPrice,
     })
     const tcRes = await channelFetch(`/api/eventbrite/events/${eventId2}/ticket_classes`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ticket_class: tc }) })
     if (!tcRes.ok) { const d = await tcRes.json() as { error_description?: string }; throw new Error(`Tickets: ${d.error_description || `HTTP ${tcRes.status}`}`) }

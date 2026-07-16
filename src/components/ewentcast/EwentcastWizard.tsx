@@ -248,6 +248,8 @@ export function EwentcastWizard({
     setSaving(true)
     setSaveError(null)
     try {
+      // Registry PATCH (when master + channelRefs exist) pushes HT + Luma + EB.
+      // Falls back to HT PUT (also propagates) or per-channel updates.
       const results = await updateChannelEventsAll(ev, editTargets, coverFiles)
       const succeeded = editTargetChannels.filter((ch) => results[ch]?.ok)
       const failed = editTargetChannels
@@ -262,24 +264,15 @@ export function EwentcastWizard({
         throw new Error(msg || 'Save failed')
       }
 
-      // Persist full master fields (category, timezone, location, WHEN, ticket sales).
+      // Keep masterId in state when we can resolve it (for later propagate / publish).
       try {
         const { findMasterByChannelEvent } = await import('@/lib/event-registry')
-        const {
-          updateRegistryMaster,
-          buildRegistryMasterWriteFromForm,
-        } = await import('@/lib/registry-api')
-        let mid = masterId
-        if (!mid && editChannel && editEventId != null) {
+        if (!masterId && editChannel && editEventId != null) {
           const master = await findMasterByChannelEvent(editChannel, String(editEventId))
-          mid = master?.id || null
-          if (mid) setMasterId(mid)
-        }
-        if (mid) {
-          await updateRegistryMaster(mid, buildRegistryMasterWriteFromForm(ev))
+          if (master?.id) setMasterId(master.id)
         }
       } catch {
-        // Channel save already succeeded — registry patch is best-effort.
+        // optional
       }
 
       // Close immediately — refresh the local store in the background so a slow

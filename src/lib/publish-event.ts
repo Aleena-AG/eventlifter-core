@@ -596,14 +596,14 @@ async function updateEventbriteTickets(eventId: string | number, ev: EventFormDa
   const tz = normalizeTimeZone(String(ev.timezone || 'UTC'))
   const salesStart = String(ev.salesStart || '').trim()
   const salesEnd = String(ev.salesEnd || '').trim()
+  const typeLower = ticketType.toLowerCase()
+  const isFreeTicket = typeLower === 'free' || typeLower === 'donation'
   const tc = buildEbTicketClass({
     name: String(ev.htTicketName || 'General Admission'),
-    free: ticketType === 'Free' || ticketType === 'Donation',
+    free: isFreeTicket,
     capacity: cap,
     currency: 'USD',
-    price: ticketType === 'Free' || ticketType === 'Donation'
-      ? 0
-      : parseFloat(String(ev.price || '0')),
+    price: isFreeTicket ? undefined : parseFloat(String(ev.price || '0')),
     salesStart: salesStart ? toIso(salesStart, '00:00', tz) : undefined,
     salesEnd: salesEnd ? toIso(salesEnd, '23:59', tz) : undefined,
   })
@@ -900,12 +900,13 @@ export async function publishToChannel(
 
   const salesStart = String(ev.salesStart || '').trim()
   const salesEnd = String(ev.salesEnd || '').trim()
+  const isFreeTicket = String(ev.ticketType || '').trim().toLowerCase() === 'free'
   const tc = buildEbTicketClass({
     name: 'General Admission',
-    free: ev.ticketType === 'Free',
+    free: isFreeTicket,
     capacity: cap,
     currency: 'USD',
-    price: ev.ticketType === 'Free' ? 0 : parseFloat(String(ev.price || '0')),
+    price: isFreeTicket ? undefined : parseFloat(String(ev.price || '0')),
     salesStart: salesStart ? toIso(salesStart, '00:00', tz) : undefined,
     salesEnd: salesEnd ? toIso(salesEnd, '23:59', tz) : undefined,
   })
@@ -928,7 +929,7 @@ export async function updateChannelEvent(
   eventId: string | number,
   ev: EventFormData,
   files?: EventCoverFiles,
-): Promise<void> {
+): Promise<Partial<Record<ChannelKey, { ok: boolean; message?: string }>> | void> {
   const fmt = String(ev.format || 'In person')
   const online = fmt === 'Online' || fmt === 'Hybrid'
   const inPerson = fmt === 'In person' || fmt === 'Hybrid'
@@ -950,12 +951,22 @@ export async function updateChannelEvent(
       Object.assign(body, ticketBundle)
     }
     const res = await postHtEvent(`/api/hightribe/events/${eventId}`, body, 'PUT', htCoverFile)
-    const data = await res.json() as { message?: string; errors?: Record<string, string[]> }
+    const data = await res.json() as {
+      message?: string
+      errors?: Record<string, string[]>
+    }
     if (!res.ok) throw new Error(data.message || (data.errors ? Object.values(data.errors).flat().join(', ') : `HTTP ${res.status}`))
     if (ticketBundle.tickets) {
       await syncHightribeTickets(eventId, ev)
     }
-    return
+    const { parseRegistryChannelUpdates } = await import('@/lib/registry-api')
+    const updates = parseRegistryChannelUpdates(data)
+    if (Object.keys(updates).length === 0) return
+    const mapped: Partial<Record<ChannelKey, { ok: boolean; message?: string }>> = {}
+    for (const [key, u] of Object.entries(updates)) {
+      mapped[key as ChannelKey] = { ok: u.ok, message: u.message }
+    }
+    return mapped
   }
 
   if (ch === 'luma') {
@@ -1139,7 +1150,108 @@ export async function updateChannelEventsAll(
   const channels = (['hightribe', 'luma', 'eventbrite'] as ChannelKey[]).filter(
     (ch) => targets[ch] != null && targets[ch] !== '',
   )
+  if (channels.length === 0) return results
 
+  const applyUpdates = (
+    updates: Partial<Record<ChannelKey, { ok: boolean; message?: string }>>,
+    assumeOkIfMissing = false,
+  ) => {
+    for (const ch of channels) {
+      if (updates[ch]) results[ch] = updates[ch]
+      else if (assumeOkIfMissing && results[ch] == null) results[ch] = { ok: true }
+    }
+  }
+
+  // 1) Prefer PATCH /registry/:id — master save + push to every linked channel.
+  try {
+    const { findMasterByChannelEvent } = await import('@/lib/event-registry')
+    const {
+      updateRegistryMaster,
+      buildRegistryMasterWriteFromForm,
+      buildChannelRefsFromTargets,
+    } = await import('@/lib/registry-api')
+
+    let master: Awaited<ReturnType<typeof findMasterByChannelEvent>> = null
+    for (const ch of channels) {
+      master = await findMasterByChannelEvent(ch, String(targets[ch]))
+      if (master?.id) break
+    }
+
+    if (master?.id) {
+      const write = buildRegistryMasterWriteFromForm(ev as unknown as Record<string, unknown>)
+      // Ensure all edit targets are linked — without channelRefs only one channel updates.
+      write.channelRefs = buildChannelRefsFromTargets(targets, master.channels)
+      const { channelUpdates } = await updateRegistryMaster(master.id, write)
+      const mapped: Partial<Record<ChannelKey, { ok: boolean; message?: string }>> = {}
+      for (const [key, u] of Object.entries(channelUpdates)) {
+        mapped[key as ChannelKey] = { ok: u.ok, message: u.message }
+      }
+      applyUpdates(mapped, true)
+
+      // Cover file still needs a channel upload (registry PATCH is JSON-only).
+      if (files?.cover) {
+        const coverChannels = (['hightribe', 'luma', 'eventbrite'] as ChannelKey[]).filter(
+          (ch) => targets[ch] != null && (ch === 'hightribe' || files.cover),
+        )
+        // Prefer HT for cover when linked — its PUT also re-pushes siblings.
+        const coverOrder: ChannelKey[] = targets.hightribe
+          ? ['hightribe']
+          : coverChannels
+        for (const ch of coverOrder) {
+          try {
+            const extra = await updateChannelEvent(ch, targets[ch]!, ev, files)
+            results[ch] = { ok: true }
+            if (extra) applyUpdates(extra, false)
+          } catch (err) {
+            results[ch] = {
+              ok: false,
+              message: err instanceof Error ? err.message : String(err),
+            }
+          }
+        }
+      }
+
+      return results
+    }
+  } catch {
+    // Fall through to channel APIs.
+  }
+
+  // 2) No master (or registry failed): HT PUT propagates to linked Luma/EB when refs exist.
+  if (targets.hightribe != null && targets.hightribe !== '') {
+    try {
+      const extra = await updateChannelEvent('hightribe', targets.hightribe, ev, files)
+      results.hightribe = { ok: true }
+      if (extra && Object.keys(extra).length > 0) {
+        applyUpdates(extra, false)
+      } else {
+        // HT succeeded and may have pushed siblings — mark linked targets ok.
+        applyUpdates({}, true)
+      }
+    } catch (err) {
+      results.hightribe = {
+        ok: false,
+        message: err instanceof Error ? err.message : String(err),
+      }
+    }
+
+    // Fill any remaining targets that weren't covered by HT propagate.
+    for (const ch of channels) {
+      if (ch === 'hightribe' || results[ch]) continue
+      try {
+        await updateChannelEvent(ch, targets[ch]!, ev, files)
+        results[ch] = { ok: true }
+      } catch (err) {
+        results[ch] = {
+          ok: false,
+          message: err instanceof Error ? err.message : String(err),
+        }
+      }
+    }
+    return results
+  }
+
+  // 3) Classic per-channel updates (Luma / Eventbrite only).
   for (const ch of channels) {
     try {
       await updateChannelEvent(ch, targets[ch]!, ev, files)

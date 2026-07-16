@@ -2,6 +2,7 @@
 
 import type { ChannelKey } from '@/lib/types'
 import { channelFetch } from '@/lib/channel-fetch'
+import { unwrapApiData } from '@/lib/api-response'
 
 export type ChannelName = 'luma' | 'eventbrite' | 'hightribe'
 
@@ -34,14 +35,59 @@ export interface StoredChannelBooking {
   payload?: Record<string, unknown>
 }
 
+function isStoredEventRow(v: unknown): v is StoredChannelEvent {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false
+  const row = v as Record<string, unknown>
+  return row.external_id != null || (row.payload != null && typeof row.payload === 'object')
+}
+
+/** Accept `{ event }`, `{ events: [...] }`, bare row, or `{ data: … }` wrappers. */
+function parseStoredEventPayload(raw: unknown, externalId?: string): StoredChannelEvent | null {
+  const data = unwrapApiData<Record<string, unknown> | StoredChannelEvent | StoredChannelEvent[]>(raw)
+
+  if (Array.isArray(data)) {
+    if (!externalId) return isStoredEventRow(data[0]) ? data[0] : null
+    const match = data.find((row) => String(row?.external_id) === String(externalId))
+    return isStoredEventRow(match) ? match : null
+  }
+
+  if (!data || typeof data !== 'object') return null
+
+  const wrapped = data as Record<string, unknown>
+  if (isStoredEventRow(wrapped.event)) return wrapped.event as StoredChannelEvent
+
+  if (Array.isArray(wrapped.events)) {
+    const list = wrapped.events as unknown[]
+    if (externalId) {
+      const match = list.find(
+        (row) => isStoredEventRow(row) && String(row.external_id) === String(externalId),
+      )
+      if (isStoredEventRow(match)) return match
+    }
+    return isStoredEventRow(list[0]) ? (list[0] as StoredChannelEvent) : null
+  }
+
+  if (isStoredEventRow(data)) return data as StoredChannelEvent
+  return null
+}
+
+function parseStoredEventsList(raw: unknown): StoredChannelEvent[] {
+  const data = unwrapApiData<Record<string, unknown> | StoredChannelEvent[]>(raw)
+  if (Array.isArray(data)) return data.filter(isStoredEventRow)
+  if (data && typeof data === 'object') {
+    const events = (data as { events?: unknown }).events
+    if (Array.isArray(events)) return events.filter(isStoredEventRow)
+  }
+  return []
+}
+
 export async function listStoredEvents(channel: ChannelName): Promise<StoredChannelEvent[]> {
   try {
     const res = await channelFetch(`/api/events/${channel}`, {
       headers: { Accept: 'application/json' },
     })
     if (!res.ok) return []
-    const data = await res.json() as { events?: StoredChannelEvent[] }
-    return data.events || []
+    return parseStoredEventsList(await res.json())
   } catch {
     return []
   }
@@ -52,7 +98,9 @@ export async function listAllStoredBookings(): Promise<StoredChannelBooking[]> {
     headers: { Accept: 'application/json' },
   })
   if (!res.ok) return []
-  const data = await res.json() as { bookings?: StoredChannelBooking[] }
+  const raw = await res.json()
+  const data = unwrapApiData<{ bookings?: StoredChannelBooking[] } | StoredChannelBooking[]>(raw)
+  if (Array.isArray(data)) return data
   return data.bookings || []
 }
 
@@ -60,13 +108,26 @@ export async function getStoredEvent(
   channel: ChannelName,
   externalId: string,
 ): Promise<StoredChannelEvent | null> {
-  const res = await channelFetch(
-    `/api/events/${channel}?external_id=${encodeURIComponent(String(externalId))}`,
-    { headers: { Accept: 'application/json' } },
-  )
-  if (!res.ok) return null
-  const data = await res.json() as { event?: StoredChannelEvent | null }
-  return data.event || null
+  try {
+    const res = await channelFetch(
+      `/api/events/${channel}?external_id=${encodeURIComponent(String(externalId))}`,
+      { headers: { Accept: 'application/json' } },
+    )
+    if (res.ok) {
+      const parsed = parseStoredEventPayload(await res.json(), externalId)
+      if (parsed) return parsed
+    }
+  } catch {
+    // fall through to list scan
+  }
+
+  // Backend may ignore external_id or return a different shape — scan the channel list.
+  try {
+    const rows = await listStoredEvents(channel)
+    return rows.find((row) => String(row.external_id) === String(externalId)) || null
+  } catch {
+    return null
+  }
 }
 
 export async function syncStoredBookings(

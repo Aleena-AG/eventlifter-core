@@ -10,6 +10,13 @@ export function ebTicketQuantity(capacity?: number | string | null): number {
   return 100
 }
 
+/**
+ * Build an Eventbrite ticket_class body.
+ *
+ * EB rule: free tickets must NOT include `cost` — only `free: true`.
+ * Paid tickets use cost as `"USD,1500"` (currency + minor units).
+ * Never send `"USD,0"` — that 400s.
+ */
 export function buildEbTicketClass(input: {
   name?: string
   free?: boolean
@@ -26,15 +33,20 @@ export function buildEbTicketClass(input: {
     quantity_total: qty,
   }
 
-  const price = input.price != null ? parseFloat(String(input.price)) : 0
-  const isFree = input.free !== false && (!Number.isFinite(price) || price <= 0)
+  const price = input.price != null && String(input.price).trim() !== ''
+    ? parseFloat(String(input.price))
+    : NaN
+  const cents = Number.isFinite(price) ? Math.round(price * 100) : 0
+  // Explicit free, or zero/missing price → free. Never attach cost on free.
+  const isFree = input.free === true || !(cents > 0)
 
   if (isFree) {
     tc.free = true
+    // Intentionally omit `cost` — Eventbrite rejects free tickets that include it.
   } else {
-    const currency = (input.currency || 'USD').toUpperCase()
-    const cents = Math.round(price * 100)
+    const currency = (input.currency || 'USD').toUpperCase().replace(/[^A-Z]/g, '') || 'USD'
     tc.cost = `${currency},${cents}`
+    tc.free = false
   }
 
   if (input.salesStart) tc.sales_start = input.salesStart

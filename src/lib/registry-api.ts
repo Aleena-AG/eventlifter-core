@@ -12,6 +12,9 @@ import type { ChannelKey } from '@/lib/types'
  *   GET    /registry/:id                          getRegistryById(id)
  *   POST   /registry                              createRegistryMaster(...)
  *   PATCH  /registry/:id                          updateRegistryMaster(id, ...)
+ *                                                 → also pushes to linked HT / Luma / EB
+ *   POST   /registry/:id/propagate                propagateRegistryMaster(id)
+ *                                                 → push linked channels (no field change)
  *   DELETE /registry/:id                          deleteRegistryMaster(id)
  *   POST   /registry/:id/channels                 linkRegistryChannel(id, ref)
  *   DELETE /registry/:id/channels/:channel        unlinkRegistryChannel(id, channel)
@@ -21,6 +24,10 @@ import type { ChannelKey } from '@/lib/types'
  *
  * Master fields: title, capacity, category, timezone, format, startAt, endAt,
  * location, details.tickets (sales window — not event WHEN).
+ *
+ * Linked edits require channelRefs on the master:
+ *   hightribe → HT event id, luma → evt-…, eventbrite → EB event id.
+ * Without a link, only the channel that was edited updates.
  */
 
 export type RegistryChannelRef = {
@@ -28,6 +35,19 @@ export type RegistryChannelRef = {
   eventId: string
   ticketId?: string
   url?: string
+}
+
+/** Per-channel result from PATCH registry / HT update / propagate. */
+export type RegistryChannelUpdate = {
+  ok: boolean
+  message?: string
+  eventId?: string
+  url?: string
+}
+
+export type RegistryUpdateResult = {
+  data: Record<string, unknown>
+  channelUpdates: Partial<Record<ChannelKey, RegistryChannelUpdate>>
 }
 
 export type RegistryMasterWrite = {
@@ -160,6 +180,80 @@ async function parseRegistryError(res: Response): Promise<string> {
   return raw.message || raw.error || `Registry error ${res.status}`
 }
 
+const CHANNEL_KEYS: ChannelKey[] = ['hightribe', 'luma', 'eventbrite']
+
+/** Pull per-channel ok/error from PATCH / HT update / propagate responses. */
+export function parseRegistryChannelUpdates(
+  raw: unknown,
+): Partial<Record<ChannelKey, RegistryChannelUpdate>> {
+  const root = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const data = unwrapApiData<Record<string, unknown>>(root)
+  const source =
+    (root.channelUpdates as unknown)
+    || (data as { channelUpdates?: unknown }).channelUpdates
+    || (root.updates as unknown)
+    || (data as { updates?: unknown }).updates
+    || null
+
+  const out: Partial<Record<ChannelKey, RegistryChannelUpdate>> = {}
+  if (!source || typeof source !== 'object') return out
+
+  if (Array.isArray(source)) {
+    for (const item of source) {
+      if (!item || typeof item !== 'object') continue
+      const row = item as Record<string, unknown>
+      const ch = String(row.channel || '').toLowerCase() as ChannelKey
+      if (!CHANNEL_KEYS.includes(ch)) continue
+      const ok = row.ok !== false && row.success !== false && !row.error
+      out[ch] = {
+        ok,
+        message: String(row.message || row.error || (ok ? '' : 'Update failed') || '') || undefined,
+        eventId: row.eventId != null ? String(row.eventId) : undefined,
+        url: row.url != null ? String(row.url) : undefined,
+      }
+    }
+    return out
+  }
+
+  for (const ch of CHANNEL_KEYS) {
+    const row = (source as Record<string, unknown>)[ch]
+    if (row == null) continue
+    if (typeof row === 'boolean') {
+      out[ch] = { ok: row }
+      continue
+    }
+    if (typeof row !== 'object') continue
+    const rec = row as Record<string, unknown>
+    const ok = rec.ok !== false && rec.success !== false && !rec.error
+    out[ch] = {
+      ok,
+      message: String(rec.message || rec.error || (ok ? '' : 'Update failed') || '') || undefined,
+      eventId: rec.eventId != null ? String(rec.eventId) : undefined,
+      url: rec.url != null ? String(rec.url) : undefined,
+    }
+  }
+  return out
+}
+
+/** Build channelRefs from edit targets, merging existing master links. */
+export function buildChannelRefsFromTargets(
+  targets: Partial<Record<ChannelKey, string | number>>,
+  existing?: Partial<Record<ChannelKey, { eventId?: string; ticketId?: string; url?: string }>>,
+): RegistryChannelRef[] {
+  const refs: RegistryChannelRef[] = []
+  for (const ch of CHANNEL_KEYS) {
+    const id = targets[ch] ?? existing?.[ch]?.eventId
+    if (id == null || id === '') continue
+    refs.push({
+      channel: ch,
+      eventId: String(id),
+      ...(existing?.[ch]?.ticketId ? { ticketId: existing[ch]!.ticketId } : {}),
+      ...(existing?.[ch]?.url ? { url: existing[ch]!.url } : {}),
+    })
+  }
+  return refs
+}
+
 /** GET /api/registry — list masters */
 export async function listRegistry(): Promise<unknown> {
   try {
@@ -226,11 +320,12 @@ export async function createRegistryWithChannelRefs(input: {
  * PATCH /api/registry/:id — edit master.
  * Omit channelRefs to leave links unchanged; pass channelRefs to replace the full list.
  * Event WHEN = startAt/endAt; ticket sales window = details.tickets[].start_date/end_date.
+ * When channelRefs are linked, the backend also pushes updates to HT / Luma / Eventbrite.
  */
 export async function updateRegistryMaster(
   masterId: string,
   input: RegistryMasterWrite,
-): Promise<Record<string, unknown>> {
+): Promise<RegistryUpdateResult> {
   const body = serializeRegistryMasterBody(input)
   try {
     const res = await channelFetch(`/api/registry/${encodeURIComponent(masterId)}`, {
@@ -240,7 +335,33 @@ export async function updateRegistryMaster(
     })
     if (!res.ok) throw new Error(await parseRegistryError(res))
     const raw = await res.json().catch(() => ({}))
-    return unwrapApiData(raw)
+    return {
+      data: unwrapApiData(raw) as Record<string, unknown>,
+      channelUpdates: parseRegistryChannelUpdates(raw),
+    }
+  } catch (e) {
+    throw e instanceof Error ? e : new Error(String(e))
+  }
+}
+
+/**
+ * POST /api/registry/:id/propagate — push linked channel copies without changing master fields.
+ */
+export async function propagateRegistryMaster(
+  masterId: string,
+): Promise<RegistryUpdateResult> {
+  try {
+    const res = await channelFetch(`/api/registry/${encodeURIComponent(masterId)}/propagate`, {
+      method: 'POST',
+      headers: registryAuthHeaders(),
+      body: JSON.stringify({}),
+    })
+    if (!res.ok) throw new Error(await parseRegistryError(res))
+    const raw = await res.json().catch(() => ({}))
+    return {
+      data: unwrapApiData(raw) as Record<string, unknown>,
+      channelUpdates: parseRegistryChannelUpdates(raw),
+    }
   } catch (e) {
     throw e instanceof Error ? e : new Error(String(e))
   }
