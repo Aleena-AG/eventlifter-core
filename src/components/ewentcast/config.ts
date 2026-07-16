@@ -112,13 +112,13 @@ export const SECTIONS: { key: string; label: string; fields: FieldDef[] }[] = [
     { k: 'visibility', label: 'Visibility', type: 'select', opts: ['Public', 'Unlisted', 'Private', 'Member-only'], on: ALL_CHANNELS },
     { k: 'requireApproval', label: 'Require host approval', type: 'toggle', on: ['hightribe', 'luma'] },
     { k: 'inviteOnly', label: 'Invite only', type: 'toggle', on: ['hightribe', 'eventbrite'] },
-    { k: 'showRemaining', label: 'Show tickets remaining', type: 'toggle', on: ['eventbrite'] },
+    { k: 'showRemaining', label: 'Show tickets remaining', type: 'toggle', on: ['eventbrite', 'hightribe'] },
     { k: 'password', label: 'Access password', hint: 'optional', on: ['eventbrite'] },
+    { k: 'refundPolicy', label: 'Refund policy', type: 'textarea', full: true, placeholder: 'e.g. Full refund up to 7 days before the event', on: ['hightribe', 'eventbrite'] },
+    { k: 'faq', label: 'FAQ', type: 'textarea', full: true, placeholder: 'Parking, dress code, accessibility…', on: ['hightribe', 'eventbrite'] },
   ]},
   { key: 'host', label: 'Host', fields: [
     { k: 'hostName', label: 'Host / organizer', placeholder: 'Your name or organization', on: ALL_CHANNELS },
-    { k: 'refundPolicy', label: 'Refund policy', type: 'textarea', full: true, placeholder: 'e.g. Full refund up to 7 days before the event', on: ['hightribe', 'eventbrite'] },
-    { k: 'faq', label: 'FAQ', type: 'textarea', full: true, placeholder: 'Parking, dress code, accessibility…', on: ['hightribe', 'eventbrite'] },
   ]},
 ]
 

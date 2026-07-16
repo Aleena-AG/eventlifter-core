@@ -2,7 +2,7 @@ import { lumaEventToNorm, unwrapLumaEvent, isLumaDescriptionSentinel } from '@/l
 import { channelFetch } from '@/lib/channel-fetch'
 import { getStoredEvent, type ChannelName } from '@/lib/channel-events-store'
 import { canonicalizeCountry, COUNTRIES } from '@/components/ewentcast/location-data'
-import { extractHightribeTags, extractLumaTags, formatTagsInput } from '@/lib/event-tags'
+import { extractHightribeTags, extractLumaTags, formatTagsInput, coerceTagList, fetchLumaEventTags } from '@/lib/event-tags'
 import {
   hightribeDatesToUtc,
   normalizeTimeZone,
@@ -313,6 +313,8 @@ interface NormEvent {
   onlineUrl?: string
   requireApproval?: boolean
   showRemaining?: boolean
+  waitlist?: boolean
+  inviteOnly?: boolean
   capacity?: number
   status?: string
   visibility?: string
@@ -426,8 +428,8 @@ function normToForm(n: NormEvent): EventFormData {
     if (!sameAsVenue && !venueContains) city = inferred.city
   }
 
-  // Ticket sales window is stored separately from event WHEN, but UI only allows
-  // sales on event days — default blank sales to the event day range.
+  // Ticket sales window is independent of event WHEN — leave blank when unset.
+  // Never default blank sales to event dates (that causes bad Luma/EB ticket API calls).
   const salesStartRaw =
     n.salesStartDate
     || (n.salesStartUtc ? utcParts(n.salesStartUtc, tz).date : '')
@@ -436,12 +438,12 @@ function normToForm(n: NormEvent): EventFormData {
     || (n.salesEndUtc ? utcParts(n.salesEndUtc, tz).date : '')
   const clampSales = (d: string) => {
     if (!d) return d
-    if (d < start.date) return start.date
+    if (start.date && d < start.date) return start.date
     if (end.date && d > end.date) return end.date
     return d
   }
-  const salesStart = clampSales(salesStartRaw) || start.date
-  const salesEnd = clampSales(salesEndRaw) || end.date
+  const salesStart = clampSales(salesStartRaw)
+  const salesEnd = clampSales(salesEndRaw)
 
   return {
     title: n.title,
@@ -449,7 +451,7 @@ function normToForm(n: NormEvent): EventFormData {
     // Never show Luma's ONLY_MD / ONLY_HTML sentinel in the Description field
     description: scrubFormText(n.description),
     coverUrl: n.coverImage || '',
-    category: n.category || 'Music',
+    category: n.category || '',
     tags: formatTagsInput(n.tags),
     date: start.date,
     time: start.time,
@@ -474,11 +476,11 @@ function normToForm(n: NormEvent): EventFormData {
     maxPerOrder: n.maxPerOrder != null ? String(n.maxPerOrder) : '8',
     salesStart,
     salesEnd,
-    waitlist: false,
+    waitlist: n.waitlist === true,
     status: n.status || 'Draft',
     visibility: n.visibility || 'Public',
     requireApproval: !!n.requireApproval,
-    inviteOnly: false,
+    inviteOnly: !!n.inviteOnly,
     showRemaining: n.showRemaining === true,
     password: '',
     hostName: n.hostName || '',
@@ -591,7 +593,12 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
         ?? asBoolish(e._require_approval)
         ?? asBoolish(raw._require_approval)
         ?? false,
-      showRemaining: asBoolish(e._show_remaining) ?? asBoolish(raw._show_remaining) ?? false,
+      showRemaining: asBoolish(ticket?.show_ticket_quantity)
+        ?? asBoolish(e._show_remaining)
+        ?? asBoolish(raw._show_remaining)
+        ?? false,
+      waitlist: asBoolish(e._waitlist) ?? asBoolish(raw._waitlist) ?? false,
+      inviteOnly: asBoolish(e._invite_only) ?? asBoolish(raw._invite_only) ?? false,
       hostName: pickHostName(
         e.host_name, e.organizer_name, e.host, e.organizer,
         raw.host_name, raw.organizer_name, e.user, e.creator,
@@ -616,6 +623,7 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
       htTicketId: ticket?.id != null ? String(ticket.id) : undefined,
       htTicketName: ticket?.name != null ? String(ticket.name) : undefined,
       tags: extractHightribeTags(e, raw),
+      category: optStr(e.category) || optStr(e.event_category) || optStr(raw._category) || undefined,
     }
   }
 
@@ -675,11 +683,13 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
         ?? asBoolish(raw._require_approval)
         ?? false,
       showRemaining: asBoolish(e._show_remaining) ?? asBoolish(raw._show_remaining) ?? false,
+      waitlist: asBoolish(e._waitlist) ?? asBoolish(raw._waitlist) ?? false,
       capacity: typeof e.capacity === 'number' ? e.capacity : undefined,
       status: mapLumaPublishStatus(e, { ...raw, ...e }),
       visibility: mapVisibility(String(e.visibility || raw.visibility || '')),
       hostName: pickHostName(e.host, e.host_name, e.organizer, hosts, e.hosts, raw.host, raw.hosts),
       tags: extractLumaTags({ ...e, ...raw }),
+      category: optStr(e._category) || optStr(raw._category) || optStr(e.category) || undefined,
       ...refundAndFaqFromPayload(e, raw),
       ticketType,
       ticketPrice,
@@ -779,6 +789,7 @@ function normFromPayload(channel: ChannelKey, raw: Record<string, unknown>): Nor
       ?? asBoolish(tc?.show_remaining)
       ?? asBoolish(tc?.display_remaining_quantity)
       ?? false,
+    category: optStr(e.category) || optStr(e._category) || undefined,
     hostName: pickHostName(e.organizer, e.organizer_name, e.host, e.host_name),
     capacity: Number.isFinite(tcQty) && tcQty! > 0 ? tcQty : undefined,
     ...refundAndFaqFromPayload(e),
@@ -867,10 +878,10 @@ function applyTicketToNorm(norm: NormEvent, ticket: Record<string, unknown>, cha
     if (salesStart) norm.salesStartUtc = stripMs(salesStart)
     if (salesEnd) norm.salesEndUtc = stripMs(salesEnd)
     const booking = String(ticket.booking_type || '').toLowerCase()
+    // Only upgrade to approval-required from ticket. Never force Off when
+    // booking_type is "instant" — event-level require_approval may still be on.
     if (booking === 'request' || booking === 'approval' || booking === 'manual') {
       norm.requireApproval = true
-    } else if (booking === 'instant') {
-      norm.requireApproval = false
     }
     const showQty = asBoolish(ticket.show_ticket_quantity)
     if (showQty != null) norm.showRemaining = showQty
@@ -1048,12 +1059,21 @@ function mergeStoredMeta(norm: NormEvent, stored: Awaited<ReturnType<typeof getS
     if (req != null) norm.requireApproval = req
     const show = asBoolish(p._show_remaining)
     if (show != null) norm.showRemaining = show
+    const wait = asBoolish(p._waitlist) ?? asBoolish(p.waitlist)
+    if (wait != null) norm.waitlist = wait
+    const invite = asBoolish(p._invite_only) ?? asBoolish(p.invite_only)
+    if (invite != null) norm.inviteOnly = invite
+    if (!norm.category) {
+      const cat = optStr(p._category) || optStr(p.category)
+      if (cat) norm.category = cat
+    }
   }
   if (!norm.tags?.length && stored.payload && typeof stored.payload === 'object') {
     const p = stored.payload as Record<string, unknown>
+    const fromTags = coerceTagList(p._tags)
     const lumaTags = extractLumaTags(p)
     const htTags = extractHightribeTags(p, p)
-    const merged = lumaTags.length ? lumaTags : htTags
+    const merged = fromTags.length ? fromTags : lumaTags.length ? lumaTags : htTags
     if (merged.length) norm.tags = merged
   }
   if (!norm.ticketType && stored.payload && typeof stored.payload === 'object') {
@@ -1226,6 +1246,8 @@ function mergeNormTextFields(primary: NormEvent, extra: NormEvent) {
   if (!primary.refundPolicy && extra.refundPolicy) primary.refundPolicy = extra.refundPolicy
   if (!primary.faq && extra.faq) primary.faq = extra.faq
   if (!primary.hostName && extra.hostName) primary.hostName = extra.hostName
+  if (!primary.tags?.length && extra.tags?.length) primary.tags = extra.tags
+  if (!primary.category && extra.category) primary.category = extra.category
 }
 
 async function loadNormFromStored(
@@ -1292,28 +1314,30 @@ function apiFormatToForm(fmt: string): string {
   return ''
 }
 
-/** Prefer registry master for category / WHEN / location / ticket sales window. */
+/** Fill blanks from registry master — never overwrite fresher channel values. */
 function applyMasterOverlayToForm(
   form: EventFormData,
   master: import('@/lib/event-registry-types').MasterEventRecord,
 ): EventFormData {
   const next = { ...form }
-  if (master.category) next.category = master.category
-  if (master.capacity) next.capacity = String(master.capacity)
-  if (master.title) next.title = master.title
+  const blank = (v: unknown) => !String(v ?? '').trim()
+
+  if (blank(next.category) && master.category) next.category = master.category
+  if (blank(next.capacity) && master.capacity) next.capacity = String(master.capacity)
+  if (blank(next.title) && master.title) next.title = master.title
 
   const tz = normalizeTimeZone(master.timezone || String(next.timezone || 'UTC'))
-  if (master.timezone) next.timezone = tz
+  if (blank(next.timezone) && master.timezone) next.timezone = tz
 
   const fmt = apiFormatToForm(master.format || '')
-  if (fmt) next.format = fmt
+  if (blank(next.format) && fmt) next.format = fmt
 
-  if (master.startAt) {
+  if (blank(next.date) && master.startAt) {
     const start = utcParts(master.startAt, tz)
     next.date = start.date
     next.time = start.time
   }
-  if (master.endAt) {
+  if (blank(next.endDate) && master.endAt) {
     const end = utcParts(master.endAt, tz)
     next.endDate = end.date
     next.endTime = end.time
@@ -1321,24 +1345,25 @@ function applyMasterOverlayToForm(
 
   const loc = master.location
   if (loc) {
-    if (loc.venue_name) next.venue = loc.venue_name
-    if (loc.city) next.city = loc.city
-    if (loc.country) next.country = canonicalizeCountry(loc.country) || loc.country
-    if (loc.address) next.address = loc.address
-    if (loc.region) next.region = loc.region
-    if (loc.postal_code) next.postal = loc.postal_code
-    if (loc.latitude != null) next.lat = String(loc.latitude)
-    if (loc.longitude != null) next.lng = String(loc.longitude)
+    if (blank(next.venue) && loc.venue_name) next.venue = loc.venue_name
+    if (blank(next.city) && loc.city) next.city = loc.city
+    if (blank(next.country) && loc.country) {
+      next.country = canonicalizeCountry(loc.country) || loc.country
+    }
+    if (blank(next.address) && loc.address) next.address = loc.address
+    if (blank(next.region) && loc.region) next.region = loc.region
+    if (blank(next.postal) && loc.postal_code) next.postal = loc.postal_code
+    if (blank(next.lat) && loc.latitude != null) next.lat = String(loc.latitude)
+    if (blank(next.lng) && loc.longitude != null) next.lng = String(loc.longitude)
   }
 
   const ticket = master.details?.tickets?.[0]
   if (ticket) {
-    // Ticket sales window only — never overwrite event WHEN, and do not clamp
-    // ticket dates to event dates (they are independent sales days).
-    if (ticket.start_date) next.salesStart = ticket.start_date
-    if (ticket.end_date) next.salesEnd = ticket.end_date
-    if (ticket.name) next.htTicketName = ticket.name
-    if (typeof ticket.price === 'number' && Number.isFinite(ticket.price)) {
+    // Only fill sales window when the form has none (do not invent from event WHEN).
+    if (blank(next.salesStart) && ticket.start_date) next.salesStart = ticket.start_date
+    if (blank(next.salesEnd) && ticket.end_date) next.salesEnd = ticket.end_date
+    if (blank(next.htTicketName) && ticket.name) next.htTicketName = ticket.name
+    if (blank(next.price) && typeof ticket.price === 'number' && Number.isFinite(ticket.price)) {
       next.price = String(ticket.price)
       next.ticketType = ticket.price > 0 ? 'Paid' : 'Free'
     }
@@ -1395,17 +1420,29 @@ export async function loadEventFormData(
     )
   }
 
-  // When editing a multi-channel event, fill blank summary/description/place from siblings
-  // (e.g. open via Luma → pull Summary / venue from Eventbrite / Hightribe).
+  // When editing a multi-channel event, fill blank fields from siblings
+  // (e.g. open via Luma → pull Summary / venue / tags from Hightribe).
   for (const ch of (['hightribe', 'eventbrite', 'luma'] as ChannelKey[])) {
     if (ch === loadedFrom) continue
     const sid = ch === channel ? eventId : siblings[ch]
     if (sid == null || sid === '') continue
-    const hasText = !!(norm.summary && norm.description && !isLumaDescriptionSentinel(norm.description))
-    const hasPlace = !!(norm.venueName && (norm.address || norm.city))
-    if (hasText && hasPlace) break
+    const needsText = !(norm.summary && norm.description && !isLumaDescriptionSentinel(norm.description))
+    const needsPlace = !(norm.venueName && (norm.address || norm.city))
+    const needsTags = !(norm.tags && norm.tags.length)
+    const needsCategory = !norm.category
+    const needsHost = !(norm.refundPolicy && norm.faq && norm.hostName)
+    if (!needsText && !needsPlace && !needsTags && !needsCategory && !needsHost) continue
     const extra = await loadNormForChannel(ch, sid)
     if (extra) mergeNormTextFields(norm, extra)
+  }
+
+  // Luma tags live on a separate API — try to load them when still empty.
+  if ((!norm.tags || !norm.tags.length) && (loadedFrom === 'luma' || siblings.luma != null)) {
+    const lumaId = loadedFrom === 'luma' ? loadedId : siblings.luma
+    if (lumaId != null && lumaId !== '') {
+      const lumaTags = await fetchLumaEventTags(lumaId).catch(() => [])
+      if (lumaTags.length) norm.tags = lumaTags
+    }
   }
 
   let form = normToForm(norm)

@@ -6,6 +6,7 @@ import { ALL_CHANNELS, CH_META } from './config'
 import {
   COUNTRIES, citiesForCountry, countryCenter, canonicalizeCountry, type CityInfo,
 } from './location-data'
+import { hasArabicScript, sanitizeDisplayLocation } from '@/lib/display-text'
 
 const GOOGLE_MAPS_KEY =
   process.env.NEXT_PUBLIC_GOOGLE_LOCATION_API_KEY ||
@@ -91,6 +92,7 @@ type GoogleGeocoder = {
       location?: LatLngLiteral
       address?: string
       placeId?: string
+      language?: string
       componentRestrictions?: { country?: string }
     },
     cb: (results: GoogleGeocodeResult[] | null, status: string) => void,
@@ -113,6 +115,7 @@ type GoogleAutocompleteService = {
     req: {
       input: string
       types?: string[]
+      language?: string
       location?: LatLngLiteral
       radius?: number
       componentRestrictions?: { country?: string | string[] }
@@ -123,7 +126,7 @@ type GoogleAutocompleteService = {
 
 type GooglePlacesService = {
   getDetails: (
-    req: { placeId: string; fields?: string[] },
+    req: { placeId: string; fields?: string[]; language?: string },
     cb: (place: GooglePlaceDetails | null, status: string) => void,
   ) => void
 }
@@ -198,9 +201,10 @@ function loadGoogleMaps(): Promise<GoogleMapsApi> {
     script.async = true
     script.defer = true
     // Legacy Places library (AutocompleteService / PlacesService) — does not require Places API (New).
+    // Force English labels — never follow browser locale (avoids Urdu/Arabic place names).
     script.src =
       `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(GOOGLE_MAPS_KEY)}` +
-      '&v=weekly&libraries=places&loading=async&callback=__ewGoogleMapsCb'
+      '&v=weekly&libraries=places&language=en&loading=async&callback=__ewGoogleMapsCb'
     script.onerror = () => reject(new Error('Google Maps failed to load'))
     document.head.appendChild(script)
   })
@@ -459,9 +463,13 @@ export function LocationSection({ ev, setField }: Props) {
   ) => {
     const fillMissingOnly = !!opts?.fillMissingOnly
     const has = (key: keyof EventFormData | string) => !!String(ev[key as string] ?? '').trim()
-    const venueName = (opts?.venueName || '').trim()
+    const venueRaw = (opts?.venueName || '').trim()
+    const venueName = venueRaw && !hasArabicScript(venueRaw) ? venueRaw : ''
     // Search box = place/address only. Venue stays in the Venue name field.
-    const label = opts?.keepQuery?.trim() || readablePlaceLabel(result)
+    const label =
+      sanitizeDisplayLocation(opts?.keepQuery?.trim()) ||
+      sanitizeDisplayLocation(readablePlaceLabel(result)) ||
+      ''
     if (label && !fillMissingOnly) {
       skipSearchRef.current = true
       seededFromEvRef.current = label
@@ -472,7 +480,7 @@ export function LocationSection({ ev, setField }: Props) {
 
     const countryName = componentOf(result, 'country')
     const canonCountry = countryName ? (matchCountry(countryName) || countryName) : country
-    if (countryName && (!fillMissingOnly || !has('country'))) {
+    if (countryName && !hasArabicScript(countryName) && (!fillMissingOnly || !has('country'))) {
       setField('country', canonCountry)
     }
 
@@ -482,13 +490,13 @@ export function LocationSection({ ev, setField }: Props) {
       componentOf(result, 'administrative_area_level_2') ||
       componentOf(result, 'sublocality') ||
       ''
-    if (cityName && (!fillMissingOnly || !has('city'))) {
+    if (cityName && !hasArabicScript(cityName) && (!fillMissingOnly || !has('city'))) {
       setField('city', cityName)
       setCustomCity(!citiesForCountry(canonCountry).some(c => c.name === cityName))
     }
 
     const region = componentOf(result, 'administrative_area_level_1')
-    if (region && (!fillMissingOnly || !has('region'))) setField('region', region)
+    if (region && !hasArabicScript(region) && (!fillMissingOnly || !has('region'))) setField('region', region)
 
     const postal = componentOf(result, 'postal_code')
     if (postal && (!fillMissingOnly || !has('postal'))) setField('postal', postal)
@@ -496,13 +504,14 @@ export function LocationSection({ ev, setField }: Props) {
     const streetNumber = componentOf(result, 'street_number')
     const route = componentOf(result, 'route')
     const street = [streetNumber, route].filter(Boolean).join(' ')
-    if (street && (!fillMissingOnly || !has('address'))) {
+    if (street && !hasArabicScript(street) && (!fillMissingOnly || !has('address'))) {
       setField('address', street)
     } else if (!fillMissingOnly && (cityName || region)) {
       // Avoid leaving a Plus Code in the street field for remote pins
       const currentAddress = String(ev.address || '')
       if (!currentAddress || isPlusCodeText(currentAddress)) {
-        setField('address', [cityName, region].filter(Boolean).join(', '))
+        const fallback = [cityName, region].filter(p => p && !hasArabicScript(p)).join(', ')
+        if (fallback) setField('address', fallback)
       }
     }
   }
@@ -511,7 +520,7 @@ export function LocationSection({ ev, setField }: Props) {
     const geocoder = geocoderRef.current
     if (!geocoder || !googleRef.current) return
     setResolving(true)
-    geocoder.geocode({ location: { lat: la, lng: ln } }, (results, status) => {
+    geocoder.geocode({ location: { lat: la, lng: ln }, language: 'en' }, (results, status) => {
       setResolving(false)
       if (status !== googleRef.current!.maps.GeocoderStatus.OK || !results?.length) return
       const best = pickBestGeocodeResult(results)
@@ -693,6 +702,7 @@ export function LocationSection({ ev, setField }: Props) {
       geocoder.geocode(
         {
           address: trimmed,
+          language: 'en',
           ...(countryCode ? { componentRestrictions: { country: countryCode } } : {}),
         },
         (results, status) => {
@@ -722,7 +732,7 @@ export function LocationSection({ ev, setField }: Props) {
             }
           }
           if (countryCode) {
-            geocoder.geocode({ address: trimmed }, (retryResults, retryStatus) => {
+            geocoder.geocode({ address: trimmed, language: 'en' }, (retryResults, retryStatus) => {
               if (gen !== searchGenRef.current) return
               if (retryStatus !== g.maps.GeocoderStatus.OK || !retryResults?.length) {
                 applyHits([])
@@ -757,6 +767,7 @@ export function LocationSection({ ev, setField }: Props) {
       service.getPlacePredictions(
         {
           input: trimmed,
+          language: 'en',
           ...(countryCode ? { componentRestrictions: { country: countryCode } } : {}),
         },
         (predictions, status) => {
@@ -777,6 +788,7 @@ export function LocationSection({ ev, setField }: Props) {
           service.getPlacePredictions(
             {
               input: trimmed,
+              language: 'en',
               ...(bias ? { location: bias.location, radius: bias.radius } : {}),
             },
             (retryPredictions, retryStatus) => {
@@ -801,7 +813,7 @@ export function LocationSection({ ev, setField }: Props) {
 
     const runServerAutocomplete = async () => {
       try {
-        const params = new URLSearchParams({ q: trimmed })
+        const params = new URLSearchParams({ q: trimmed, language: 'en' })
         if (countryCode) params.set('country', countryCode)
         const res = await fetch(`/api/places/autocomplete?${params}`)
         if (gen !== searchGenRef.current) return
@@ -909,7 +921,7 @@ export function LocationSection({ ev, setField }: Props) {
         if (venueHint) setField('venue', venueHint)
         return
       }
-      geocoder.geocode({ placeId: h.placeId }, (results, status) => {
+      geocoder.geocode({ placeId: h.placeId, language: 'en' }, (results, status) => {
         setResolving(false)
         if (status !== g.maps.GeocoderStatus.OK || !results?.[0]?.geometry?.location) {
           if (venueHint) setField('venue', venueHint)
@@ -935,6 +947,7 @@ export function LocationSection({ ev, setField }: Props) {
       places.getDetails(
         {
           placeId: h.placeId,
+          language: 'en',
           fields: ['name', 'formatted_address', 'geometry', 'address_components', 'types', 'place_id'],
         },
         (place, status) => {

@@ -19,6 +19,7 @@ import { CHANNEL_META } from '@/lib/channels'
 import { encodeEventRef } from '@/lib/event-ref'
 import { listMasterEvents } from '@/lib/event-registry'
 import type { ChannelKey } from '@/lib/types'
+import { displayLocationLabel, sanitizeDisplayLocation } from '@/lib/display-text'
 import './events.css'
 
 const CH_LABELS: Record<ChannelKey, string> = {
@@ -122,8 +123,9 @@ type HtEvent = HtEventListItem
 interface LumaEvent {
   api_id: string; name: string; start_at: string; end_at: string; timezone: string
   url?: string; cover_url?: string
-  geo_address_json?: { full_address?: string; city?: string }
+  geo_address_json?: { full_address?: string; city?: string; description?: string; address?: string }
   meeting_url?: string
+  visibility?: string
 }
 
 // ─── Eventbrite ──────────────────────────────────────────────────────────────
@@ -237,6 +239,7 @@ type RegistryMaster = {
   id: string
   title: string
   channels: Partial<Record<ChannelKey, { eventId: string; url?: string }>>
+  location?: string
 }
 
 const CHANNEL_ORDER: ChannelKey[] = ['hightribe', 'luma', 'eventbrite']
@@ -267,6 +270,7 @@ function titleDateKey(evt: UnifiedEvent): string {
 function mergeMembers(
   members: UnifiedEvent[],
   registryChannels?: Partial<Record<ChannelKey, { eventId: string; url?: string }>>,
+  registryLocation?: string,
 ): GroupedEvent {
   const sorted = [...members].sort((a, b) => {
     // Prefer the channel with more complete data / earlier start
@@ -293,6 +297,8 @@ function mergeMembers(
       const ref = registryChannels[ch]
       if (!ref?.eventId) continue
       if (channelIds[ch] == null) channelIds[ch] = ref.eventId
+      // Registry link means it was published to this channel.
+      if (!channelStatuses[ch]) channelStatuses[ch] = 'published'
       if (!registryUrl && ref.url) registryUrl = ref.url
     }
   }
@@ -303,7 +309,10 @@ function mergeMembers(
   ])
   const channels = CHANNEL_ORDER.filter(ch => channelSet.has(ch))
   const bestImage = members.find(m => m.image)?.image
-  const bestLocation = members.find(m => m.location)?.location
+  const bestLocation =
+    members.find(m => m.location)?.location ||
+    sanitizeDisplayLocation(registryLocation) ||
+    primary.location
   const bestUrl = members.find(m => m.url)?.url
   const lifecycleTags = Array.from(new Set(members.flatMap(m => m.lifecycleTags))) as EventStatusFilter[]
 
@@ -311,7 +320,7 @@ function mergeMembers(
     ...primary,
     key: members.map(m => m.key).join('|'),
     image: bestImage || primary.image,
-    location: bestLocation || primary.location,
+    location: bestLocation,
     url: bestUrl || primary.url || registryUrl,
     channels,
     channelIds,
@@ -356,6 +365,8 @@ function groupUnifiedEvents(
           endMs: 0,
           dateStr: '',
           url: ref.url,
+          status: 'published',
+          location: master.location,
           lifecycleTags: [],
           syncSource: ch,
         })
@@ -369,7 +380,7 @@ function groupUnifiedEvents(
       if (aStored !== bStored) return aStored - bStored
       return (b.sortMs || 0) - (a.sortMs || 0)
     })
-    result.push(mergeMembers(ordered, channelMap))
+    result.push(mergeMembers(ordered, channelMap, master.location))
   }
 
   // 2) Remaining events → group by title + start day (cross-channel publish without registry)
@@ -423,8 +434,25 @@ function htToUnified(evt: HtEvent): UnifiedEvent {
   const startUtc = d?.starts_at || (d?.start_date ? `${d.start_date}T${d.start_time || '00:00'}` : '')
   const endUtc = d?.ends_at || (d?.end_date ? `${d.end_date}T${d.end_time || '23:59:00'}` : '')
   const dateStr = d?.starts_at ? fmtUtc(d.starts_at) : fmt(d?.start_date, d?.start_time)
-  const loc = evt.location
-    ? [evt.location.venue_name, evt.location.city, evt.location.country].filter(Boolean).join(', ')
+  const locRaw = evt.location as
+    | {
+        venue_name?: string
+        location?: string
+        address?: string
+        city?: string
+        country?: string
+        region?: string
+      }
+    | undefined
+  const loc = locRaw
+    ? displayLocationLabel(
+        locRaw.venue_name,
+        locRaw.location,
+        locRaw.address,
+        locRaw.city,
+        locRaw.region,
+        locRaw.country,
+      )
     : undefined
   const sortMs = parseMs(startUtc)
   const endMs = parseMs(endUtc)
@@ -459,6 +487,12 @@ function htToUnified(evt: HtEvent): UnifiedEvent {
 function lumaToUnified(evt: LumaEvent): UnifiedEvent {
   const sortMs = parseMs(evt.start_at)
   const endMs = parseMs(evt.end_at)
+  // Luma hosted events are live once listed; treat private/hidden as draft.
+  const visibility = String(evt.visibility || '').toLowerCase()
+  const status =
+    visibility === 'private' || visibility === 'hidden' || visibility === 'members-only'
+      ? 'draft'
+      : 'published'
   return {
     key: `luma-${evt.api_id}`,
     channel: 'luma',
@@ -468,9 +502,15 @@ function lumaToUnified(evt: LumaEvent): UnifiedEvent {
     endMs,
     dateStr: fmtUtc(evt.start_at),
     image: evt.cover_url,
-    location: evt.geo_address_json?.full_address || evt.geo_address_json?.city,
+    location: sanitizeDisplayLocation(
+      evt.geo_address_json?.full_address
+        || evt.geo_address_json?.address
+        || evt.geo_address_json?.description
+        || evt.geo_address_json?.city,
+    ),
     url: evt.url,
-    lifecycleTags: getLifecycleTags(sortMs, endMs),
+    status,
+    lifecycleTags: getLifecycleTags(sortMs, endMs, status),
     syncSource: 'luma',
   }
 }
@@ -793,6 +833,13 @@ export default function EventsPage() {
           id: m.id,
           title: m.title,
           channels: m.channels || {},
+          location: displayLocationLabel(
+            m.location?.venue_name,
+            m.location?.address,
+            m.location?.city,
+            m.location?.region,
+            m.location?.country,
+          ),
         })),
       )
     } catch {

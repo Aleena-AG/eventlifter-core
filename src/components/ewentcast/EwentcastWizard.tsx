@@ -248,8 +248,7 @@ export function EwentcastWizard({
     setSaving(true)
     setSaveError(null)
     try {
-      // Registry PATCH (when master + channelRefs exist) pushes HT + Luma + EB.
-      // Falls back to HT PUT (also propagates) or per-channel updates.
+      // Full per-channel update (registry master sync is best-effort inside).
       const results = await updateChannelEventsAll(ev, editTargets, coverFiles)
       const succeeded = editTargetChannels.filter((ch) => results[ch]?.ok)
       const failed = editTargetChannels
@@ -262,6 +261,25 @@ export function EwentcastWizard({
           .map((r) => `${CH_META[r.ch].name}: ${r.message || 'Update failed'}`)
           .join(' · ')
         throw new Error(msg || 'Save failed')
+      }
+
+      // Persist successful channel snapshots even when some channels failed.
+      await Promise.all(
+        succeeded.map((ch) => {
+          const id = editTargets[ch]
+          if (id == null || id === '') return Promise.resolve()
+          return upsertLocalEventSnapshot(ch, ev, { eventId: String(id) }).catch(() => {})
+        }),
+      )
+
+      // Partial failure — keep modal open so the user can retry the failed ones.
+      if (failed.length > 0) {
+        const msg = failed
+          .map((r) => `${CH_META[r.ch].name}: ${r.message || 'Update failed'}`)
+          .join(' · ')
+        throw new Error(
+          `Saved on ${succeeded.map((ch) => CH_META[ch].name).join(', ')}. Failed: ${msg}`,
+        )
       }
 
       // Keep masterId in state when we can resolve it (for later propagate / publish).
@@ -286,13 +304,6 @@ export function EwentcastWizard({
       // Persist the form we just saved first, then refresh from channel APIs.
       // Doing refresh first wiped venue/location when a channel omitted them.
       void (async () => {
-        await Promise.all(
-          succeeded.map((ch) => {
-            const id = editTargets[ch]
-            if (id == null || id === '') return Promise.resolve()
-            return upsertLocalEventSnapshot(ch, ev, { eventId: String(id) }).catch(() => {})
-          }),
-        )
         await refreshStoredEventsForChannels(okTargets).catch(() => {})
         // Re-apply our saved form on top of whatever the live APIs returned
         await Promise.all(
@@ -420,10 +431,13 @@ export function EwentcastWizard({
         />
       )
     } else if (f.type === 'select') {
+      const current = String(v ?? '')
+      const opts = f.opts || []
+      const options = current && !opts.includes(current) ? [current, ...opts] : opts
       ctrl = (
-        <select value={String(v ?? '')} onChange={e => setField(f.k, e.target.value)}>
+        <select value={current} onChange={e => setField(f.k, e.target.value)}>
           <option value="">Select…</option>
-          {(f.opts || []).map(o => <option key={o} value={o}>{o}</option>)}
+          {options.map(o => <option key={o} value={o}>{o}</option>)}
         </select>
       )
     } else if (f.type === 'timezone') {

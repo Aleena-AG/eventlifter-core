@@ -9,8 +9,9 @@ export interface DbLumaEvent {
   timezone: string
   url?: string
   cover_url?: string
-  geo_address_json?: { full_address?: string; city?: string }
+  geo_address_json?: { full_address?: string; city?: string; description?: string; address?: string }
   meeting_url?: string
+  visibility?: string
 }
 
 export interface DbEbEvent {
@@ -60,6 +61,7 @@ export function storedToLumaEvent(row: StoredChannelEvent): DbLumaEvent {
     cover_url: row.cover_url || String(event.cover_url || p.cover_url || '') || undefined,
     geo_address_json: geo as DbLumaEvent['geo_address_json'],
     meeting_url: String(event.meeting_url || p.meeting_url || '') || undefined,
+    visibility: String(event.visibility || p.visibility || '') || undefined,
   }
 }
 

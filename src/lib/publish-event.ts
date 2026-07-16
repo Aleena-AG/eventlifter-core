@@ -13,9 +13,11 @@ import {
   resolveCoverFileForHt,
   resolveCoverUrl,
   resolveLumaCoverUrl,
+  isLumaCdnUrl,
   type EventCoverFiles,
 } from '@/lib/cover-image'
 import { hightribeEventPublicUrl } from '@/lib/hightribe-url'
+import { buildPlaceAddressLine } from '@/lib/display-text'
 
 export type EventFormData = Record<string, string | boolean>
 
@@ -260,6 +262,23 @@ async function syncEventbritePublishState(
   ev: EventFormData,
 ): Promise<void> {
   const wantLive = ebPublishStatus(ev) === 'live'
+
+  // Skip publish/unpublish when Eventbrite is already in the desired state.
+  try {
+    const curRes = await channelFetch(`/api/eventbrite/events/${eventId}`)
+    if (curRes.ok) {
+      const cur = await curRes.json() as { status?: string }
+      const st = String(cur.status || '').toLowerCase()
+      const isLive = st === 'live' || st === 'started' || st === 'ended' || st === 'completed'
+      const isDraft = st === 'draft' || st === 'canceled' || st === 'cancelled'
+      if (wantLive && isLive) return
+      if (!wantLive && isDraft) return
+      // Unknown status — still attempt transition below.
+    }
+  } catch {
+    // fall through to publish/unpublish
+  }
+
   const path = wantLive
     ? `/api/eventbrite/events/${eventId}/publish/`
     : `/api/eventbrite/events/${eventId}/unpublish/`
@@ -269,9 +288,19 @@ async function syncEventbritePublishState(
       headers: { 'Content-Type': 'application/json' },
       body: '{}',
     })
-    // Draft→live needs publish; live→draft needs unpublish. Ignore 400 when
-    // already in the target state (EB returns errors like "already published").
     if (res.ok || res.status === 400) return
+    // Backend may return 409/422 with "already published" — treat as success.
+    try {
+      const data = await res.clone().json() as {
+        message?: string
+        error?: string
+        error_description?: string
+      }
+      const msg = `${data.message || ''} ${data.error || ''} ${data.error_description || ''}`.toLowerCase()
+      if (/already published|already unpublished|already live|deleted/.test(msg)) return
+    } catch {
+      // ignore parse errors
+    }
   } catch {
     // best-effort — event fields still updated
   }
@@ -280,11 +309,15 @@ async function syncEventbritePublishState(
 /** Access toggles we always persist locally so edit form round-trips even when a channel API omits them. */
 function accessPersistFields(ev: EventFormData): Record<string, unknown> {
   const publish = htPublishStatus(ev)
+  const category = String(ev.category || '').trim()
   return {
     _publish_status: publish,
     _require_approval: !!ev.requireApproval,
     _show_remaining: !!ev.showRemaining,
+    _waitlist: !!ev.waitlist,
+    _invite_only: !!ev.inviteOnly,
     require_rsvp_approval: !!ev.requireApproval,
+    ...(category ? { _category: category, category } : {}),
   }
 }
 
@@ -335,6 +368,10 @@ function buildHightribeEventBody(
   if (tagList.length) {
     body.highlights = tagList
   }
+  const category = String(ev.category || '').trim()
+  if (category) {
+    body.category = category
+  }
   const refundPolicy = String(ev.refundPolicy || '').trim()
   const faq = String(ev.faq || '').trim()
   const policies = [refundPolicy, ...(faq ? faq.split(/\n\n+/).map(s => s.trim()).filter(Boolean) : [])]
@@ -351,17 +388,22 @@ function buildHightribeEventBody(
       online_url: ev.onlineUrl || undefined,
     }
   } else if (inPerson) {
+    const venue = String(ev.venue || '').trim()
+    const street = String(ev.address || '').trim()
+    const city = String(ev.city || '').trim()
+    const country = String(ev.country || '').trim()
+    // Keep fields distinct — don't copy the same full address into location + venue + address.
     body.location = {
       type: 'physical',
-      location: String(ev.venue || ev.address || 'TBD'),
-      venue_name: String(ev.venue || '') || undefined,
-      address: String(ev.address || ev.venue || 'TBD'),
-      city: String(ev.city || '') || undefined,
+      location: venue || street || city || 'TBD',
+      venue_name: venue || undefined,
+      address: street || venue || 'TBD',
+      city: city || undefined,
       region: String(ev.region || '') || undefined,
       state: String(ev.region || '') || undefined,
       postal: String(ev.postal || '') || undefined,
       postal_code: String(ev.postal || '') || undefined,
-      country: String(ev.country || '') || undefined,
+      country: country || undefined,
       lat: ev.lat ? parseFloat(String(ev.lat)) : undefined,
       lng: ev.lng ? parseFloat(String(ev.lng)) : undefined,
     }
@@ -370,12 +412,22 @@ function buildHightribeEventBody(
 }
 
 /**
- * Backend Hightribe proxies require settings.hightribe.apiKey.
- * Local ht_link_token alone is not enough — persist it via PUT /api/v1/settings first.
+ * Backend Hightribe proxies use settings.hightribe.apiKey (Ewentcast JWT).
+ * Prefer server `configured === true` (same as Settings UI). If only a local
+ * ht_link_token exists, persist it via PUT /api/v1/settings first.
  */
 async function ensureHightribeSettingsApiKey(): Promise<void> {
+  const { getSettings } = await import('@/lib/api')
+  const { isHightribeConnected } = await import('@/lib/channel-connection')
   const { connectHightribeChannel } = await import('@/lib/channel-connect')
   const { getHtLinkToken, resolveHtApiAuthHeader } = await import('@/lib/ewentcast-session')
+
+  try {
+    const settings = (await getSettings()) as Parameters<typeof isHightribeConnected>[0]
+    if (isHightribeConnected(settings)) return
+  } catch {
+    // Fall through and try local token → settings persist.
+  }
 
   let token = String(getHtLinkToken() || '').trim()
   if (!token) {
@@ -774,8 +826,7 @@ export async function publishToChannel(
       body.geo_address_json = {
         type: 'manual',
         description: String(ev.venue || '') || undefined,
-        address: [ev.address, ev.city, ev.region, ev.postal, ev.country].filter(Boolean).join(', ')
-          || [ev.venue, ev.address, ev.city].filter(Boolean).join(', '),
+        address: buildPlaceAddressLine(ev) || String(ev.address || ev.city || '') || undefined,
         city: ev.city || undefined,
         region: ev.region || undefined,
         postal: ev.postal || undefined,
@@ -937,14 +988,26 @@ export async function updateChannelEvent(
   const startUtc = toIso(String(ev.date), String(ev.time), tz)
   const endUtc = toIso(String(ev.endDate || ev.date), String(ev.endTime || ev.time), tz)
   const coverUrl = String(ev.coverUrl || '')
+  // On edit: only touch cover when the user uploaded a new file, or Luma already
+  // has a lumacdn URL we can keep. Do not call /api/cover/fetch for existing HT/EB URLs.
   const htCoverFile = ch === 'hightribe' ? (files?.cover ?? undefined) : undefined
-  const publicCoverUrl = ch === 'luma'
-    ? await resolveLumaCoverUrl(coverUrl, files?.cover)
-    : ch === 'eventbrite'
-      ? await resolveCoverUrl(coverUrl, files?.cover)
-      : undefined
+  let publicCoverUrl: string | undefined
+  if (ch === 'luma') {
+    if (files?.cover) {
+      publicCoverUrl = await resolveLumaCoverUrl(coverUrl, files.cover)
+    } else if (isLumaCdnUrl(coverUrl)) {
+      publicCoverUrl = coverUrl.trim()
+    }
+  } else if (ch === 'eventbrite') {
+    if (files?.cover) {
+      publicCoverUrl = await resolveCoverUrl(coverUrl, files.cover)
+    } else if (/^https?:\/\//i.test(coverUrl.trim())) {
+      publicCoverUrl = coverUrl.trim()
+    }
+  }
 
   if (ch === 'hightribe') {
+    await ensureHightribeSettingsApiKey()
     const body = buildHightribeEventBody(ev, online, inPerson, tz, startUtc, endUtc)
     const ticketBundle = buildHightribeTicketsFromForm(ev)
     if (ticketBundle.tickets) {
@@ -980,7 +1043,7 @@ export async function updateChannelEvent(
       end_at: endUtc,
       timezone: tz,
       ...(lumaDesc ? { description_md: lumaDesc } : {}),
-      cover_url: publicCoverUrl || undefined,
+      ...(publicCoverUrl ? { cover_url: publicCoverUrl } : {}),
       require_rsvp_approval: !!ev.requireApproval,
       capacity: ev.capacity ? parseInt(String(ev.capacity)) : undefined,
       visibility: String(ev.visibility || 'Public').toLowerCase() === 'public' ? 'public' : 'private',
@@ -995,8 +1058,7 @@ export async function updateChannelEvent(
       body.geo_address_json = {
         type: 'manual',
         description: String(ev.venue || '') || undefined,
-        address: [ev.address, ev.city, ev.region, ev.postal, ev.country].filter(Boolean).join(', ')
-          || [ev.venue, ev.address, ev.city].filter(Boolean).join(', '),
+        address: buildPlaceAddressLine(ev) || String(ev.address || ev.city || '') || undefined,
         city: ev.city || undefined,
         region: ev.region || undefined,
         postal: ev.postal || undefined,
@@ -1152,17 +1214,8 @@ export async function updateChannelEventsAll(
   )
   if (channels.length === 0) return results
 
-  const applyUpdates = (
-    updates: Partial<Record<ChannelKey, { ok: boolean; message?: string }>>,
-    assumeOkIfMissing = false,
-  ) => {
-    for (const ch of channels) {
-      if (updates[ch]) results[ch] = updates[ch]
-      else if (assumeOkIfMissing && results[ch] == null) results[ch] = { ok: true }
-    }
-  }
-
-  // 1) Prefer PATCH /registry/:id — master save + push to every linked channel.
+  // Keep registry master in sync (best-effort). Registry PATCH only carries a
+  // subset of fields — never treat it as a full substitute for channel updates.
   try {
     const { findMasterByChannelEvent } = await import('@/lib/event-registry')
     const {
@@ -1179,79 +1232,15 @@ export async function updateChannelEventsAll(
 
     if (master?.id) {
       const write = buildRegistryMasterWriteFromForm(ev as unknown as Record<string, unknown>)
-      // Ensure all edit targets are linked — without channelRefs only one channel updates.
       write.channelRefs = buildChannelRefsFromTargets(targets, master.channels)
-      const { channelUpdates } = await updateRegistryMaster(master.id, write)
-      const mapped: Partial<Record<ChannelKey, { ok: boolean; message?: string }>> = {}
-      for (const [key, u] of Object.entries(channelUpdates)) {
-        mapped[key as ChannelKey] = { ok: u.ok, message: u.message }
-      }
-      applyUpdates(mapped, true)
-
-      // Cover file still needs a channel upload (registry PATCH is JSON-only).
-      if (files?.cover) {
-        const coverChannels = (['hightribe', 'luma', 'eventbrite'] as ChannelKey[]).filter(
-          (ch) => targets[ch] != null && (ch === 'hightribe' || files.cover),
-        )
-        // Prefer HT for cover when linked — its PUT also re-pushes siblings.
-        const coverOrder: ChannelKey[] = targets.hightribe
-          ? ['hightribe']
-          : coverChannels
-        for (const ch of coverOrder) {
-          try {
-            const extra = await updateChannelEvent(ch, targets[ch]!, ev, files)
-            results[ch] = { ok: true }
-            if (extra) applyUpdates(extra, false)
-          } catch (err) {
-            results[ch] = {
-              ok: false,
-              message: err instanceof Error ? err.message : String(err),
-            }
-          }
-        }
-      }
-
-      return results
+      await updateRegistryMaster(master.id, write)
     }
   } catch {
-    // Fall through to channel APIs.
+    // Registry optional — channel APIs below are authoritative for edit.
   }
 
-  // 2) No master (or registry failed): HT PUT propagates to linked Luma/EB when refs exist.
-  if (targets.hightribe != null && targets.hightribe !== '') {
-    try {
-      const extra = await updateChannelEvent('hightribe', targets.hightribe, ev, files)
-      results.hightribe = { ok: true }
-      if (extra && Object.keys(extra).length > 0) {
-        applyUpdates(extra, false)
-      } else {
-        // HT succeeded and may have pushed siblings — mark linked targets ok.
-        applyUpdates({}, true)
-      }
-    } catch (err) {
-      results.hightribe = {
-        ok: false,
-        message: err instanceof Error ? err.message : String(err),
-      }
-    }
-
-    // Fill any remaining targets that weren't covered by HT propagate.
-    for (const ch of channels) {
-      if (ch === 'hightribe' || results[ch]) continue
-      try {
-        await updateChannelEvent(ch, targets[ch]!, ev, files)
-        results[ch] = { ok: true }
-      } catch (err) {
-        results[ch] = {
-          ok: false,
-          message: err instanceof Error ? err.message : String(err),
-        }
-      }
-    }
-    return results
-  }
-
-  // 3) Classic per-channel updates (Luma / Eventbrite only).
+  // Always push the full form to each channel API (description, tags, access,
+  // refund/FAQ, tickets, etc. are not covered by the registry write).
   for (const ch of channels) {
     try {
       await updateChannelEvent(ch, targets[ch]!, ev, files)
@@ -1311,6 +1300,7 @@ async function persistPublishedEvent(
   if (ch === 'luma') {
     const url = ref.url ? (/^https?:\/\//i.test(ref.url) ? ref.url : `https://${ref.url}`) : ''
     const lumaDesc = String(ev.description || '').trim()
+    const tagList = parseTagsInput(ev.tags)
     raw = {
       api_id: ref.eventId,
       name: ev.title,
@@ -1325,13 +1315,14 @@ async function persistPublishedEvent(
       visibility: String(ev.visibility || 'Public').toLowerCase() === 'public' ? 'public' : 'private',
       host: hostName || undefined,
       ...hostExtras,
+      ...(tagList.length ? { _tags: tagList, tags: tagList } : {}),
       require_rsvp_approval: !!ev.requireApproval,
       meeting_url: online ? (ev.onlineUrl || undefined) : undefined,
       ...(inPerson && hasPlace ? {
         geo_address_json: {
           type: 'manual',
           description: String(ev.venue || '') || undefined,
-          address: [ev.venue, ev.address, ev.city, ev.region, ev.postal, ev.country].filter(Boolean).join(', '),
+          address: buildPlaceAddressLine(ev) || String(ev.address || ev.city || '') || undefined,
           city: ev.city || undefined,
           region: ev.region || undefined,
           postal: ev.postal || undefined,
@@ -1383,6 +1374,7 @@ async function persistPublishedEvent(
   } else {
     const htSummary = String(ev.summary || '').trim()
     const htDesc = String(ev.description || '').trim()
+    const tagList = parseTagsInput(ev.tags)
     raw = {
       id: ref.eventId,
       title: ev.title,
@@ -1398,6 +1390,8 @@ async function persistPublishedEvent(
       require_approval: !!ev.requireApproval,
       host_name: hostName || undefined,
       organizer_name: hostName || undefined,
+      ...hostExtras,
+      ...(tagList.length ? { highlights: tagList, tags: tagList, _tags: tagList } : {}),
       ...(() => {
         const refundPolicy = String(ev.refundPolicy || '').trim()
         const faq = String(ev.faq || '').trim()
@@ -1415,15 +1409,15 @@ async function persistPublishedEvent(
         : inPerson && hasPlace
           ? {
               type: 'physical',
-              location: String(ev.venue || ev.address || 'TBD'),
+              location: String(ev.venue || ev.address || ev.city || 'TBD'),
               venue_name: String(ev.venue || '') || undefined,
               address: String(ev.address || ev.venue || 'TBD'),
-              city: String(ev.city || '') || undefined,
-              region: String(ev.region || '') || undefined,
-              state: String(ev.region || '') || undefined,
-              postal: String(ev.postal || '') || undefined,
-              postal_code: String(ev.postal || '') || undefined,
-              country: String(ev.country || '') || undefined,
+              city: ev.city || undefined,
+              region: ev.region || undefined,
+              state: ev.region || undefined,
+              postal: ev.postal || undefined,
+              postal_code: ev.postal || undefined,
+              country: ev.country || undefined,
               lat: Number.isFinite(lat) ? lat : undefined,
               lng: Number.isFinite(lng) ? lng : undefined,
             }

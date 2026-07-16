@@ -15,6 +15,7 @@ import {
 import type { ChannelKey } from '@/lib/types'
 import { CHANNEL_KEYS } from '@/lib/channels'
 import { hightribeDatesToUtc } from '@/lib/event-datetime'
+import { sanitizeDisplayLocation, displayLocationLabel } from '@/lib/display-text'
 
 export interface EventTicketType {
   id: string
@@ -362,21 +363,24 @@ function venueFromPayload(channel: ChannelKey, payload: Record<string, unknown>)
     const root = asRecord(payload.data) || payload
     const loc = asRecord(root.location) || asRecord(payload.location)
     if (!loc) return null
-    const parts = [loc.venue_name || loc.location, loc.address, loc.city, loc.country]
-      .map((p) => (p != null ? String(p).trim() : ''))
-      .filter(Boolean)
-    return parts.length ? parts.join(', ') : null
+    return displayLocationLabel(
+      loc.venue_name != null ? String(loc.venue_name) : undefined,
+      loc.location != null ? String(loc.location) : undefined,
+      loc.address != null ? String(loc.address) : undefined,
+      loc.city != null ? String(loc.city) : undefined,
+      loc.country != null ? String(loc.country) : undefined,
+    ) || null
   }
   if (channel === 'eventbrite') {
     const venue = asRecord(payload.venue)
     const addr = asRecord(venue?.address)
     const name = venue?.name != null ? String(venue.name).trim() : ''
     const line =
-      (addr?.localized_address_display != null && String(addr.localized_address_display)) ||
       (addr?.address_1 != null && String(addr.address_1)) ||
+      (addr?.localized_address_display != null && String(addr.localized_address_display)) ||
       ''
-    if (name && line) return `${name} · ${line}`
-    return name || line || null
+    const combined = name && line ? `${name} · ${line}` : name || line || null
+    return sanitizeDisplayLocation(combined) || null
   }
   if (channel === 'luma') {
     const event = asRecord(payload.event) || payload
@@ -387,7 +391,7 @@ function venueFromPayload(channel: ChannelKey, payload: Record<string, unknown>)
     ]
       .map((p) => (p != null ? String(p).trim() : ''))
       .filter(Boolean)
-    return parts.length ? parts.join(' · ') : null
+    return sanitizeDisplayLocation(parts.length ? parts.join(' · ') : null) || null
   }
   return null
 }
