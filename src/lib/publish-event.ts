@@ -450,6 +450,21 @@ function isHightribeNotConnectedError(message: string): boolean {
   return /hightribe not connected|set api token|connect hightribe/i.test(message)
 }
 
+function extractHtCoverUrl(data?: Record<string, unknown> | null): string | undefined {
+  if (!data) return undefined
+  const direct = String(data.cover_image || data.cover_url || '').trim()
+  if (direct && /^https?:\/\//i.test(direct)) return direct
+  const ratios = data.cover_image_aspect_ratio
+  if (Array.isArray(ratios)) {
+    for (const item of ratios) {
+      if (!item || typeof item !== 'object') continue
+      const img = String((item as { image?: unknown }).image || '').trim()
+      if (img && /^https?:\/\//i.test(img)) return img
+    }
+  }
+  return undefined
+}
+
 async function publishHightribeChannel(
   ev: EventFormData,
   online: boolean,
@@ -459,7 +474,7 @@ async function publishHightribeChannel(
   endUtc: string,
   cap: number,
   htCoverFile?: File,
-): Promise<{ eventId: string; ticketId?: string; url?: string }> {
+): Promise<{ eventId: string; ticketId?: string; url?: string; coverUrl?: string }> {
   await ensureHightribeSettingsApiKey()
 
   const body = buildHightribeEventBody(ev, online, inPerson, tz, startUtc, endUtc)
@@ -467,10 +482,11 @@ async function publishHightribeChannel(
   const withUrl = (
     eventId: string,
     ticketId?: string,
-    apiMeta?: { url?: string; slug?: string },
+    apiMeta?: { url?: string; slug?: string; coverUrl?: string },
   ) => ({
     eventId,
     ...(ticketId ? { ticketId } : {}),
+    ...(apiMeta?.coverUrl ? { coverUrl: apiMeta.coverUrl } : {}),
     url: hightribeEventPublicUrl({
       title: String(ev.title || ''),
       slug: apiMeta?.slug,
@@ -482,7 +498,7 @@ async function publishHightribeChannel(
     const bundled = { ...body, ...ticketBundle }
     const res = await postHtEvent('/api/hightribe/events/with-tickets', bundled, 'POST', htCoverFile)
     const data = await res.json() as {
-      data?: { id?: unknown; slug?: string; tickets?: Array<{ id?: unknown }>; url?: string; share_url?: string }
+      data?: Record<string, unknown> & { id?: unknown; slug?: string; tickets?: Array<{ id?: unknown }>; url?: string; share_url?: string }
       message?: string
       errors?: Record<string, string[]>
     }
@@ -493,7 +509,11 @@ async function publishHightribeChannel(
       const apiUrl = String(data.data?.url || data.data?.share_url || '').trim()
       const slug = String(data.data?.slug || '').trim()
       return {
-        ...withUrl(id, ticketId || undefined, { url: apiUrl || undefined, slug: slug || undefined }),
+        ...withUrl(id, ticketId || undefined, {
+          url: apiUrl || undefined,
+          slug: slug || undefined,
+          coverUrl: extractHtCoverUrl(data.data),
+        }),
       }
     }
 
@@ -507,7 +527,7 @@ async function publishHightribeChannel(
     // Some HT API hosts don't support with-tickets yet — create event then sync tickets.
     const eventRes = await postHtEvent('/api/hightribe/events', body, 'POST', htCoverFile)
     const eventData = await eventRes.json() as {
-      data?: { id?: unknown; slug?: string; url?: string; share_url?: string }
+      data?: Record<string, unknown> & { id?: unknown; slug?: string; url?: string; share_url?: string }
       message?: string
       errors?: Record<string, string[]>
     }
@@ -519,13 +539,17 @@ async function publishHightribeChannel(
     const apiUrl = String(eventData.data?.url || eventData.data?.share_url || '').trim()
     const slug = String(eventData.data?.slug || '').trim()
     return {
-      ...withUrl(eventId, ids[0] || undefined, { url: apiUrl || undefined, slug: slug || undefined }),
+      ...withUrl(eventId, ids[0] || undefined, {
+        url: apiUrl || undefined,
+        slug: slug || undefined,
+        coverUrl: extractHtCoverUrl(eventData.data),
+      }),
     }
   }
 
   const res = await postHtEvent('/api/hightribe/events', body, 'POST', htCoverFile)
   const data = await res.json() as {
-    data?: { id?: unknown; slug?: string; url?: string; share_url?: string }
+    data?: Record<string, unknown> & { id?: unknown; slug?: string; url?: string; share_url?: string }
     message?: string
     errors?: Record<string, string[]>
   }
@@ -535,7 +559,11 @@ async function publishHightribeChannel(
   const apiUrl = String(data.data?.url || data.data?.share_url || '').trim()
   const slug = String(data.data?.slug || '').trim()
   return {
-    ...withUrl(eventId, undefined, { url: apiUrl || undefined, slug: slug || undefined }),
+    ...withUrl(eventId, undefined, {
+      url: apiUrl || undefined,
+      slug: slug || undefined,
+      coverUrl: extractHtCoverUrl(data.data),
+    }),
   }
 }
 
@@ -780,7 +808,7 @@ export async function publishToChannel(
   ch: ChannelKey,
   ev: EventFormData,
   files?: EventCoverFiles,
-): Promise<{ eventId: string; ticketId?: string; url?: string }> {
+): Promise<{ eventId: string; ticketId?: string; url?: string; coverUrl?: string }> {
   const fmt = String(ev.format || 'In person')
   const online = isOnline(fmt)
   const inPerson = isInPerson(fmt)
@@ -798,6 +826,19 @@ export async function publishToChannel(
 
   if (ch === 'hightribe') {
     const published = await publishHightribeChannel(ev, online, inPerson, tz, startUtc, endUtc, cap, htCoverFile)
+    // Create responses sometimes omit cover_image even when upload succeeded — fetch once.
+    if (!published.coverUrl && htCoverFile && published.eventId) {
+      try {
+        const getRes = await channelFetch(`/api/hightribe/events/${published.eventId}`)
+        if (getRes.ok) {
+          const getRaw = await getRes.json() as { data?: Record<string, unknown> }
+          const cover = extractHtCoverUrl(getRaw.data || (getRaw as Record<string, unknown>))
+          if (cover) return { ...published, coverUrl: cover }
+        }
+      } catch {
+        // best-effort
+      }
+    }
     return published
   }
 
@@ -877,7 +918,14 @@ export async function publishToChannel(
       lumaUrl = `https://${lumaUrl.replace(/^\/\//, '')}`
     }
     // Never store lu.ma/{api_id} — that is not a valid public page.
-    return { eventId, ticketId, url: lumaUrl || undefined }
+    return {
+      eventId,
+      ticketId,
+      url: lumaUrl || undefined,
+      coverUrl: publicCoverUrl
+        || String(unwrapped.cover_url || '').trim()
+        || undefined,
+    }
   }
 
   // Eventbrite — resolve org, then create
@@ -972,7 +1020,12 @@ export async function publishToChannel(
 
   await syncEventbritePublishState(eventId, ev)
 
-  return { eventId, ticketId: tcData.id, url: `eventbrite.com/e/${eventId}` }
+  return {
+    eventId,
+    ticketId: tcData.id,
+    url: `eventbrite.com/e/${eventId}`,
+    ...(publicCoverUrl ? { coverUrl: publicCoverUrl } : {}),
+  }
 }
 
 export async function updateChannelEvent(
@@ -1264,7 +1317,7 @@ export async function updateChannelEventsAll(
 export async function upsertLocalEventSnapshot(
   ch: ChannelKey,
   ev: EventFormData,
-  ref: { eventId: string; url?: string },
+  ref: { eventId: string; url?: string; coverUrl?: string },
 ): Promise<void> {
   return persistPublishedEvent(ch, ev, ref)
 }
@@ -1272,13 +1325,16 @@ export async function upsertLocalEventSnapshot(
 async function persistPublishedEvent(
   ch: ChannelKey,
   ev: EventFormData,
-  ref: { eventId: string; url?: string },
+  ref: { eventId: string; url?: string; coverUrl?: string },
 ): Promise<void> {
   if (!ref.eventId) return
   const tz = normalizeTimeZone(String(ev.timezone || 'UTC'))
   const startUtc = toIso(String(ev.date), String(ev.time), tz)
   const endUtc = toIso(String(ev.endDate || ev.date), String(ev.endTime || ev.time), tz)
-  const cover = String(ev.coverUrl || '')
+  // Never persist blob: previews — they die when the tab closes / URL is revoked.
+  const formCover = String(ev.coverUrl || '').trim()
+  const cover = String(ref.coverUrl || '').trim()
+    || (/^https?:\/\//i.test(formCover) ? formCover : '')
 
   let raw: Record<string, unknown>
   const htStatus = htPublishStatus(ev)
@@ -1383,7 +1439,7 @@ async function persistPublishedEvent(
       dates: { starts_at: startUtc, ends_at: endUtc, timezone: tz },
       timezone: tz,
       url: ref.url || hightribeEventPublicUrl({ title: String(ev.title || '') }),
-      cover_url: cover,
+      ...(cover ? { cover_url: cover, cover_image: cover } : {}),
       status: htStatus,
       publish_status: htStatus,
       is_public: htIsPublic(ev),
@@ -1432,12 +1488,21 @@ async function persistPublishedEvent(
   }
 }
 
-export type PublishResults = Partial<Record<ChannelKey, {
+export type PublishChannelResult = {
   status: 'synced' | 'error'
   url?: string
   message?: string
   eventId?: string
-}>>
+  coverUrl?: string
+}
+
+export type PublishResults = Partial<Record<ChannelKey, PublishChannelResult>>
+
+export type PublishProgressCallbacks = {
+  onMasterReady?: (masterId: string) => void
+  onChannelStart?: (ch: ChannelKey) => void
+  onChannelComplete?: (ch: ChannelKey, result: PublishChannelResult) => void
+}
 
 /**
  * Publish order (channel APIs — not events/:channel/sync):
@@ -1455,6 +1520,7 @@ export async function publishToAllChannels(
   targets: ChannelKey[],
   files?: EventCoverFiles,
   existingMasterId?: string,
+  callbacks?: PublishProgressCallbacks,
 ): Promise<{ masterId: string; results: PublishResults }> {
   const results: PublishResults = {}
   const {
@@ -1478,16 +1544,23 @@ export async function publishToAllChannels(
   } else {
     await updateRegistryMaster(masterId, masterWrite).catch(() => {})
   }
+  callbacks?.onMasterReady?.(masterId)
 
   // 2) Create/publish on each connected channel via that channel's API
   // 3) Link each successful create back onto the master
   for (const ch of targets) {
+    callbacks?.onChannelStart?.(ch)
     try {
       const ref = await publishToChannel(ch, ev, files)
       if (!ref.eventId) {
         throw new Error(`${ch} did not return an event id`)
       }
-      results[ch] = { status: 'synced', url: ref.url, eventId: ref.eventId }
+      results[ch] = {
+        status: 'synced',
+        url: ref.url,
+        eventId: ref.eventId,
+        ...(ref.coverUrl ? { coverUrl: ref.coverUrl } : {}),
+      }
 
       try {
         await linkRegistryChannel(masterId, {
@@ -1506,6 +1579,7 @@ export async function publishToAllChannels(
     } catch (e) {
       results[ch] = { status: 'error', message: e instanceof Error ? e.message : String(e) }
     }
+    callbacks?.onChannelComplete?.(ch, results[ch]!)
   }
 
   try {

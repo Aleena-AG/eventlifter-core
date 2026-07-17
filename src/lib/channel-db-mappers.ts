@@ -34,11 +34,22 @@ export function storedToHtEvent(row: StoredChannelEvent): HtEventListItem {
   const publishStatus = String(
     p.publish_status || row.status || p.status || '',
   ).trim() || undefined
+  const ratioCover = Array.isArray(p.cover_image_aspect_ratio)
+    ? p.cover_image_aspect_ratio
+        .map((item) => (item && typeof item === 'object' ? String((item as { image?: unknown }).image || '').trim() : ''))
+        .find(Boolean)
+    : undefined
+  const cover =
+    String(row.cover_url || '').trim()
+    || String(p.cover_image || '').trim()
+    || String(p.cover_url || '').trim()
+    || ratioCover
+    || undefined
   return {
     ...p,
     id: row.external_id,
     title: row.title || p.title,
-    cover_image: row.cover_url || p.cover_image,
+    cover_image: cover,
     status: publishStatus,
     publish_status: publishStatus,
     is_public: typeof p.is_public === 'boolean' ? p.is_public : undefined,

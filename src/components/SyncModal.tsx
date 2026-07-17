@@ -397,6 +397,11 @@ export function SyncModal({ open, event, onClose }: Props) {
     const newResults: Partial<Record<ChannelKey, ChannelResult>> = {}
     const channelRefs: Partial<Record<ChannelKey, { eventId: string; url?: string }>> = {}
 
+    const reportChannel = (ch: ChannelKey, result: ChannelResult) => {
+      newResults[ch] = result
+      setResults((prev) => ({ ...prev, [ch]: result }))
+    }
+
     await Promise.all(
       targets.map(async (ch) => {
         try {
@@ -428,7 +433,7 @@ export function SyncModal({ open, event, onClose }: Props) {
               throw new Error(data.message || data.error || `HTTP ${res.status}`)
             }
             channelRefs[ch] = { eventId: id, url: String(event.url) }
-            newResults[ch] = { status: 'success', message: `Created on Hightribe (ID: ${id})` }
+            reportChannel(ch, { status: 'success', message: `Created on Hightribe (ID: ${id})` })
           }
 
           if (ch === 'luma') {
@@ -479,7 +484,7 @@ export function SyncModal({ open, event, onClose }: Props) {
             const id = String(unwrapped.api_id || unwrapped.id || raw.data?.api_id || raw.data?.id || '').trim()
             if (!id) throw new Error('Luma did not return an event id')
             channelRefs[ch] = { eventId: id, url: `lu.ma/${id}` }
-            newResults[ch] = { status: 'success', message: `Created on Luma (${id})` }
+            reportChannel(ch, { status: 'success', message: `Created on Luma (${id})` })
           }
 
           if (ch === 'eventbrite') {
@@ -581,13 +586,13 @@ export function SyncModal({ open, event, onClose }: Props) {
               throw new Error(`Tickets: ${d.error_description || `HTTP ${tcRes.status}`}`)
             }
             channelRefs[ch] = { eventId: eventId2, url: `eventbrite.com/e/${eventId2}` }
-            newResults[ch] = { status: 'success', message: `Created on Eventbrite (ID: ${eventId2})` }
+            reportChannel(ch, { status: 'success', message: `Created on Eventbrite (ID: ${eventId2})` })
           }
         } catch (err) {
-          newResults[ch] = {
+          reportChannel(ch, {
             status: 'error',
             message: err instanceof Error ? err.message : String(err),
-          }
+          })
         }
       })
     )
@@ -623,7 +628,6 @@ export function SyncModal({ open, event, onClose }: Props) {
       setRegistryWarning(`Published on channel(s) but registry link failed: ${msg}. Sign in and try sync again.`)
     }
 
-    setResults(newResults)
     setPublishing(false)
     setDone(true)
   }

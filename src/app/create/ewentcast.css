@@ -853,6 +853,8 @@
 .ew-foot .ew-foot-error { width: 100%; }
 
 .ew-castgrid { display: grid; grid-template-columns: minmax(220px, 280px) 1fr; gap: 0; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px var(--shadow); }
+.ew-publish-progress { height: 4px; background: var(--line-soft); border-radius: 999px; overflow: hidden; margin-bottom: 16px; }
+.ew-publish-progress__bar { height: 100%; background: linear-gradient(90deg, var(--hightribe), var(--accent)); border-radius: 999px; transition: width .4s ease; }
 .ew-master { background: linear-gradient(160deg, #ffffff 0%, var(--canvas) 100%); color: var(--ink); padding: 22px; display: flex; flex-direction: column; gap: 12px; justify-content: center; border-right: 1px solid var(--line); }
 .ew-master .t { font-weight: 700; font-size: 19px; line-height: 1.2; }
 .ew-master .meta { display: flex; flex-direction: column; gap: 7px; font-size: 13px; color: var(--muted); }

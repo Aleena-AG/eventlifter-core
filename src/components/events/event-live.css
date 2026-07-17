@@ -131,29 +131,65 @@
   font-size: 1.75rem;
 }
 
-.ew-live-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
-  gap: 20px;
-  align-items: start;
+.ew-root.ew-embedded .ew-view-body {
+  gap: 16px;
+  min-width: 0;
 }
 
-.ew-live-main .ew-view-body {
+.ew-live-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  align-items: stretch;
+  min-width: 0;
+}
+
+.ew-live-main {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
   gap: 16px;
 }
 
+.ew-live-main .ew-stats {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  flex-shrink: 0;
+}
+
+.ew-live-main > .ew-card {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.ew-card--bookings {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
 .ew-detail-card {
-  position: sticky;
-  top: 16px;
+  position: static;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
   background: var(--paper);
   border: 1px solid var(--line);
   border-radius: 14px;
   overflow: hidden;
   box-shadow: 0 1px 3px var(--shadow);
+  min-width: 0;
 }
 
 .ew-detail-card__media {
-  aspect-ratio: 16 / 10;
+  flex: 1 1 0;
+  min-height: 160px;
+  aspect-ratio: auto;
   background: linear-gradient(145deg, #efeae3 0%, #e2ddd4 100%);
   display: grid;
   place-items: center;
@@ -173,6 +209,7 @@
 }
 
 .ew-detail-card__body {
+  flex-shrink: 0;
   padding: 16px 16px 18px;
   display: flex;
   flex-direction: column;
@@ -346,25 +383,120 @@
   text-decoration: underline;
 }
 
-@media (max-width: 960px) {
+.ew-bookings-scroll {
+  margin-top: 8px;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  max-height: min(70vh, 720px);
+  overscroll-behavior: contain;
+}
+
+.ew-bookings-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.ew-bookings-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: var(--paper);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.ew-bookings-table tbody td {
+  padding: 12px;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--body, var(--ink));
+  white-space: nowrap;
+}
+
+.ew-bookings-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.ew-bookings-td--wrap {
+  white-space: normal;
+  max-width: 180px;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.ew-bookings-channel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.ew-bookings-guest {
+  display: inline;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #2563eb;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.ew-bookings-guest:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 1100px) {
   .ew-live-layout {
     grid-template-columns: 1fr;
   }
 
   .ew-detail-card {
-    position: static;
     order: -1;
+    max-width: none;
+    height: auto;
+  }
+
+  .ew-detail-card__media {
+    flex: 0 0 auto;
+    min-height: 140px;
+    max-height: 200px;
+  }
+
+  .ew-live-main > .ew-card {
+    flex: 0 1 auto;
   }
 }
 
 @media (max-width: 900px) {
-  .ew-root.ew-embedded .ew-stats {
+  .ew-root.ew-embedded .ew-stats,
+  .ew-live-main .ew-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 520px) {
-  .ew-root.ew-embedded .ew-stats {
+  .ew-root.ew-embedded .ew-stats,
+  .ew-live-main .ew-stats {
     grid-template-columns: 1fr;
+  }
+
+  .ew-detail-card {
+    max-width: none;
   }
 }

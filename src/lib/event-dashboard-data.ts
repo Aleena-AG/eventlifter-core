@@ -733,11 +733,74 @@ function bookingsFromEventRows(
   })
 }
 
+type LivePullResult = {
+  rows: EventBookingRow[]
+  items: BookingListItem[]
+}
+
+function emptyLivePull(): LivePullResult {
+  return { rows: [], items: [] }
+}
+
+function bookingItemsToRows(items: BookingListItem[], fallbackEventId?: string): EventBookingRow[] {
+  return items.map((g) => ({
+    guest_email: g.email,
+    guest_name: g.name,
+    channel: g.channel,
+    registered_at: g.registeredAt,
+    ticket_count: g.ticketCount ?? 1,
+    event_external_id: g.eventExternalId || fallbackEventId,
+    event_title: g.eventTitle,
+    booking_external_id: g.id,
+  }))
+}
+
+function bookingMergeKey(b: BookingListItem): string {
+  if (b.id) return `id:${b.id}`
+  return `${b.channel}|${b.email.toLowerCase().trim()}|${b.registeredAt}`
+}
+
+/** Prefer live/fuller rows (phone, tickets, payout) over sparse stored stubs. */
+function mergeBookingLists(...lists: BookingListItem[][]): BookingListItem[] {
+  const map = new Map<string, BookingListItem>()
+  for (const list of lists) {
+    for (const b of list) {
+      const key = bookingMergeKey(b)
+      const prev = map.get(key)
+      if (!prev) {
+        map.set(key, b)
+        continue
+      }
+      map.set(key, {
+        ...prev,
+        ...b,
+        phone: b.phone || prev.phone,
+        tickets: b.tickets?.length ? b.tickets : prev.tickets,
+        ticketCount: b.ticketCount ?? prev.ticketCount,
+        totalPrice: b.totalPrice ?? prev.totalPrice,
+        currency: b.currency || prev.currency,
+        bookingId: b.bookingId ?? prev.bookingId,
+        eventStart: b.eventStart || prev.eventStart,
+        eventEnd: b.eventEnd || prev.eventEnd,
+        status: b.status || prev.status,
+        paymentStatus: b.paymentStatus || prev.paymentStatus,
+        bookingType: b.bookingType || prev.bookingType,
+        notes: b.notes || prev.notes,
+        raw: b.raw || prev.raw,
+        eventTitle: b.eventTitle || prev.eventTitle,
+      })
+    }
+  }
+  return Array.from(map.values()).sort(
+    (a, b) => new Date(b.registeredAt).getTime() - new Date(a.registeredAt).getTime(),
+  )
+}
+
 async function pullLumaGuestsLive(
   eventId: string,
   title: string,
   persist: boolean,
-): Promise<EventBookingRow[]> {
+): Promise<LivePullResult> {
   let live = await fetchLumaGuestsForEvent(eventId, title)
 
   if (!live.length) {
@@ -750,7 +813,7 @@ async function pullLumaGuestsLive(
     }
   }
 
-  if (!live.length) return []
+  if (!live.length) return emptyLivePull()
 
   if (persist) {
     try {
@@ -763,31 +826,26 @@ async function pullLumaGuestsLive(
         registered_at: g.registeredAt,
         status: g.status,
         ticket_count: g.ticketCount,
+        payload: g.raw,
       })))
     } catch {
       /* display live data even if cache write fails */
     }
   }
 
-  return live.map((g) => ({
-    guest_email: g.email,
-    guest_name: g.name,
-    channel: 'luma' as const,
-    registered_at: g.registeredAt,
-    ticket_count: g.ticketCount ?? 1,
-    event_external_id: g.eventExternalId || eventId,
-    event_title: title,
-    booking_external_id: g.id,
-  }))
+  return {
+    rows: bookingItemsToRows(live, eventId),
+    items: live,
+  }
 }
 
 async function pullEventbriteGuestsLive(
   eventId: string,
   title: string,
   persist: boolean,
-): Promise<EventBookingRow[]> {
+): Promise<LivePullResult> {
   const live = await fetchEbBookingList([{ id: eventId, name: title }])
-  if (!live.length) return []
+  if (!live.length) return emptyLivePull()
 
   if (persist) {
     try {
@@ -800,48 +858,36 @@ async function pullEventbriteGuestsLive(
         registered_at: g.registeredAt,
         status: g.status,
         ticket_count: g.ticketCount,
+        payload: g.raw,
       })))
     } catch {
       /* display live data even if cache write fails */
     }
   }
 
-  return live.map((g) => ({
-    guest_email: g.email,
-    guest_name: g.name,
-    channel: 'eventbrite' as const,
-    registered_at: g.registeredAt,
-    ticket_count: g.ticketCount ?? 1,
-    event_external_id: g.eventExternalId || eventId,
-    event_title: title,
-    booking_external_id: g.id,
-  }))
+  return {
+    rows: bookingItemsToRows(live, eventId),
+    items: live,
+  }
 }
 
 async function pullHightribeGuestsLive(
   eventId: string,
   title: string,
-): Promise<EventBookingRow[]> {
+): Promise<LivePullResult> {
   try {
     const all = await fetchHightribeBookingsList()
     const id = String(eventId)
-    return all
-      .filter((g) => {
-        if (g.eventExternalId && String(g.eventExternalId) === id) return true
-        return titlesMatch(g.eventTitle, title)
-      })
-      .map((g) => ({
-        guest_email: g.email,
-        guest_name: g.name,
-        channel: 'hightribe' as const,
-        registered_at: g.registeredAt,
-        ticket_count: g.ticketCount ?? 1,
-        event_external_id: g.eventExternalId || eventId,
-        event_title: g.eventTitle || title,
-        booking_external_id: g.id,
-      }))
+    const live = all.filter((g) => {
+      if (g.eventExternalId && String(g.eventExternalId) === id) return true
+      return titlesMatch(g.eventTitle, title)
+    })
+    return {
+      rows: bookingItemsToRows(live, eventId),
+      items: live,
+    }
   } catch {
-    return []
+    return emptyLivePull()
   }
 }
 
@@ -849,8 +895,8 @@ async function pullHightribeGuestsLive(
 async function pullLiveBookingsForPublished(
   published: { channels: ChannelKey[]; channelIds: Partial<Record<ChannelKey, string>> },
   title: string,
-): Promise<EventBookingRow[]> {
-  const jobs: Array<Promise<EventBookingRow[]>> = []
+): Promise<LivePullResult> {
+  const jobs: Array<Promise<LivePullResult>> = []
 
   const lumaId = published.channelIds.luma
   if (lumaId) jobs.push(pullLumaGuestsLive(lumaId, title, true))
@@ -861,9 +907,12 @@ async function pullLiveBookingsForPublished(
   const htId = published.channelIds.hightribe
   if (htId) jobs.push(pullHightribeGuestsLive(htId, title))
 
-  if (!jobs.length) return []
+  if (!jobs.length) return emptyLivePull()
   const chunks = await Promise.all(jobs)
-  return chunks.flat()
+  return {
+    rows: chunks.flatMap((c) => c.rows),
+    items: chunks.flatMap((c) => c.items),
+  }
 }
 
 export async function loadEventDashboardData(
@@ -889,8 +938,8 @@ export async function loadEventDashboardData(
   ])
 
   const live = await pullLiveBookingsForPublished(published, title)
-  if (live.length) {
-    eventBookings = dedupeBookingRows([...eventBookings, ...live])
+  if (live.rows.length) {
+    eventBookings = dedupeBookingRows([...eventBookings, ...live.rows])
   }
 
   const bookingChannels = new Set(eventBookings.map((b) => b.channel))
@@ -938,11 +987,21 @@ export async function loadEventDashboardData(
     pricing,
   )
 
+  const bookingRows = mergeBookingLists(
+    bookingsFromEventRows(eventBookings, allBookings),
+    live.items,
+  ).map((b) => ({
+    ...b,
+    eventTitle: b.eventTitle || title,
+    eventStart: b.eventStart || startAt || undefined,
+    eventEnd: b.eventEnd || endAt || undefined,
+  }))
+
   return {
     title,
     capacity,
     attendees,
-    bookings: bookingsFromEventRows(eventBookings, allBookings),
+    bookings: bookingRows,
     channels: displayChannels,
     channelIds,
     channelCounts,

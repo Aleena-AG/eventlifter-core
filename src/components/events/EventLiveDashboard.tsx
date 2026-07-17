@@ -46,6 +46,29 @@ function formatWhen(iso: string | null | undefined): string {
   }
 }
 
+/** Short date like "23 Jul 2026" for booking table columns. */
+function formatShortDate(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  try {
+    return new Date(iso).toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    })
+  } catch {
+    return iso
+  }
+}
+
+function ticketNamesLabel(b: BookingListItem): string {
+  if (b.tickets?.length) {
+    return b.tickets
+      .map((t) => (t.quantity > 1 ? `${t.name} ×${t.quantity}` : t.name))
+      .join(', ')
+  }
+  return '—'
+}
+
 interface EventLiveDashboardProps {
   title: string
   capacity: number
@@ -88,13 +111,11 @@ export function EventLiveDashboard({
   hasPricing = false,
   revenue = 0,
   ticketsSoldPct,
-  ticketTypes = [],
   startAt = null,
   endAt = null,
   coverUrl = null,
   venue = null,
   status = null,
-  eventUrl = null,
   primaryChannel,
   loading,
   onRefresh,
@@ -134,8 +155,6 @@ export function EventLiveDashboard({
         : `${registrations} registrations`
 
   const channelKey = primaryChannel || channels[0]
-  const ticketSoldTotal = ticketTypes.reduce((s, t) => s + t.sold, 0)
-  const ticketQtyTotal = ticketTypes.reduce((s, t) => s + (t.quantity ?? 0), 0)
 
   return (
     <div className="ew-root ew-embedded">
@@ -144,20 +163,20 @@ export function EventLiveDashboard({
       )}
       <div className="ew-wrap">
         <div className="ew-view">
-          <div className="ew-live-layout">
-            <div className="ew-live-main">
-              <div className="ew-view-body">
-                <div className="ew-head">
-                  <div className="ew-head-row">
-                    <span className="ew-eyebrow">Step 3 · Live</span>
-                    {hasPricing && isFree && (
-                      <span className="ew-free-badge">Free event</span>
-                    )}
-                  </div>
-                  <h2>{title}</h2>
-                  <p>Registrations, revenue, and ticket sales — across every connected channel.</p>
-                </div>
+          <div className="ew-view-body">
+            <div className="ew-head">
+              <div className="ew-head-row">
+                <span className="ew-eyebrow">Step 3 · Live</span>
+                {hasPricing && isFree && (
+                  <span className="ew-free-badge">Free event</span>
+                )}
+              </div>
+              <h2>{title}</h2>
+              <p>Registrations, revenue, and ticket sales — across every connected channel.</p>
+            </div>
 
+            <div className="ew-live-layout">
+              <div className="ew-live-main">
                 <div className="ew-stats">
                   <div className="ew-stat">
                     <div className="k">Registrations</div>
@@ -241,171 +260,118 @@ export function EventLiveDashboard({
                     )
                   })}
                 </div>
+              </div>
 
-                <div className="ew-card">
-                  <span className="ew-eyebrow">Unified attendee list</span>
-                  <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
-                    ↻ Hightribe · Luma · Eventbrite · linked channels
-                  </div>
-                  {attendees.length === 0 ? (
-                    <p style={{ color: 'var(--muted)', fontSize: 14, margin: '12px 0' }}>
-                      No registrations yet. Bookings on any channel will appear here automatically.
-                    </p>
+              <aside className="ew-detail-card" aria-label="Event details">
+                <div className="ew-detail-card__media">
+                  {coverUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={coverUrl} alt="" />
                   ) : (
-                    attendees.map(a => {
-                      const srcMeta = getChannelMeta(a.source)
-                      return (
-                      <div key={`${a.source}-${a.email}-${a.registeredAt}`} className="ew-att">
-                          <div className="who">
-                            <span className="ava">
-                              {a.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                            </span>
-                            <div>
-                              <div className="nm">{a.name}</div>
-                              <div className="ew-srcs">
-                                <span>
-                                  <Swatch color={srcMeta.color} size={7} />
-                                  {srcMeta.name}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                          <div className="ew-att-actions">
-                            <button
-                              type="button"
-                              className="ew-att-view-btn"
-                              onClick={() => setDetailBooking(bookingForAttendee(a, bookings, title))}
-                            >
-                              View booking
-                            </button>
-                            <span className="ew-text-success" style={{ fontSize: 12 }}>✓ Registered</span>
-                          </div>
-                        </div>
-                      )
-                    })
+                    <span className="ew-detail-card__placeholder" aria-hidden="true">📅</span>
                   )}
                 </div>
-              </div>
+
+                <div className="ew-detail-card__body">
+                  {status && (
+                    <div className="ew-detail-card__top">
+                      <span className="ew-detail-status">{status}</span>
+                    </div>
+                  )}
+
+                  <h3 className="ew-detail-card__title">{title}</h3>
+
+                  <dl className="ew-detail-meta">
+                    <div>
+                      <dt>Starts</dt>
+                      <dd>{formatWhen(startAt)}</dd>
+                    </div>
+                    {endAt && (
+                      <div>
+                        <dt>Ends</dt>
+                        <dd>{formatWhen(endAt)}</dd>
+                      </div>
+                    )}
+                    {venue && (
+                      <div>
+                        <dt>Venue</dt>
+                        <dd>{venue}</dd>
+                      </div>
+                    )}
+                    <div>
+                      <dt>Capacity</dt>
+                      <dd>
+                        {registrations} / {capacity} · {soldPct}% sold
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
+              </aside>
             </div>
 
-            <aside className="ew-detail-card" aria-label="Event details">
-              <div className="ew-detail-card__media">
-                {coverUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={coverUrl} alt="" />
-                ) : (
-                  <span className="ew-detail-card__placeholder" aria-hidden="true">📅</span>
-                )}
+            <div className="ew-card ew-card--bookings">
+              <span className="ew-eyebrow">Unified attendee list</span>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
+                ↻ Hightribe · Luma · Eventbrite · linked channels
               </div>
-
-              <div className="ew-detail-card__body">
-                <div className="ew-detail-card__top">
-                  <div className="ew-detail-channels">
-                    {channels.map((ch) => (
-                      <span
-                        key={ch}
-                        className="ew-detail-ch"
-                        style={{ ['--ch-color' as string]: CH_META[ch].color }}
-                      >
-                        <ChannelLogo channel={ch} size={14} />
-                        {CH_META[ch].name}
-                      </span>
-                    ))}
-                  </div>
-                  {status && <span className="ew-detail-status">{status}</span>}
-                </div>
-
-                <h3 className="ew-detail-card__title">{title}</h3>
-
-                <dl className="ew-detail-meta">
-                  <div>
-                    <dt>Starts</dt>
-                    <dd>{formatWhen(startAt)}</dd>
-                  </div>
-                  {endAt && (
-                    <div>
-                      <dt>Ends</dt>
-                      <dd>{formatWhen(endAt)}</dd>
-                    </div>
-                  )}
-                  {venue && (
-                    <div>
-                      <dt>Venue</dt>
-                      <dd>{venue}</dd>
-                    </div>
-                  )}
-                  <div>
-                    <dt>Capacity</dt>
-                    <dd>
-                      {registrations} / {capacity} · {soldPct}% sold
-                    </dd>
-                  </div>
-                </dl>
-
-                <div className="ew-detail-tickets">
-                  <div className="ew-detail-tickets__head">
-                    <span className="ew-eyebrow">Tickets</span>
-                    {ticketTypes.length > 0 && (
-                      <span className="ew-detail-tickets__sum">
-                        {ticketSoldTotal}
-                        {ticketQtyTotal > 0 ? ` / ${ticketQtyTotal}` : ''} sold
-                      </span>
-                    )}
-                  </div>
-
-                  {ticketTypes.length === 0 ? (
-                    <p className="ew-detail-tickets__empty">
-                      {hasPricing
-                        ? isFree
-                          ? 'Free event — no ticket tiers configured.'
-                          : `Single price · ${formatMoney(ticketPrice, currency)}`
-                        : 'No ticket types found for this event yet.'}
-                    </p>
-                  ) : (
-                    <ul className="ew-ticket-list">
-                      {ticketTypes.map((t) => {
-                        const qty = t.quantity
-                        const pct =
-                          qty != null && qty > 0
-                            ? Math.min(100, Math.round((t.sold / qty) * 100))
-                            : null
+              {bookings.length === 0 && attendees.length === 0 ? (
+                <p style={{ color: 'var(--muted)', fontSize: 14, margin: '12px 0' }}>
+                  No registrations yet. Bookings on any channel will appear here automatically.
+                </p>
+              ) : (
+                <div className="ew-bookings-scroll">
+                  <table className="ew-bookings-table">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Channel</th>
+                        <th>Event</th>
+                        <th>Booking ID</th>
+                        <th>Booked</th>
+                        <th>Payment</th>
+                        <th>Type</th>
+                        <th>Tickets</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(bookings.length
+                        ? bookings
+                        : attendees.map((a) => bookingForAttendee(a, bookings, title))
+                      ).map((b) => {
+                        const srcMeta = getChannelMeta(b.channel)
                         return (
-                          <li key={t.id} className="ew-ticket-row">
-                            <div className="ew-ticket-row__top">
-                              <span className="ew-ticket-row__name">{t.name}</span>
-                              <span className={`ew-ticket-row__price${t.isFree ? ' is-free' : ''}`}>
-                                {t.isFree ? 'Free' : formatMoney(t.price, t.currency || currency)}
+                          <tr key={b.id}>
+                            <td>
+                              <button
+                                type="button"
+                                className="ew-bookings-guest"
+                                onClick={() => setDetailBooking(b)}
+                              >
+                                {b.name}
+                              </button>
+                            </td>
+                            <td className="ew-bookings-td--wrap">{b.email || '—'}</td>
+                            <td>
+                              <span className="ew-bookings-channel">
+                                <Swatch color={srcMeta.color} size={7} />
+                                {srcMeta.name}
                               </span>
-                            </div>
-                            <div className="ew-ticket-row__sold">
-                              <strong>{t.sold}</strong>
-                              {qty != null ? ` of ${qty}` : ''} sold
-                              {pct != null ? ` · ${pct}%` : ''}
-                            </div>
-                            {qty != null && qty > 0 && (
-                              <div className="ew-ticket-bar" aria-hidden="true">
-                                <span style={{ width: `${pct ?? 0}%` }} />
-                              </div>
-                            )}
-                          </li>
+                            </td>
+                            <td className="ew-bookings-td--wrap">{b.eventTitle || title}</td>
+                            <td>{b.bookingId != null ? b.bookingId : '—'}</td>
+                            <td>{formatShortDate(b.registeredAt)}</td>
+                            <td>{b.paymentStatus || '—'}</td>
+                            <td>{b.bookingType || '—'}</td>
+                            <td className="ew-bookings-td--wrap">{ticketNamesLabel(b)}</td>
+                          </tr>
                         )
                       })}
-                    </ul>
-                  )}
+                    </tbody>
+                  </table>
                 </div>
-
-                {eventUrl && (
-                  <a
-                    href={eventUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="ew-detail-link"
-                  >
-                    Open on channel →
-                  </a>
-                )}
-              </div>
-            </aside>
+              )}
+            </div>
           </div>
 
           <div className="ew-foot">

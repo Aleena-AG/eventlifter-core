@@ -337,39 +337,46 @@ export function EwentcastWizard({
       return next
     })
 
-    for (const ch of targets) {
-      setPub(p => ({ ...p, [ch]: { status: 'publishing' } }))
-      await new Promise(r => setTimeout(r, 300))
-    }
-
     try {
-      const { masterId: mid, results } = await publishToAllChannels(
+      const { masterId: mid } = await publishToAllChannels(
         ev, targets, coverFiles, masterId ?? undefined,
+        {
+          onMasterReady: (id) => setMasterId(id),
+          onChannelStart: (ch) => {
+            setPub(p => ({ ...p, [ch]: { status: 'publishing' } }))
+          },
+          onChannelComplete: (ch, r) => {
+            setPub(p => ({
+              ...p,
+              [ch]: r.status === 'synced'
+                ? { status: 'synced', url: r.url }
+                : { status: 'error', message: r.message || 'Failed' },
+            }))
+            if (r.status === 'synced' && r.eventId) {
+              // Snapshot first (with durable cover URL) so the Events list shows the
+              // image even if the channel GET is slow / omits cover on first fetch.
+              void (async () => {
+                await upsertLocalEventSnapshot(ch, ev, {
+                  eventId: r.eventId!,
+                  url: r.url,
+                  coverUrl: r.coverUrl,
+                }).catch(() => {})
+                await refreshStoredEventsForChannels({ [ch]: r.eventId! }).catch(() => {})
+                // Re-apply snapshot so a cover-less API response doesn't wipe the image.
+                if (r.coverUrl) {
+                  await upsertLocalEventSnapshot(ch, ev, {
+                    eventId: r.eventId!,
+                    url: r.url,
+                    coverUrl: r.coverUrl,
+                  }).catch(() => {})
+                }
+                markEventsListStale()
+              })()
+            }
+          },
+        },
       )
       setMasterId(mid)
-      setPub(p => {
-        const next = { ...p }
-        for (const ch of targets) {
-          const r = results[ch]
-          next[ch] = r?.status === 'synced'
-            ? { status: 'synced', url: r.url }
-            : { status: 'error', message: r?.message || 'Failed' }
-        }
-        return next
-      })
-
-      // Persist each successful publish into the local store without a full
-      // channel sync+prune (that can wipe brand-new HT/EB drafts that aren't
-      // returned by the remote list API yet).
-      const publishedTargets: Partial<Record<ChannelKey, string>> = {}
-      for (const ch of targets) {
-        const r = results[ch]
-        if (r?.status === 'synced' && r.eventId) publishedTargets[ch] = r.eventId
-      }
-      if (Object.keys(publishedTargets).length > 0) {
-        await refreshStoredEventsForChannels(publishedTargets).catch(() => { /* best-effort */ })
-      }
-      markEventsListStale()
     } catch (e) {
       // Master-event creation failed — nothing was published, so reset lanes.
       setPublishError(e instanceof Error ? e.message : 'Publish failed')
@@ -381,6 +388,35 @@ export function EwentcastWizard({
     } finally {
       setPublishing(false)
     }
+  }
+
+  function publishStatusNote(
+    allDone: boolean,
+    started: boolean,
+    syncedCount: number,
+    failedCount: number,
+    total: number,
+  ): string {
+    if (allDone) return 'All channels synced. Attendees now flow back into one dashboard.'
+    if (publishing) {
+      const publishingCh = liveTargets.find(ch => pub[ch]?.status === 'publishing')
+      if (syncedCount === 0 && !publishingCh) return 'Preparing master event…'
+      if (syncedCount === 0 && publishingCh) {
+        return `Publishing to ${CH_META[publishingCh].name}…`
+      }
+      const remaining = total - syncedCount - failedCount
+      if (remaining === 1) {
+        return `${syncedCount} of ${total} live — almost there, one more channel!`
+      }
+      if (syncedCount > 0) {
+        return `${syncedCount} of ${total} synced — links appear as each channel confirms.`
+      }
+      return 'Publishing — links appear as each channel confirms.'
+    }
+    if (started && failedCount > 0) {
+      return `${syncedCount} synced · ${failedCount} failed. Fix the issue and retry the failed channel${failedCount > 1 ? 's' : ''}.`
+    }
+    return 'Nothing published yet.'
   }
 
   const sec = SECTIONS[section]
@@ -817,6 +853,9 @@ export function EwentcastWizard({
     const syncedCount = liveTargets.filter(ch => pub[ch]?.status === 'synced').length
     const failedCount = liveTargets.filter(ch => pub[ch]?.status === 'error').length
     const hasFailed = settled && failedCount > 0
+    const progressPct = liveTargets.length > 0
+      ? Math.round(((syncedCount + failedCount) / liveTargets.length) * 100)
+      : 0
 
     return (
       <div className="ew-view">
@@ -826,6 +865,12 @@ export function EwentcastWizard({
           <h2>Publish everywhere</h2>
           <p>One master event, fanning out to {liveTargets.length} channels. Each returns its own live link.</p>
         </div>
+
+        {publishing && (
+          <div className="ew-publish-progress" aria-hidden>
+            <div className="ew-publish-progress__bar" style={{ width: `${progressPct}%` }} />
+          </div>
+        )}
 
         <div className="ew-castgrid">
           <div className="ew-master">
@@ -883,15 +928,12 @@ export function EwentcastWizard({
 
         <div className="ew-foot">
           <span className="note">
-            {allDone ? 'All channels synced. Attendees now flow back into one dashboard.' :
-              publishing ? 'Publishing — links appear as each channel confirms.' :
-              hasFailed ? `${syncedCount} synced · ${failedCount} failed. Fix the issue and retry the failed channel${failedCount > 1 ? 's' : ''}.` :
-              'Nothing published yet.'}
+            {publishStatusNote(allDone, started, syncedCount, failedCount, liveTargets.length)}
           </span>
           {publishError && <span className="note ew-foot-error">{publishError}</span>}
           <div className="ew-foot-actions">
             <button type="button" className="ew-btn ghost" onClick={() => setStep(0)}>← Back to form</button>
-            {syncedCount > 0 && !allDone && !publishing && (
+            {syncedCount > 0 && !allDone && (
               <button type="button" className="ew-btn ghost" onClick={() => setStep(2)}>Skip to dashboard →</button>
             )}
             {allDone ? (
@@ -899,7 +941,9 @@ export function EwentcastWizard({
             ) : (
               <button type="button" className="ew-btn primary" disabled={publishing} onClick={startPublish}>
                 {publishing
-                  ? <InlineLoader label="Publishing" />
+                  ? syncedCount > 0
+                    ? <InlineLoader label={`${syncedCount} of ${liveTargets.length} synced`} />
+                    : <InlineLoader label="Publishing" />
                   : hasFailed
                     ? `Retry ${failedCount} failed channel${failedCount > 1 ? 's' : ''}`
                     : `Publish to ${liveTargets.length} channels`}

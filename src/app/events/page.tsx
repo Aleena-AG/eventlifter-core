@@ -475,7 +475,10 @@ function htToUnified(evt: HtEvent): UnifiedEvent {
     sortMs,
     endMs,
     dateStr,
-    image: evt.cover_image || evt.cover_image_aspect_ratio?.[0]?.image || undefined,
+    image: evt.cover_image
+      || evt.cover_image_aspect_ratio?.[0]?.image
+      || (evt as { cover_url?: string }).cover_url
+      || undefined,
     location: loc,
     url: evt.share_url || (evt.slug ? `https://Hightribe.com/events/${evt.slug}` : undefined),
     status: normalizedStatus,
