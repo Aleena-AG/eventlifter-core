@@ -16,6 +16,7 @@ import type { ChannelKey } from '@/lib/types'
 import { CHANNEL_KEYS } from '@/lib/channels'
 import { hightribeDatesToUtc } from '@/lib/event-datetime'
 import { sanitizeDisplayLocation, displayLocationLabel } from '@/lib/display-text'
+import { hightribeEventPublicUrl } from '@/lib/hightribe-url'
 
 export interface EventTicketType {
   id: string
@@ -39,6 +40,8 @@ export interface EventDashboardData {
   channels: ChannelKey[]
   /** Per-channel event ids for every published platform. */
   channelIds: Partial<Record<ChannelKey, string>>
+  /** Public event page URL for each published platform. */
+  channelUrls: Partial<Record<ChannelKey, string>>
   channelCounts: Partial<Record<ChannelKey, number>>
   /** Estimated revenue per published channel. */
   channelRevenue: Partial<Record<ChannelKey, number>>
@@ -952,6 +955,7 @@ export async function loadEventDashboardData(
       channelIds[b.channel] = String(b.event_external_id)
     }
   }
+  const channelUrls = await resolveChannelUrls(channel, channelIds, title, meta.eventUrl, master)
 
   let coverUrl = meta.coverUrl
   if (!coverUrl) {
@@ -1004,6 +1008,7 @@ export async function loadEventDashboardData(
     bookings: bookingRows,
     channels: displayChannels,
     channelIds,
+    channelUrls,
     channelCounts,
     channelRevenue,
     registrations,
@@ -1026,15 +1031,51 @@ export async function loadEventDashboardData(
   }
 }
 
+async function resolveChannelUrls(
+  primary: ChannelKey,
+  channelIds: Partial<Record<ChannelKey, string>>,
+  title: string,
+  primaryUrl: string | null,
+  master: MasterEventRecord | null,
+): Promise<Partial<Record<ChannelKey, string>>> {
+  const urls: Partial<Record<ChannelKey, string>> = {}
+  if (primaryUrl?.trim()) urls[primary] = primaryUrl.trim()
+
+  for (const ch of CHANNEL_KEYS) {
+    const registryUrl = master?.channels?.[ch]?.url?.trim()
+    if (registryUrl) urls[ch] = registryUrl
+  }
+
+  await Promise.all(CHANNEL_KEYS.map(async (ch) => {
+    if (urls[ch] || !channelIds[ch]) return
+    try {
+      const row = await getStoredEvent(ch, channelIds[ch]!)
+      const url = row?.url?.trim()
+      if (url) urls[ch] = url
+    } catch {
+      // Fall through to safe provider URL below.
+    }
+  }))
+
+  if (!urls.hightribe && channelIds.hightribe) {
+    urls.hightribe = hightribeEventPublicUrl({ title })
+  }
+  if (!urls.eventbrite && channelIds.eventbrite) {
+    urls.eventbrite = `https://eventbrite.com/e/${channelIds.eventbrite}`
+  }
+
+  return urls
+}
+
 /** When the primary row has no cover, try linked channel copies (HT cover_image, etc.). */
 async function resolveCoverFromLinkedChannels(
   primary: ChannelKey,
   channelIds: Partial<Record<ChannelKey, string>>,
 ): Promise<string | null> {
   // Prefer Hightribe — that's where cover_image usually lives for cast events.
-  const order: ChannelKey[] = ['hightribe', 'luma', 'eventbrite'].filter(
+  const order = (['hightribe', 'luma', 'eventbrite'] as ChannelKey[]).filter(
     (ch) => ch !== primary && channelIds[ch],
-  ) as ChannelKey[]
+  )
 
   for (const ch of order) {
     const id = channelIds[ch]
@@ -1056,9 +1097,9 @@ async function resolveDatesFromLinkedChannels(
   primary: ChannelKey,
   channelIds: Partial<Record<ChannelKey, string>>,
 ): Promise<{ startAt: string | null; endAt: string | null }> {
-  const order: ChannelKey[] = ['hightribe', 'luma', 'eventbrite'].filter(
+  const order = (['hightribe', 'luma', 'eventbrite'] as ChannelKey[]).filter(
     (ch) => ch !== primary && channelIds[ch],
-  ) as ChannelKey[]
+  )
 
   let startAt: string | null = null
   let endAt: string | null = null

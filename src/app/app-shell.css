@@ -81,6 +81,36 @@
   overflow-y: auto;
 }
 
+.app-footer {
+  flex-shrink: 0;
+  min-height: 58px;
+  margin: 0 32px;
+  padding: 16px 0;
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.app-footer nav {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.app-footer a {
+  color: #4b5563;
+  text-decoration: none;
+}
+
+.app-footer a:hover {
+  color: #d98a2b;
+}
+
 .app-sidebar {
   width: 248px;
   flex-shrink: 0;
@@ -386,11 +416,22 @@
     padding: 16px 14px 28px;
     overflow-x: hidden;
   }
+
+  .app-footer {
+    margin: 0 14px;
+  }
 }
 
 @media (max-width: 480px) {
   .app-main {
     padding: 14px 12px 24px;
+  }
+
+  .app-footer {
+    margin: 0 12px;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
   }
 
   .app-mobile-topbar-brand {

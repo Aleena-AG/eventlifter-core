@@ -928,7 +928,10 @@ export function LandingPage() {
         </div>
         <div className="wrap foot-bottom">
           <span>© 2026 Ewentcast</span>
-          <span>Create once · Publish everywhere</span>
+          <nav className="foot-legal" aria-label="Legal">
+            <Link href="/privacy">Privacy Policy</Link>
+            <Link href="/terms">Terms &amp; Conditions</Link>
+          </nav>
         </div>
       </footer>
     </div>

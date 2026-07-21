@@ -60,6 +60,27 @@ function formatShortDate(iso: string | null | undefined): string {
   }
 }
 
+function externalEventHref(url: string): string {
+  const value = url.trim()
+  if (/^https?:\/\//i.test(value)) return value
+  if (value.startsWith('//')) return `https:${value}`
+  return `https://${value.replace(/^\/+/, '')}`
+}
+
+function EyeIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.8" />
+    </svg>
+  )
+}
+
 function ticketNamesLabel(b: BookingListItem): string {
   if (b.tickets?.length) {
     return b.tickets
@@ -75,6 +96,7 @@ interface EventLiveDashboardProps {
   attendees: AttendeeRecord[]
   bookings?: BookingListItem[]
   channels: ChannelKey[]
+  channelUrls?: Partial<Record<ChannelKey, string>>
   channelCounts: Partial<Record<ChannelKey, number>>
   channelRevenue?: Partial<Record<ChannelKey, number>>
   registrations: number
@@ -102,6 +124,7 @@ export function EventLiveDashboard({
   attendees,
   bookings = [],
   channels,
+  channelUrls = {},
   channelCounts,
   channelRevenue = {},
   registrations,
@@ -116,6 +139,7 @@ export function EventLiveDashboard({
   coverUrl = null,
   venue = null,
   status = null,
+  eventUrl = null,
   primaryChannel,
   loading,
   onRefresh,
@@ -305,6 +329,28 @@ export function EventLiveDashboard({
                       </dd>
                     </div>
                   </dl>
+
+                  <div className="ew-detail-links" aria-label="View event on channels">
+                    {channels.map((ch) => {
+                      const url = channelUrls[ch] || (ch === channelKey ? eventUrl : null)
+                      if (!url) return null
+                      const meta = getChannelMeta(ch)
+                      return (
+                        <a
+                          key={ch}
+                          href={externalEventHref(url)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="ew-detail-link"
+                          aria-label={`View ${title} on ${meta.name}`}
+                        >
+                          <ChannelLogo channel={ch} size={18} />
+                          <span>View on {meta.name}</span>
+                          <EyeIcon />
+                        </a>
+                      )
+                    })}
+                  </div>
                 </div>
               </aside>
             </div>

@@ -69,6 +69,7 @@ export default function EventDetailPage() {
       attendees={data.attendees}
       bookings={data.bookings}
       channels={data.channels}
+      channelUrls={data.channelUrls}
       channelCounts={data.channelCounts}
       channelRevenue={data.channelRevenue}
       registrations={data.registrations}

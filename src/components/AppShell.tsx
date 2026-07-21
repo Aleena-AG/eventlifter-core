@@ -62,6 +62,13 @@ export function AppShell({
       <div className="app-main-wrap">
         <TrialWarningBanner />
         <main className="app-main">{children}</main>
+        <footer className="app-footer">
+          <span>© 2026 Ewentcast</span>
+          <nav aria-label="Legal">
+            <Link href="/privacy">Privacy Policy</Link>
+            <Link href="/terms">Terms &amp; Conditions</Link>
+          </nav>
+        </footer>
       </div>
     </>
   )

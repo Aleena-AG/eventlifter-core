@@ -2298,8 +2298,21 @@
   font-size: 13px;
 }
 
-.landing .foot-bottom span:last-child {
+.landing .foot-legal {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.landing .foot-legal a {
   color: var(--muted);
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.landing .foot-legal a:hover {
+  color: var(--ink);
 }
 
 @media (max-width: 900px) {

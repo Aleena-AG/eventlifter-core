@@ -30,6 +30,8 @@ const BARE_PATHS = new Set([
   '/forgot-password',
   '/reset-password',
   '/sso/return',
+  '/privacy',
+  '/terms',
 ])
 
 function isBarePath(pathname: string): boolean {
