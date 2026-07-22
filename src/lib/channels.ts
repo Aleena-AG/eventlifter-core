@@ -1,22 +1,11 @@
 import type { ChannelKey } from './types'
 import { HIGHTRIBE_COLOR, LUMA_COLOR, EVENTBRITE_COLOR, EVENTBRITE_LOGO, LUMA_LOGO } from './brand'
 
-interface ChannelCaps {
-  publish: boolean
-  update: boolean
-  unpublish: boolean
-  pullAttendees: boolean
-  webhooks: boolean
-  pricing: boolean
-  capacitySync: boolean
-}
-
 interface ChannelMeta {
   name: string
   icon: string
   color: string
   authType: 'native' | 'oauth2' | 'api_key'
-  caps: ChannelCaps
   desc: string
 }
 
@@ -26,15 +15,6 @@ export const CHANNEL_META: Record<ChannelKey, ChannelMeta> = {
     icon: '🏔️',
     color: HIGHTRIBE_COLOR,
     authType: 'native',
-    caps: {
-      publish: true,
-      update: true,
-      unpublish: true,
-      pullAttendees: true,
-      webhooks: true,
-      pricing: true,
-      capacitySync: true,
-    },
     desc: 'Native channel — no external auth needed.',
   },
   eventbrite: {
@@ -42,15 +22,6 @@ export const CHANNEL_META: Record<ChannelKey, ChannelMeta> = {
     icon: '🎫',
     color: EVENTBRITE_COLOR,
     authType: 'oauth2',
-    caps: {
-      publish: true,
-      update: true,
-      unpublish: true,
-      pullAttendees: true,
-      webhooks: true,
-      pricing: true,
-      capacitySync: true,
-    },
     desc: 'Connect via OAuth2.',
   },
   luma: {
@@ -58,15 +29,6 @@ export const CHANNEL_META: Record<ChannelKey, ChannelMeta> = {
     icon: '✨',
     color: LUMA_COLOR,
     authType: 'api_key',
-    caps: {
-      publish: true,
-      update: true,
-      unpublish: false,
-      pullAttendees: true,
-      webhooks: true,
-      pricing: true,
-      capacitySync: false,
-    },
     desc: 'Requires a Luma Plus API key.',
   },
 }
@@ -77,14 +39,4 @@ export const CHANNEL_LOGOS: Record<ChannelKey, string> = {
   hightribe: '/channels/hightribe.ico',
   eventbrite: EVENTBRITE_LOGO,
   luma: LUMA_LOGO,
-}
-
-export const CAP_LABELS: Record<keyof ChannelCaps, string> = {
-  publish: 'Publish',
-  update: 'Update',
-  unpublish: 'Unpublish',
-  pullAttendees: 'Pull Attendees',
-  webhooks: 'Webhooks',
-  pricing: 'Pricing',
-  capacitySync: 'Capacity Sync',
 }

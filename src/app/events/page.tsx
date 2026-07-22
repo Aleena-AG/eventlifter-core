@@ -789,7 +789,12 @@ export default function EventsPage() {
   toastRef.current = toast
 
   // Sync modal
-  const [syncEvent, setSyncEvent] = useState<{ id: string | number; title: string; source: SyncSource } | null>(null)
+  const [syncEvent, setSyncEvent] = useState<{
+    id: string | number
+    title: string
+    source: SyncSource
+    knownChannels?: Partial<Record<'hightribe' | 'luma' | 'eventbrite', { eventId: string; url?: string }>>
+  } | null>(null)
   // Delete confirm
   const [deleteTarget, setDeleteTarget] = useState<{ channel: ChannelKey; id: string|number; title: string } | null>(null)
   const [deleteLinks, setDeleteLinks] = useState<DeleteLink[]>([])
@@ -1486,7 +1491,19 @@ export default function EventsPage() {
                 detailHref={`/events/e/${encodeEventRef(evt.channel, evt.id)}`}
                 onEdit={() => openEdit(evt.channel, evt.channelIds[evt.channel] ?? evt.id, evt.channelIds)}
                 onDelete={() => setDeleteTarget({ channel: evt.channel, id: evt.id, title: evt.title })}
-                onSync={() => setSyncEvent({ id: evt.id, title: evt.title, source: evt.syncSource })}
+                onSync={() => {
+                  const knownChannels = Object.fromEntries(
+                    (Object.entries(evt.channelIds) as [ChannelKey, string | number][])
+                      .filter(([, id]) => id != null && String(id).trim() !== '')
+                      .map(([ch, id]) => [ch, { eventId: String(id) }]),
+                  ) as Partial<Record<ChannelKey, { eventId: string }>>
+                  setSyncEvent({
+                    id: evt.channelIds[evt.syncSource] ?? evt.id,
+                    title: evt.title,
+                    source: evt.syncSource,
+                    knownChannels,
+                  })
+                }}
               />
             ))}
           </div>

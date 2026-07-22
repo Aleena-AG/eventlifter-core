@@ -101,39 +101,43 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  min-height: 300px;
-  padding: 22px 22px 18px;
+  gap: 0;
+  min-height: 0;
+  padding: 20px 20px 16px;
   border-radius: 16px;
   border: 1px solid color-mix(in srgb, var(--ch-color) 18%, var(--line));
   background:
-    linear-gradient(155deg, #ffffff 0%, color-mix(in srgb, var(--ch-color) 6%, #fff) 55%, color-mix(in srgb, var(--ch-color) 10%, #fff) 100%);
+    linear-gradient(160deg, #ffffff 0%, color-mix(in srgb, var(--ch-color) 5%, #fff) 70%, color-mix(in srgb, var(--ch-color) 9%, #fff) 100%);
   box-shadow: 0 1px 3px rgba(33, 27, 22, 0.04);
   overflow: hidden;
   transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
 }
 
 .channel-card:hover {
-  transform: translateY(-3px);
+  transform: translateY(-2px);
   border-color: color-mix(in srgb, var(--ch-color) 35%, var(--line));
   box-shadow:
-    0 12px 36px color-mix(in srgb, var(--ch-color) 14%, transparent),
-    0 4px 12px rgba(33, 27, 22, 0.06);
+    0 10px 28px color-mix(in srgb, var(--ch-color) 12%, transparent),
+    0 3px 10px rgba(33, 27, 22, 0.05);
 }
 
 .channel-card--connected {
-  border-color: color-mix(in srgb, var(--ch-color) 28%, var(--line));
+  border-color: color-mix(in srgb, var(--ch-color) 30%, var(--line));
+  box-shadow:
+    0 1px 3px rgba(33, 27, 22, 0.04),
+    inset 0 0 0 1px color-mix(in srgb, var(--ch-color) 8%, transparent);
 }
 
 .channel-card__glow {
   position: absolute;
-  top: -30px;
-  right: -20px;
-  width: 140px;
-  height: 140px;
+  top: -40px;
+  right: -24px;
+  width: 120px;
+  height: 120px;
   border-radius: 50%;
   background: var(--ch-color);
-  opacity: 0.14;
-  filter: blur(48px);
+  opacity: 0.12;
+  filter: blur(44px);
   pointer-events: none;
 }
 
@@ -142,67 +146,73 @@
   top: 0;
   left: 0;
   right: 0;
-  height: 4px;
-  background: linear-gradient(90deg, var(--ch-color), color-mix(in srgb, var(--ch-color) 50%, transparent));
+  height: 3px;
+  background: linear-gradient(90deg, var(--ch-color), color-mix(in srgb, var(--ch-color) 40%, transparent));
 }
 
-.channel-card__top {
+.channel-card__head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 18px;
+  margin-bottom: 16px;
   position: relative;
   z-index: 1;
 }
 
-.channel-card__brand {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-
 .channel-card__logo-wrap {
-  width: 56px;
-  height: 56px;
+  width: 52px;
+  height: 52px;
   border-radius: 14px;
   background: #ffffff;
-  border: 1px solid color-mix(in srgb, var(--ch-color) 20%, var(--line));
+  border: 1px solid color-mix(in srgb, var(--ch-color) 18%, var(--line));
   display: grid;
   place-items: center;
-  box-shadow: 0 4px 14px color-mix(in srgb, var(--ch-color) 12%, transparent);
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--ch-color) 10%, transparent);
   flex-shrink: 0;
 }
 
+.channel-card__body {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-height: 88px;
+}
+
 .channel-card__name {
-  margin: 0 0 4px;
-  font-size: 1.125rem;
+  margin: 0 0 8px;
+  font-size: 1.25rem;
   font-weight: 700;
   color: var(--ink);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
   font-family: var(--font-bricolage, 'Bricolage Grotesque', sans-serif);
+  line-height: 1.15;
 }
 
 .channel-card__auth {
   display: inline-block;
-  font-size: 0.6875rem;
+  font-size: 0.625rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.07em;
   color: var(--ch-color);
   padding: 3px 8px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--ch-color) 10%, #fff);
-  border: 1px solid color-mix(in srgb, var(--ch-color) 22%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--ch-color) 9%, #fff);
+  border: 1px solid color-mix(in srgb, var(--ch-color) 20%, transparent);
+  margin-bottom: 12px;
 }
 
 .channel-card__status {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 11px;
+  padding: 5px 10px;
   border-radius: 999px;
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
   font-weight: 600;
   flex-shrink: 0;
 }
@@ -220,8 +230,8 @@
 }
 
 .channel-card__status-dot {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   flex-shrink: 0;
 }
@@ -242,72 +252,75 @@
 }
 
 .channel-card__desc {
-  margin: 0 0 16px;
+  margin: 0;
   font-size: 0.8125rem;
   color: var(--muted);
-  line-height: 1.5;
-  position: relative;
-  z-index: 1;
-}
-
-.channel-card__caps {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: auto;
-  position: relative;
-  z-index: 1;
-}
-
-.channel-card__cap {
-  font-size: 0.6875rem;
-  font-weight: 600;
-  padding: 4px 9px;
-  border-radius: 999px;
-  color: var(--ink);
-  background: rgba(255, 255, 255, 0.85);
-  border: 1px solid var(--line-soft);
-}
-
-.channel-card__cap--on {
-  color: color-mix(in srgb, var(--ch-color) 85%, #000);
-  border-color: color-mix(in srgb, var(--ch-color) 22%, var(--line));
-  background: color-mix(in srgb, var(--ch-color) 8%, #fff);
-}
-
-.channel-card__cap--off {
-  opacity: 0.45;
-  text-decoration: line-through;
+  line-height: 1.45;
+  max-width: 28ch;
 }
 
 .channel-card__foot {
-  margin-top: 18px;
+  margin-top: 20px;
   padding-top: 14px;
   border-top: 1px solid color-mix(in srgb, var(--ch-color) 12%, var(--line));
   position: relative;
   z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.channel-card__foot-spacer {
+  flex: 1;
+}
+
+.channel-card__disconnect {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: #c2502e;
+  padding: 7px 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: inherit;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+}
+
+.channel-card__disconnect:hover:not(:disabled) {
+  background: #fff8f6;
+  border-color: color-mix(in srgb, #c2502e 28%, var(--line));
+}
+
+.channel-card__disconnect:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .channel-card__cta {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   font-size: 0.8125rem;
   font-weight: 700;
-  color: var(--ch-color);
+  color: #fff;
   text-decoration: none;
   padding: 8px 14px;
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--ch-color) 10%, #fff);
-  border: 1px solid color-mix(in srgb, var(--ch-color) 28%, transparent);
-  transition: background 0.15s, transform 0.12s;
+  border-radius: 8px;
+  background: var(--ch-color);
+  border: 1px solid color-mix(in srgb, var(--ch-color) 80%, #000);
+  transition: filter 0.15s, transform 0.12s;
   font-family: inherit;
   cursor: pointer;
+  white-space: nowrap;
+  margin-left: auto;
 }
 
 .channel-card__cta:hover {
-  background: color-mix(in srgb, var(--ch-color) 16%, #fff);
-  transform: translateX(2px);
+  filter: brightness(1.06);
+  transform: translateY(-1px);
 }
 
 .channel-card__cta--muted {

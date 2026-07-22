@@ -60,7 +60,13 @@ interface NormEvent {
 
 interface Props {
   open: boolean
-  event: { id: string | number; title: string; source: SyncSource } | null
+  event: {
+    id: string | number
+    title: string
+    source: SyncSource
+    /** Channels already present on this event (registry + list merge). Hidden from publish targets. */
+    knownChannels?: Partial<Record<ChannelKey, { eventId: string; url?: string }>>
+  } | null
   onClose: () => void
 }
 
@@ -321,32 +327,45 @@ export function SyncModal({ open, event, onClose }: Props) {
 
   useEffect(() => {
     if (!open || !event) { setExistingLinks({}); return }
+    const seeded = event.knownChannels || {}
+    setExistingLinks(seeded)
     let cancelled = false
     void (async () => {
       try {
         const { channelFetch } = await import('@/lib/channel-fetch')
+        const { unwrapApiData } = await import('@/lib/api-response')
         const res = await channelFetch(
           `/api/registry?channel=${event.source}&eventId=${encodeURIComponent(String(event.id))}`,
         )
-        if (!res.ok || cancelled) {
-          if (!cancelled) setExistingLinks({})
-          return
+        if (!res.ok || cancelled) return
+        const raw = await res.json()
+        const data = unwrapApiData<{
+          links?: Partial<Record<ChannelKey, { eventId: string; url?: string }>>
+          channels?: Partial<Record<ChannelKey, { eventId: string; url?: string }>>
+        }>(raw)
+        const fromRegistry = data?.links || data?.channels || {}
+        if (!cancelled) {
+          setExistingLinks((prev) => ({ ...seeded, ...prev, ...fromRegistry }))
         }
-        const data = await res.json() as { links?: Partial<Record<ChannelKey, { eventId: string; url?: string }>> }
-        if (!cancelled) setExistingLinks(data?.links || {})
       } catch {
-        if (!cancelled) setExistingLinks({})
+        /* keep seeded links */
       }
     })()
     return () => { cancelled = true }
+    // knownChannels is seeded once per open; depend on id/source only to avoid refetch loops
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, event?.id, event?.source])
 
   if (!open || !event) return null
 
   const source = event.source
+  const publishedLinks: Partial<Record<ChannelKey, { eventId: string; url?: string }>> = {
+    ...(event.knownChannels || {}),
+    ...existingLinks,
+  }
 
   const toggleChannel = (ch: ChannelKey) => {
-    if (ch === source || publishing || done || existingLinks[ch]) return
+    if (ch === source || publishing || done || publishedLinks[ch]) return
     setSelected((s) => ({ ...s, [ch]: !s[ch] }))
   }
 
@@ -361,7 +380,7 @@ export function SyncModal({ open, event, onClose }: Props) {
 
   const handlePublish = async () => {
     const targets = (Object.keys(selected) as ChannelKey[])
-      .filter((k) => selected[k] && k !== source && !existingLinks[k])
+      .filter((k) => selected[k] && k !== source && !publishedLinks[k])
     if (targets.length === 0) return
 
     setPublishing(true)
@@ -632,8 +651,6 @@ export function SyncModal({ open, event, onClose }: Props) {
     setDone(true)
   }
 
-  const anySelected = Object.entries(selected).some(([k, v]) => v && k !== source)
-
   const CHANNELS: { key: ChannelKey; label: string; icon: string; color: string; configured: boolean; note: string; settingsHref: string }[] = [
     {
       key: 'hightribe', label: 'Hightribe', icon: '🏔', color: HIGHTRIBE_COLOR,
@@ -660,6 +677,11 @@ export function SyncModal({ open, event, onClose }: Props) {
       settingsHref: '/settings?channel=eventbrite',
     },
   ]
+
+  const availableTargets = CHANNELS.filter(c => c.key !== source && !publishedLinks[c.key])
+  const anySelected = Object.entries(selected).some(
+    ([k, v]) => v && k !== source && !publishedLinks[k as ChannelKey],
+  )
 
   const sourceLabel = source === 'hightribe' ? 'hightribe' : source === 'luma' ? 'Luma' : 'Eventbrite'
 
@@ -702,26 +724,25 @@ export function SyncModal({ open, event, onClose }: Props) {
           </button>
         </div>
 
-        {/* Channel selection */}
+        {/* Channel selection — hide source + channels already published to this event */}
         <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
           {connectionsLoading && (
             <p style={{ margin: 0, fontSize: '12px', color: '#8C7F6D' }}>Checking connected channels…</p>
           )}
-          {CHANNELS.filter(c => c.key !== source).map(({ key, label, icon, color, configured, note, settingsHref }) => {
+          {availableTargets.map(({ key, label, icon, color, configured, note, settingsHref }) => {
             const result = results[key]
             const isSelected = selected[key]
-            const alreadyPublished = existingLinks[key]
 
             return (
               <div
                 key={key}
-                onClick={() => !alreadyPublished && configured && toggleChannel(key)}
+                onClick={() => configured && toggleChannel(key)}
                 style={{
-                  border: `1px solid ${alreadyPublished || result?.status === 'success' ? 'rgba(63,185,80,0.4)' : result?.status === 'error' ? 'rgba(248,81,73,0.4)' : isSelected ? color + '4d' : '#E8DFD0'}`,
+                  border: `1px solid ${result?.status === 'success' ? 'rgba(63,185,80,0.4)' : result?.status === 'error' ? 'rgba(248,81,73,0.4)' : isSelected ? color + '4d' : '#E8DFD0'}`,
                   borderRadius: '8px',
                   padding: '14px 16px',
-                  background: alreadyPublished ? 'rgba(63,185,80,0.06)' : isSelected && !result ? color + '0d' : '#F1EADC',
-                  cursor: !alreadyPublished && configured && !publishing && !done ? 'pointer' : 'default',
+                  background: isSelected && !result ? color + '0d' : '#F1EADC',
+                  cursor: configured && !publishing && !done ? 'pointer' : 'default',
                   opacity: !configured ? 0.5 : 1,
                   transition: 'all 0.15s',
                 }}
@@ -730,19 +751,19 @@ export function SyncModal({ open, event, onClose }: Props) {
                   {/* Checkbox */}
                   <div style={{
                     width: '18px', height: '18px', borderRadius: '4px',
-                    border: `2px solid ${alreadyPublished ? '#4E7A4B' : isSelected ? color : '#E8DFD0'}`,
-                    background: alreadyPublished ? '#4E7A4B' : isSelected ? color : 'transparent',
+                    border: `2px solid ${isSelected ? color : '#E8DFD0'}`,
+                    background: isSelected ? color : 'transparent',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     flexShrink: 0, fontSize: '12px', color: '#fff',
                   }}>
-                    {alreadyPublished || isSelected ? '✓' : ''}
+                    {isSelected ? '✓' : ''}
                   </div>
 
                   <span style={{ fontSize: '16px' }}>{icon}</span>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: '14px', fontWeight: 500, color: '#211B16' }}>{label}</div>
-                    <div style={{ fontSize: '12px', color: alreadyPublished || result?.status === 'success' ? '#4E7A4B' : result?.status === 'error' ? '#C2502E' : '#8C7F6D', marginTop: '2px' }}>
-                      {alreadyPublished ? `Already published (ID: ${alreadyPublished.eventId})` : result ? result.message : (
+                    <div style={{ fontSize: '12px', color: result?.status === 'success' ? '#4E7A4B' : result?.status === 'error' ? '#C2502E' : '#8C7F6D', marginTop: '2px' }}>
+                      {result ? result.message : (
                         <>
                           {note}
                           {!configured && !connectionsLoading && (
@@ -767,6 +788,11 @@ export function SyncModal({ open, event, onClose }: Props) {
               </div>
             )
           })}
+          {!connectionsLoading && availableTargets.length === 0 && (
+            <p style={{ margin: 0, fontSize: '13px', color: '#8C7F6D', lineHeight: 1.5 }}>
+              Already published to all other channels. Nothing left to publish here.
+            </p>
+          )}
           {registryWarning && (
             <div style={{
               marginTop: '4px',
@@ -797,7 +823,7 @@ export function SyncModal({ open, event, onClose }: Props) {
           >
             {done ? 'Close' : 'Cancel'}
           </button>
-          {!done && (
+          {!done && availableTargets.length > 0 && (
             <button
               onClick={handlePublish}
               disabled={!anySelected || publishing}
